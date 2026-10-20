@@ -41,6 +41,44 @@ const TIMEFRAME_OPTIONS = [
 ];
 const MS_COLORS = ["#6366f1","#3b82f6","#22c55e","#a855f7","#f97316","#ec4899","#06b6d4","#eab308"];
 
+// --- Number formatting -------------------------------------------------
+const fmtNum = n => {
+  if (n === null || n === undefined || n === "") return "";
+  const v = Number(n);
+  if (!Number.isFinite(v)) return "";
+  return v.toLocaleString("en-US", { maximumFractionDigits: 2 });
+};
+const parseNum = s => {
+  const v = Number(String(s ?? "").replace(/,/g, "").replace(/[^0-9.\-]/g, ""));
+  return Number.isFinite(v) ? v : 0;
+};
+// Text input that shows thousands separators when idle and raw digits while editing,
+// so the caret never fights the formatter mid-type.
+function NumberInput({ value, onChange, onCommit, style, disabled, placeholder }) {
+  const [focused, setFocused] = useState(false);
+  const [draft, setDraft] = useState("");
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      disabled={disabled}
+      placeholder={placeholder}
+      value={focused ? draft : fmtNum(value)}
+      onFocus={e => {
+        setDraft(value === null || value === undefined || value === "" ? "" : String(value));
+        setFocused(true);
+        const el = e.target;
+        requestAnimationFrame(() => { try { el.select(); } catch {} });
+      }}
+      onChange={e => { const raw = e.target.value; setDraft(raw); onChange && onChange(raw.trim() === "" ? "" : parseNum(raw)); }}
+      onBlur={e => { setFocused(false); onCommit && onCommit(parseNum(e.target.value)); }}
+      onKeyDown={e => { if (e.key === "Enter") e.target.blur(); }}
+      onClick={e => e.stopPropagation()}
+      style={style}
+    />
+  );
+}
+
 // Generate milestone periods from date range + frequency
 function generatePeriods(startStr, endStr, freq) {
   const periods = [];
@@ -741,7 +779,7 @@ export default function OKRsView() {
                           <div key={kr.id} style={{ marginBottom: 6 }}>
                             {/* KR parent bar with health + progress */}
                             {krBar && <div style={{ position: "relative", height: 22, zIndex: 1, marginBottom: 2 }}>
-                              <div onClick={() => editKR(kr)} title={`${kr.title}\n${kr.current_value || 0}/${kr.target_value || 100}${kr.unit ? " " + kr.unit : ""} (${krPct}%)\nHealth: ${krH.label}\nClick to edit KR`}
+                              <div onClick={() => editKR(kr)} title={`${kr.title}\n${fmtNum(kr.current_value || 0)}/${fmtNum(kr.target_value || 100)}${kr.unit ? " " + kr.unit : ""} (${krPct}%)\nHealth: ${krH.label}\nClick to edit KR`}
                                 style={{ position: "absolute", ...krBar, height: 20, borderRadius: 4, background: `${krH.color}15`, border: `1.5px solid ${krH.color}40`, display: "flex", alignItems: "center", paddingLeft: 8, paddingRight: 8, cursor: "pointer", overflow: "hidden" }}>
                                 <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${krPct}%`, background: `${krH.color}25`, borderRadius: 3, transition: "width 0.3s" }} />
                                 <div style={{ width: 6, height: 6, borderRadius: 6, background: krH.color, flexShrink: 0, position: "relative", zIndex: 1, marginRight: 5 }} />
@@ -762,7 +800,7 @@ export default function OKRsView() {
                                 const mh = HEALTH[ms.health || "on_track"] || HEALTH.on_track;
                                 const pct = Number(ms.progress) || 0;
                                 return (
-                                  <div key={ms.id} title={`${ms.title}\n${ms.start_date} → ${ms.end_date}\n${ms.current_value || 0}/${ms.target_value || 100}${ms.unit ? " " + ms.unit : ""} (${pct}%)\nStatus: ${mh.label}\nClick to update`}
+                                  <div key={ms.id} title={`${ms.title}\n${ms.start_date} → ${ms.end_date}\n${fmtNum(ms.current_value || 0)}/${fmtNum(ms.target_value || 100)}${ms.unit ? " " + ms.unit : ""} (${pct}%)\nStatus: ${mh.label}\nClick to update`}
                                     onClick={() => editMilestone(ms)}
                                     style={{ position: "absolute", ...bar, height: 18, borderRadius: 3, background: `${mh.color}12`, border: `1px solid ${mh.color}35`, display: "flex", alignItems: "center", paddingLeft: 4, paddingRight: 4, cursor: "pointer", overflow: "hidden" }}>
                                     <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${pct}%`, background: `${mh.color}30`, borderRadius: 2, transition: "width 0.3s" }} />
@@ -895,21 +933,15 @@ export default function OKRsView() {
                       </div>
                       {/* Inline value edit */}
                       {kr.progress_mode === "milestones" ? (
-                        <span style={{ fontSize: 12, color: T.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{kr.current_value}/{kr.target_value}{kr.unit ? " "+kr.unit : ""}</span>
+                        <span style={{ fontSize: 12, color: T.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fmtNum(kr.current_value)}/{fmtNum(kr.target_value)}{kr.unit ? " "+kr.unit : ""}</span>
                       ) : (
                         <span onClick={e => e.stopPropagation()} style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                          <input
-                            type="number"
-                            defaultValue={kr.current_value || 0}
-                            onBlur={async e => {
-                              const val = Number(e.target.value);
-                              if (val !== kr.current_value) await updateKRValue(kr.id, val);
-                            }}
-                            onKeyDown={e => { if (e.key === "Enter") e.target.blur(); if (e.key === "Escape") { e.target.value = kr.current_value; e.target.blur(); } }}
-                            onClick={e => { e.stopPropagation(); e.target.select(); }}
-                            style={{ width: 52, padding: "2px 5px", borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12, outline: "none", textAlign: "right" }}
+                          <NumberInput
+                            value={kr.current_value || 0}
+                            onCommit={async val => { if (val !== kr.current_value) await updateKRValue(kr.id, val); }}
+                            style={{ width: 72, padding: "2px 5px", borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12, outline: "none", textAlign: "right" }}
                           />
-                          <span style={{ fontSize: 10, color: T.text3 }}>/{kr.target_value}{kr.unit ? " "+kr.unit : ""}</span>
+                          <span style={{ fontSize: 10, color: T.text3 }}>/{fmtNum(kr.target_value)}{kr.unit ? " "+kr.unit : ""}</span>
                         </span>
                       )}
                       <ConfidenceDot value={kr.confidence} />
@@ -990,8 +1022,8 @@ export default function OKRsView() {
                 </div>}
               </div>
               <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
-                <div><label style={_elbl}>Current Value</label><input type="number" value={d.current_value ?? 0} onChange={e => editSet("current_value", e.target.value)} disabled={mode === "milestones"} style={{ ..._einp, opacity: mode === "milestones" ? 0.5 : 1 }} /></div>
-                <div><label style={_elbl}>Target Value</label><input type="number" value={d.target_value ?? 100} onChange={e => editSet("target_value", e.target.value)} style={_einp} /></div>
+                <div><label style={_elbl}>Current Value</label><NumberInput value={d.current_value ?? 0} onChange={v => editSet("current_value", v)} disabled={mode === "milestones"} style={{ ..._einp, opacity: mode === "milestones" ? 0.5 : 1 }} /></div>
+                <div><label style={_elbl}>Target Value</label><NumberInput value={d.target_value ?? 100} onChange={v => editSet("target_value", v)} style={_einp} /></div>
                 <div><label style={_elbl}>Unit</label><input value={d.unit || ""} onChange={e => editSet("unit", e.target.value)} placeholder="e.g. $, %" style={_einp} /></div>
               </div>
               <div style={{ marginBottom: 12 }}>
@@ -1048,9 +1080,9 @@ export default function OKRsView() {
 
               {/* Target + Unit */}
               <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
-                <div><label style={_elbl}>Current Total</label><input type="number" value={d.current_value ?? 0} disabled style={{ ..._einp, opacity: 0.6 }} /></div>
-                <div><label style={_elbl}>Target Value</label><input type="number" value={d.target_value ?? 100} onChange={e => {
-                  const t = Number(e.target.value) || 100;
+                <div><label style={_elbl}>Current Total</label><NumberInput value={d.current_value ?? 0} disabled style={{ ..._einp, opacity: 0.6 }} /></div>
+                <div><label style={_elbl}>Target Value</label><NumberInput value={d.target_value ?? 100} onChange={v => {
+                  const t = v || 100;
                   editSet("target_value", t);
                   editSet("progress", t > 0 ? Math.round((cv / t) * 100) : 0);
                 }} style={_einp} /></div>
@@ -1085,7 +1117,7 @@ export default function OKRsView() {
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 100px", gap: 8, marginBottom: 8 }}>
                       <div><label style={{ ..._elbl, fontSize: 10 }}>Period Start</label><input type="date" value={d._newUpdate.period_start} onChange={e => editSet("_newUpdate", { ...d._newUpdate, period_start: e.target.value })} style={{ ..._einp, fontSize: 12 }} /></div>
                       <div><label style={{ ..._elbl, fontSize: 10 }}>Period End</label><input type="date" value={d._newUpdate.period_end} onChange={e => editSet("_newUpdate", { ...d._newUpdate, period_end: e.target.value })} style={{ ..._einp, fontSize: 12 }} /></div>
-                      <div><label style={{ ..._elbl, fontSize: 10 }}>Value</label><input type="number" value={d._newUpdate.value} onChange={e => editSet("_newUpdate", { ...d._newUpdate, value: e.target.value })} placeholder="0" style={{ ..._einp, fontSize: 12 }} /></div>
+                      <div><label style={{ ..._elbl, fontSize: 10 }}>Value</label><NumberInput value={d._newUpdate.value} onChange={v => editSet("_newUpdate", { ...d._newUpdate, value: v })} placeholder="0" style={{ ..._einp, fontSize: 12 }} /></div>
                     </div>
                     <input value={d._newUpdate.note || ""} onChange={e => editSet("_newUpdate", { ...d._newUpdate, note: e.target.value })} placeholder="Note (optional)" style={{ ..._einp, fontSize: 12, marginBottom: 8 }} />
                     <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
@@ -1125,7 +1157,7 @@ export default function OKRsView() {
                             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 80px", gap: 6, marginBottom: 6 }}>
                               <div><label style={{ fontSize: 9, color: T.text3 }}>From</label><input type="date" value={d._editUpdateData?.period_start || u.period_start} onChange={e => editSet("_editUpdateData", { ...(d._editUpdateData || u), period_start: e.target.value })} style={{ ..._einp, fontSize: 11, padding: "4px 6px" }} /></div>
                               <div><label style={{ fontSize: 9, color: T.text3 }}>To</label><input type="date" value={d._editUpdateData?.period_end || u.period_end} onChange={e => editSet("_editUpdateData", { ...(d._editUpdateData || u), period_end: e.target.value })} style={{ ..._einp, fontSize: 11, padding: "4px 6px" }} /></div>
-                              <div><label style={{ fontSize: 9, color: T.text3 }}>Value</label><input type="number" value={d._editUpdateData?.value ?? u.value} onChange={e => editSet("_editUpdateData", { ...(d._editUpdateData || u), value: e.target.value })} style={{ ..._einp, fontSize: 11, padding: "4px 6px" }} /></div>
+                              <div><label style={{ fontSize: 9, color: T.text3 }}>Value</label><NumberInput value={d._editUpdateData?.value ?? u.value} onChange={v => editSet("_editUpdateData", { ...(d._editUpdateData || u), value: v })} style={{ ..._einp, fontSize: 11, padding: "4px 6px" }} /></div>
                             </div>
                             <input value={d._editUpdateData?.note ?? (u.note || "")} onChange={e => editSet("_editUpdateData", { ...(d._editUpdateData || u), note: e.target.value })} placeholder="Note" style={{ ..._einp, fontSize: 11, padding: "4px 6px", marginBottom: 6 }} />
                             <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
@@ -1572,7 +1604,7 @@ export default function OKRsView() {
                     <div style={{ width: `${Math.min(currentPct, 100)}%`, height: "100%", borderRadius: 2, background: T.accent, transition: "width 0.3s" }} />
                   </div>
                   <span style={{ fontSize: 11, fontWeight: 700, color: T.accent }}>{currentPct}%</span>
-                  <span style={{ fontSize: 11, color: T.text3 }}>{kr.current_value}/{kr.target_value}{kr.unit ? " "+kr.unit : ""}</span>
+                  <span style={{ fontSize: 11, color: T.text3 }}>{fmtNum(kr.current_value)}/{fmtNum(kr.target_value)}{kr.unit ? " "+kr.unit : ""}</span>
                 </div>
               </div>
               {/* Sparkline */}
@@ -1612,10 +1644,10 @@ export default function OKRsView() {
             <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 14, marginBottom: 18 }}>
               <div>
                 <label style={{ fontSize: 12, fontWeight: 600, color: T.text2, display: "block", marginBottom: 6 }}>
-                  Current Value <span style={{ color: T.text3, fontWeight: 400 }}>/ {kr.target_value} {kr.unit || ""}</span>
+                  Current Value <span style={{ color: T.text3, fontWeight: 400 }}>/ {fmtNum(kr.target_value)} {kr.unit || ""}</span>
                   <button onClick={() => setForm(p => ({ ...p, current_value: kr.current_value }))} style={{ marginLeft: 8, fontSize: 10, color: T.text3, background: "none", border: "none", cursor: "pointer", padding: "0 4px" }}>No change ↩</button>
                 </label>
-                <input type="number" value={form.current_value} onChange={e => setForm(p => ({ ...p, current_value: e.target.value }))}
+                <NumberInput value={form.current_value} onChange={v => setForm(p => ({ ...p, current_value: v }))}
                   style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 14, fontWeight: 700, outline: "none", boxSizing: "border-box" }} />
                 <div style={{ marginTop: 6, height: 5, borderRadius: 5, background: T.surface3, overflow: "hidden" }}>
                   <div style={{ width: `${Math.min(100, ((Number(form.current_value) || 0) / (kr.target_value || 100)) * 100)}%`, height: "100%", borderRadius: 5, background: T.accent, transition: "width 0.3s" }} />
@@ -1694,7 +1726,7 @@ export default function OKRsView() {
                     <div key={ci.id} style={{ padding: "10px 12px", borderRadius: 8, background: T.surface2, marginBottom: 6, borderLeft: `3px solid ${h.color}` }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: ci.note ? 4 : 0 }}>
                         <span style={{ fontSize: 11, fontWeight: 700, padding: "1px 6px", borderRadius: 4, background: h.color + "20", color: h.color }}>{h.label}</span>
-                        {ci.value != null && <span style={{ fontSize: 11, color: T.text3 }}>→ {ci.value} / {kr.target_value}{kr.unit ? " " + kr.unit : ""}</span>}
+                        {ci.value != null && <span style={{ fontSize: 11, color: T.text3 }}>→ {fmtNum(ci.value)} / {fmtNum(kr.target_value)}{kr.unit ? " " + kr.unit : ""}</span>}
                         {confPctCI != null && <span style={{ fontSize: 10, color: T.text3, marginLeft: "auto" }}>{confPctCI}% conf</span>}
                         <span style={{ fontSize: 10, color: T.text3 }}>{dAgo === 0 ? "Today" : `${dAgo}d ago`}</span>
                       </div>
@@ -2062,7 +2094,7 @@ function ObjFormModalInner({ objForm, setObjForm, saveObjective, profiles }) {
                   <input value={kr.title} onChange={e => setKR(idx, "title", e.target.value)} placeholder="e.g. $10M Net Revenue @ 40% Margin" style={{ ..._inp, fontSize: 12 }} />
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 8, marginBottom: 8 }}>
-                  <div><label style={{ ..._lbl, fontSize: 10 }}>Target Value</label><input type="number" value={kr.target_value} onChange={e => setKR(idx, "target_value", e.target.value)} style={{ ..._inp, fontSize: 12 }} /></div>
+                  <div><label style={{ ..._lbl, fontSize: 10 }}>Target Value</label><NumberInput value={kr.target_value} onChange={v => setKR(idx, "target_value", v)} style={{ ..._inp, fontSize: 12 }} /></div>
                   <div><label style={{ ..._lbl, fontSize: 10 }}>Unit</label><input value={kr.unit} onChange={e => setKR(idx, "unit", e.target.value)} placeholder="e.g. $, %, users" style={{ ..._inp, fontSize: 12 }} /></div>
                   <div><label style={{ ..._lbl, fontSize: 10 }}>KR Owner</label><OwnerPicker profiles={profiles} value={kr.owner_id} onChange={v => setKR(idx, "owner_id", v)} /></div>
                 </div>
@@ -2092,7 +2124,7 @@ function ObjFormModalInner({ objForm, setObjForm, saveObjective, profiles }) {
                     const perPeriod = periods.length > 0 ? Math.round((Number(kr.target_value) || 100) / periods.length) : 0;
                     return (
                       <div style={{ marginTop: 8, fontSize: 10, color: T.text3 }}>
-                        Will create <strong style={{ color: T.accent }}>{periods.length}</strong> milestones ({kr.milestone_frequency}) • ~{perPeriod} {kr.unit || "units"} per period
+                        Will create <strong style={{ color: T.accent }}>{periods.length}</strong> milestones ({kr.milestone_frequency}) • ~{fmtNum(perPeriod)} {kr.unit || "units"} per period
                         <div style={{ display: "flex", gap: 3, marginTop: 6, flexWrap: "wrap" }}>
                           {periods.slice(0, 12).map((p, i) => (
                             <span key={i} style={{ fontSize: 8, padding: "2px 5px", borderRadius: 3, background: `${T.accent}15`, color: T.accent, fontWeight: 500 }}>{p.label}</span>
