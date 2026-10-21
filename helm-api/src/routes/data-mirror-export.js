@@ -7,14 +7,23 @@
 // Suggested: two runs nightly, e.g. 07:05 and 07:25 UTC — the second picks up
 // anything the first could not fit in its time budget.
 //
-// Auth: header X-Cron-Secret must equal env CRON_SHARED_SECRET (same secret
-// Cloud Scheduler already uses). Fails closed if any setting is missing.
+// Auth — either of:
+//   * Authorization: Bearer <Google-signed OIDC ID token>, as attached by Cloud
+//     Scheduler's "Add OIDC token" option. The token's audience must equal this
+//     route's URL and its email must be in HELM_MIRROR_INVOKERS (default: the
+//     helm-api runtime service account). No shared secret involved.
+//   * X-Cron-Secret header equal to env CRON_SHARED_SECRET.
+//
+// Sheets access is KEYLESS by default: an access token for the Cloud Run runtime
+// service account comes from the metadata server, so no service-account key has
+// to be created or stored. Share the target sheet with that account's email as
+// Editor. If GOOGLE_SERVICE_ACCOUNT (key JSON) is set it is used instead.
 //
 // Config (env on the helm-api Cloud Run service):
-//   HELM_MIRROR_SHEET_ID   target spreadsheet ID (share it with the service
-//                          account's client_email as Editor)
-//   GOOGLE_SERVICE_ACCOUNT service-account JSON (Secret Manager)
+//   HELM_MIRROR_SHEET_ID   target spreadsheet ID (required)
 //   HELM_MIRROR_ORG_ID     optional, defaults to the Earth Breeze org
+//   HELM_MIRROR_INVOKERS   optional, comma-separated service-account emails
+//   HELM_MIRROR_AUDIENCE   optional, defaults to the public route URL
 //
 // helm-api runs with --timeout=60s, so the job stops starting new datasets
 // after TIME_BUDGET_MS and records what it skipped in the `_meta` tab; the
@@ -24,6 +33,9 @@ const crypto = require('crypto');
 const { getGoogleAccessToken, loadServiceAccount } = require('../lib/google-jwt');
 
 const DEFAULT_ORG = 'a0000000-0000-0000-0000-000000000001';
+const DEFAULT_INVOKER = 'helm-app-runtime@helm-496923.iam.gserviceaccount.com';
+const DEFAULT_AUDIENCE = 'https://helm-api-qp7o2dcl5a-uc.a.run.app/data-mirror-export';
+const SHEETS_SCOPE = 'https://www.googleapis.com/auth/spreadsheets';
 const TIME_BUDGET_MS = 45_000;
 const MAX_ROWS = 200_000;          // per dataset
 const MAX_TOTAL_CELLS = 9_000_000; // Sheets hard limit is 10M per spreadsheet
@@ -132,6 +144,36 @@ function toCell(v, oid) {
   let s = typeof v === 'object' ? JSON.stringify(v) : String(v);
   if (s.length > MAX_CELL_CHARS) s = s.slice(0, MAX_CELL_CHARS) + '…[truncated]';
   return s;
+}
+
+// Verify a Google-signed OIDC ID token via Google's tokeninfo endpoint.
+async function verifyOidc(idToken, { audience, invokers, fetchImpl = fetch, nowSec = () => Math.floor(Date.now() / 1000) }) {
+  if (!idToken) return { ok: false, reason: 'no token' };
+  const r = await fetchImpl(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`);
+  if (!r.ok) return { ok: false, reason: `tokeninfo ${r.status}` };
+  const t = await r.json();
+  const norm = (u) => String(u || '').replace(/\/+$/, '');
+  if (!['accounts.google.com', 'https://accounts.google.com'].includes(t.iss)) return { ok: false, reason: 'bad issuer' };
+  if (norm(t.aud) !== norm(audience)) return { ok: false, reason: 'bad audience' };
+  if (!(t.email_verified === true || t.email_verified === 'true')) return { ok: false, reason: 'email not verified' };
+  if (!invokers.includes(String(t.email || '').toLowerCase())) return { ok: false, reason: 'invoker not allowed' };
+  if (!(Number(t.exp) > nowSec())) return { ok: false, reason: 'expired' };
+  return { ok: true, email: t.email };
+}
+
+// Access token for Sheets: key JSON if configured, otherwise the runtime SA via metadata server.
+async function getSheetsToken({ fetchImpl = fetch } = {}) {
+  if ((process.env.GOOGLE_SERVICE_ACCOUNT || '').trim()) {
+    return getGoogleAccessToken(loadServiceAccount(), SHEETS_SCOPE);
+  }
+  const r = await fetchImpl(
+    `http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token?scopes=${encodeURIComponent(SHEETS_SCOPE)}`,
+    { headers: { 'Metadata-Flavor': 'Google' } },
+  );
+  if (!r.ok) throw new Error(`metadata token ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  const d = await r.json();
+  if (!d.access_token) throw new Error('metadata server returned no access_token');
+  return d.access_token;
 }
 
 function secretOk(provided, expected) {
@@ -279,22 +321,35 @@ async function runExport(pool, { sheetId, orgId, token, only, now = Date.now }) 
 
 module.exports = function (app, { pool }) {
   app.post('/data-mirror-export', async (req, res) => {
-    const expected = (process.env.CRON_SHARED_SECRET || '').trim();
-    if (!expected) return res.status(503).json({ error: 'not configured' });
-    if (!secretOk((req.headers['x-cron-secret'] || '').trim(), expected)) {
-      console.warn('[data-mirror] bad secret from', req.headers['x-forwarded-for'] || 'unknown');
+    // --- authorise: Scheduler OIDC token, or the shared cron secret ---
+    let caller = null;
+    const bearer = (req.headers.authorization || '').match(/^Bearer\s+(.+)$/i);
+    if (bearer) {
+      try {
+        const v = await verifyOidc(bearer[1].trim(), {
+          audience: (process.env.HELM_MIRROR_AUDIENCE || DEFAULT_AUDIENCE).trim(),
+          invokers: (process.env.HELM_MIRROR_INVOKERS || DEFAULT_INVOKER).split(',').map((x) => x.trim().toLowerCase()).filter(Boolean),
+        });
+        if (v.ok) caller = `oidc:${v.email}`;
+        else console.warn('[data-mirror] OIDC rejected:', v.reason);
+      } catch (e) { console.warn('[data-mirror] OIDC check failed:', e.message); }
+    }
+    if (!caller) {
+      const expected = (process.env.CRON_SHARED_SECRET || '').trim();
+      if (expected && secretOk((req.headers['x-cron-secret'] || '').trim(), expected)) caller = 'cron-secret';
+    }
+    if (!caller) {
+      console.warn('[data-mirror] unauthorized from', req.headers['x-forwarded-for'] || 'unknown');
       return res.status(401).json({ error: 'unauthorized' });
     }
     const sheetId = (process.env.HELM_MIRROR_SHEET_ID || '').trim();
     if (!sheetId) return res.status(503).json({ error: 'HELM_MIRROR_SHEET_ID not set' });
-    let sa;
-    try { sa = loadServiceAccount(); } catch (e) { return res.status(503).json({ error: e.message }); }
 
     const only = Array.isArray(req.body && req.body.datasets) ? req.body.datasets.map(String) : null;
     try {
-      const token = await getGoogleAccessToken(sa, 'https://www.googleapis.com/auth/spreadsheets');
+      const token = await getSheetsToken();
       const out = await runExport(pool, { sheetId, orgId: (process.env.HELM_MIRROR_ORG_ID || DEFAULT_ORG).trim(), token, only });
-      console.log(JSON.stringify({ event: 'data_mirror_export', ms: out.ms, results: out.results }));
+      console.log(JSON.stringify({ event: 'data_mirror_export', caller, ms: out.ms, results: out.results }));
       res.json({ ok: true, ...out });
     } catch (e) {
       console.error('[data-mirror] failed:', e.message);
@@ -303,4 +358,4 @@ module.exports = function (app, { pool }) {
   });
 };
 
-module.exports._internal = { DATASETS, toCell, runExport, secretOk };
+module.exports._internal = { DATASETS, toCell, runExport, secretOk, verifyOidc, getSheetsToken };
