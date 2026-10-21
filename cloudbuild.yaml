@@ -103,7 +103,7 @@ steps:
       - '--timeout=60s'
       - '--service-account=helm-app-runtime@$PROJECT_ID.iam.gserviceaccount.com'
       - '--add-cloudsql-instances=$PROJECT_ID:us-central1:helm-db'
-      - '--update-env-vars=FIREBASE_PROJECT_ID=$PROJECT_ID,PGUSER=helmuser,PGDATABASE=helm,PGHOST=/cloudsql/$PROJECT_ID:us-central1:helm-db'
+      - '--update-env-vars=FIREBASE_PROJECT_ID=$PROJECT_ID,PGUSER=helmuser,PGDATABASE=helm,PGHOST=/cloudsql/$PROJECT_ID:us-central1:helm-db,HELM_MIRROR_SHEET_ID=1lnrkd7oSq7TAtw0hN-5lavrqx97tjll9OMNQT062iG4'
       - '--update-secrets=PGPASSWORD=helm-db-password:latest,ANTHROPIC_API_KEY=anthropic-api-key:latest,SLACK_BOT_TOKEN=slack-bot-token:latest'
 
 images:
