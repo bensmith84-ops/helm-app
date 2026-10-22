@@ -19,6 +19,17 @@ module.exports = function(app, { pool, requireAuth }) {
       if (!firebase_uid || !email) {
         return res.status(400).json({ error: 'Token missing sub (firebase_uid) or email' });
       }
+      // Binding by email is only safe if the email is proven. Firebase self
+      // sign-up is open, and email/password accounts are unverified by default,
+      // so without this anyone could register a colleague's address and take
+      // over their unbound Helm profile.
+      if (req.firebase?.email_verified !== true) {
+        return res.status(403).json({ error: 'Email address is not verified', hint: 'Sign in with Google or verify your email first' });
+      }
+      const provider = req.firebase?.firebase?.sign_in_provider;
+      if (/@earthbreeze\.com$/i.test(email) && provider !== 'google.com') {
+        return res.status(403).json({ error: 'Earth Breeze accounts must sign in with Google', provider: provider || null });
+      }
 
       // 1. Check if already bound
       const existing = await pool.query(
