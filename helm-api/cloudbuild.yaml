@@ -36,7 +36,7 @@ steps:
       - --min-instances=0
       - --max-instances=10
       - --concurrency=80
-      - --timeout=60s
+      - --timeout=900s
       - --service-account=helm-app-runtime@helm-496923.iam.gserviceaccount.com
       - --add-cloudsql-instances=helm-496923:us-central1:helm-db
       - --update-env-vars=FIREBASE_PROJECT_ID=helm-496923,PGUSER=helmuser,PGDATABASE=helm,PGHOST=/cloudsql/helm-496923:us-central1:helm-db,HELM_MIRROR_SHEET_ID=1lnrkd7oSq7TAtw0hN-5lavrqx97tjll9OMNQT062iG4

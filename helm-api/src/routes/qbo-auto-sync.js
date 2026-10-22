@@ -35,8 +35,10 @@ module.exports = function(app) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ what: resource }),
           });
-          if (r.ok) dispatched.push(resource);
-          else failed[resource] = String(r.status);
+          let data = null;
+          try { data = await r.json(); } catch {}
+          if (r.ok && !(data && data.error)) dispatched.push(resource);
+          else failed[resource] = (data && data.error) ? String(data.error).slice(0, 300) : `HTTP ${r.status}`;
         } catch (e) {
           failed[resource] = e?.message || String(e);
         }
@@ -51,7 +53,8 @@ module.exports = function(app) {
       }
     }
 
-    res.json({
+    const anyFailed = sequential && Object.keys(failed).length > 0;
+    res.status(anyFailed ? 502 : 200).json({
       started_at: startedAt,
       returned_at: new Date().toISOString(),
       mode: sequential ? 'sequential' : 'fire_and_forget',

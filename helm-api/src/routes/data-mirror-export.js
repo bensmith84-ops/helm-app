@@ -125,6 +125,30 @@ const DATASETS = [
     sql: `SELECT * FROM milestone_updates WHERE org_id = $1 ORDER BY milestone_id, period_start` },
   { tab: 'l10_metrics', fresh: 'updated_at',
     sql: `SELECT * FROM l10_metrics WHERE org_id = $1 ORDER BY sort_order` },
+  // Integration health: status and timestamps ONLY. Tokens are never selected,
+  // and anything token-shaped in error text is redacted.
+  {
+    tab: 'sync_health',
+    fresh: 'last_synced_at',
+    sql: `SELECT 'quickbooks'::text AS integration, realm_id::text AS account, sync_status::text AS status,
+                 last_synced_at::text AS last_synced_at, token_expires_at::text AS token_expires_at,
+                 connected_at::text AS connected_at,
+                 left(regexp_replace(coalesce(last_error, ''), '[A-Za-z0-9._~+/=-]{32,}', '[redacted]', 'g'), 300) AS last_error
+            FROM qbo_connections WHERE org_id = $1
+          UNION ALL
+          SELECT 'shopify', coalesce(store_domain, ''), coalesce(status, ''), updated_at::text, NULL, NULL, ''
+            FROM integrations WHERE provider = 'shopify'`,
+  },
+  {
+    tab: 'cron_run_log',
+    fresh: 'started_at',
+    sql: `SELECT job, path, status_code,
+                 left(regexp_replace(coalesce(response_snippet, ''), '[A-Za-z0-9._~+/=-]{32,}', '[redacted]', 'g'), 300) AS response,
+                 started_at::text AS started_at, finished_at::text AS finished_at
+            FROM cron_run_log
+           WHERE started_at > now() - interval '14 days' AND $1::text IS NOT NULL
+           ORDER BY started_at DESC LIMIT 2000`,
+  },
 ];
 
 const NUMERIC_OIDS = new Set([20, 21, 23, 700, 701, 1700]);

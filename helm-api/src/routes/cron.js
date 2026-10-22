@@ -11,12 +11,62 @@
 //     --message-body='{"job":"qbo-auto-sync"}'
 //
 // Auth: every request must include X-Cron-Secret header matching env CRON_SHARED_SECRET.
+//
+// Outcome reporting: the dispatcher WAITS for the target route and returns its
+// real result, so Cloud Scheduler shows red when a sync fails. Previously it
+// replied 200 immediately and ran the job fire-and-forget, which (a) hid every
+// failure and (b) left the work running after the response, when Cloud Run
+// throttles CPU. A target counts as failed if it returns non-2xx, or a JSON
+// body with a top-level `error`, a non-empty `failed` map, or any
+// `results.<x>.error`. 502 = target failed, 504 = exceeded CRON_WAIT_MS.
+// Needs helm-api --timeout and the Scheduler job's attempt deadline to exceed
+// the job's run time.
 
 const SELF_URL = process.env.SELF_URL || 'http://localhost:8080';
+const CRON_WAIT_MS = parseInt(process.env.CRON_WAIT_MS || '840000', 10); // 14 min, under the 15 min Cloud Run timeout
+
+// Collect failure reasons from a target's JSON response body.
+function findErrors(body) {
+  const errs = [];
+  if (!body || typeof body !== 'object') return errs;
+  if (body.error) errs.push(String(body.error));
+  if (body.failed && typeof body.failed === 'object') {
+    for (const [k, v] of Object.entries(body.failed)) errs.push(`${k}: ${v}`);
+  }
+  if (body.results && typeof body.results === 'object') {
+    for (const [k, v] of Object.entries(body.results)) if (v && typeof v === 'object' && v.error) errs.push(`${k}: ${v.error}`);
+  }
+  return errs;
+}
+
+// Call a target and classify the outcome. fetchImpl is injectable for tests.
+async function runTarget(url, body, { waitMs = CRON_WAIT_MS, fetchImpl = fetch } = {}) {
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), waitMs);
+  try {
+    const r = await fetchImpl(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body || {}),
+      signal: ac.signal,
+    });
+    const text = await r.text();
+    let parsed = null;
+    try { parsed = text ? JSON.parse(text) : null; } catch {}
+    const errors = findErrors(parsed);
+    if (!r.ok && !errors.length) errors.push(`HTTP ${r.status}`);
+    return { ok: r.ok && errors.length === 0, httpStatus: r.status, errors, snippet: text.slice(0, 500) };
+  } catch (e) {
+    if (e && e.name === 'AbortError') return { ok: false, timedOut: true, httpStatus: null, errors: [`no response within ${Math.round(waitMs / 1000)}s`], snippet: '' };
+    return { ok: false, httpStatus: null, errors: [e?.message || String(e)], snippet: '' };
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 // Map of job name → { path, body }. Add new jobs here.
 const JOBS = {
-  'qbo-auto-sync':            { path: '/qbo-auto-sync',            body: { what: 'all' } },
+  'qbo-auto-sync':            { path: '/qbo-auto-sync',            body: { what: 'all', sequential: true } },
   'shopify-auto-sync':        { path: '/shopify-auto-sync',        body: {} },
   'cx-export-tick':           { path: '/cx-export-runner',         body: {} },
   'cx-fulfillment-crawler':   { path: '/cx-fulfillment-crawler',   body: {} },
@@ -30,7 +80,7 @@ const JOBS = {
   // For now this is a no-op until we port dp_daily_sync_fire_all to a route.
 };
 
-module.exports = function(app, { pool }) {
+function mount(app, { pool }) {
   app.post('/cron', async (req, res) => {
     try {
       const provided = (req.headers['x-cron-secret'] || '').trim();
@@ -52,32 +102,22 @@ module.exports = function(app, { pool }) {
       }
 
       const startedAt = new Date().toISOString();
-      console.log(`[cron] dispatching ${job} → ${def.path}`);
+      console.log(`[cron] running ${job} → ${def.path}`);
+      const out = await runTarget(`${SELF_URL}${def.path}`, def.body);
+      const finishedAt = new Date().toISOString();
+      const summary = out.ok ? 'ok' : out.errors.slice(0, 5).join(' | ').slice(0, 480);
+      console.log(JSON.stringify({ event: 'cron_run', job, path: def.path, ok: out.ok, http_status: out.httpStatus, timed_out: !!out.timedOut, errors: out.errors.slice(0, 10) }));
 
-      // Fire-and-forget so Cloud Scheduler gets a quick 200 even if the actual
-      // sync takes minutes. Errors are logged but don't fail the scheduler call.
-      // For long syncs (qbo-auto-sync, shopify-auto-sync) this is essential -
-      // Cloud Scheduler times out at 30 mins but expects quick acks.
-      fetch(`${SELF_URL}${def.path}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(def.body || {}),
-      })
-        .then(r => r.text().then(t => ({ status: r.status, text: t })))
-        .then(({ status, text }) => {
-          console.log(`[cron] ${job} → ${def.path} returned ${status}: ${text.slice(0, 200)}`);
+      // Audit log (optional - only insert if table exists, swallow errors)
+      pool.query(
+        `INSERT INTO cron_run_log (job, path, status_code, response_snippet, started_at, finished_at)
+         VALUES ($1, $2, $3, $4, $5, NOW())
+         ON CONFLICT DO NOTHING`,
+        [job, def.path, out.httpStatus || (out.timedOut ? 504 : 0), (out.ok ? '' : `FAILED: ${summary} || `) + (out.snippet || ''), startedAt]
+      ).catch(() => {}); // table may not exist yet
 
-          // Audit log (optional - only insert if table exists, swallow errors)
-          pool.query(
-            `INSERT INTO cron_run_log (job, path, status_code, response_snippet, started_at, finished_at)
-             VALUES ($1, $2, $3, $4, $5, NOW())
-             ON CONFLICT DO NOTHING`,
-            [job, def.path, status, text.slice(0, 500), startedAt]
-          ).catch(() => {}); // table may not exist yet
-        })
-        .catch(e => console.error(`[cron] ${job} failed:`, e?.message));
-
-      res.json({ ok: true, job, path: def.path, dispatched_at: startedAt });
+      const code = out.ok ? 200 : (out.timedOut ? 504 : 502);
+      res.status(code).json({ ok: out.ok, job, path: def.path, started_at: startedAt, finished_at: finishedAt, target_status: out.httpStatus, errors: out.ok ? undefined : out.errors.slice(0, 20) });
     } catch (e) {
       console.error('[cron] dispatcher error:', e?.message);
       res.status(500).json({ error: e?.message || String(e) });
@@ -91,4 +131,7 @@ module.exports = function(app, { pool }) {
       jobs: Object.keys(JOBS).map(j => ({ name: j, path: JOBS[j].path })),
     });
   });
-};
+}
+
+module.exports = mount;
+module.exports._internal = { findErrors, runTarget, JOBS };
