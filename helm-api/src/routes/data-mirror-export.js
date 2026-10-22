@@ -149,6 +149,33 @@ const DATASETS = [
            WHERE started_at > now() - interval '14 days' AND $1::text IS NOT NULL
            ORDER BY started_at DESC LIMIT 2000`,
   },
+  // Cutover readiness: schema metadata only (no row data). Shows whether the
+  // RLS roles exist, which migrations applied, and per-table RLS/grant status.
+  {
+    tab: 'db_readiness',
+    fresh: 'checked_at',
+    sql: `SELECT 'role' AS kind, r.rolname AS name,
+                 pg_has_role(current_user, r.oid, 'MEMBER')::text AS a,
+                 r.rolbypassrls::text AS b, ''::text AS c, now()::text AS checked_at
+            FROM pg_roles r WHERE r.rolname IN ('authenticated', 'anon', 'service_role', current_user) AND $1::text IS NOT NULL
+          UNION ALL
+          SELECT 'migration', filename, applied_at::text, left(sha256, 12), '', now()::text FROM _helm_migrations
+          UNION ALL
+          SELECT 'auth_fn', p.proname, left(regexp_replace(pg_get_functiondef(p.oid), '[[:space:]]+', ' ', 'g'), 400), '', '', now()::text
+            FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+           WHERE n.nspname = 'auth' AND p.proname IN ('uid', 'jwt', 'role', 'email')
+          UNION ALL
+          SELECT 'table', c.relname,
+                 c.relrowsecurity::text,
+                 (SELECT count(*) FROM pg_policy pol WHERE pol.polrelid = c.oid)::text,
+                 CASE WHEN EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated')
+                      THEN has_table_privilege('authenticated', c.oid, 'SELECT')::text ELSE 'no role' END
+                   || ' / ' || greatest(c.reltuples, 0)::bigint::text,
+                 now()::text
+            FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+           WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p')
+           ORDER BY 1, 2`,
+  },
 ];
 
 const NUMERIC_OIDS = new Set([20, 21, 23, 700, 701, 1700]);

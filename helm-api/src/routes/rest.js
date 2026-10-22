@@ -22,16 +22,52 @@ const {
 const ALLOWED_TABLES = new Set((process.env.REST_ALLOWED_TABLES || 'plm_ai_conversations,plm_ai_messages').split(',').map(s => s.trim()).filter(Boolean));
 const ALLOWED_RPCS = new Set((process.env.REST_ALLOWED_RPCS || '').split(',').map(s => s.trim()).filter(Boolean));
 
+// With REST_ENFORCE_RLS on, every query runs as "authenticated" with the
+// caller's profile id as auth.uid(), so Supabase's RLS policies apply. Tables
+// that hold credentials are never served, whatever the allowlist says.
+const ENFORCE_RLS = process.env.REST_ENFORCE_RLS !== 'false';
+const NEVER_TABLES = new Set((process.env.REST_NEVER_TABLES || '_helm_migrations,cron_run_log,qbo_connections,integrations,shopify_store_tokens,oauth_tokens,api_keys').split(',').map(s => s.trim()).filter(Boolean));
+
 function tableAllowed(req, res, next) {
-  if (ALLOWED_TABLES.has(req.params.table)) return next();
+  const t = req.params.table;
+  if (!NEVER_TABLES.has(t) && (ALLOWED_TABLES.has(t) || (ENFORCE_RLS && ALLOWED_TABLES.has('*')))) return next();
   return res.status(403).json({ code: 'PGRST301', message: `table "${req.params.table}" is not available via helm-api`, details: null, hint: null });
 }
 function rpcAllowed(req, res, next) {
-  if (ALLOWED_RPCS.has(req.params.fn)) return next();
+  if (ALLOWED_RPCS.has(req.params.fn) || (ENFORCE_RLS && ALLOWED_RPCS.has('*'))) return next();
   return res.status(403).json({ code: 'PGRST301', message: `function "${req.params.fn}" is not available via helm-api` });
 }
 
-module.exports = function(app, { requireAuth, pool }) {
+function claimsFor(req) {
+  const uid = req.helmMember?.profile_id || req.user?.helm_user?.uid || null;
+  if (!uid) return null;
+  return { sub: uid, role: 'authenticated', aud: 'authenticated', email: req.firebase?.email || req.user?.helm_user?.email || null };
+}
+
+// Check out a client, and when RLS is enforced, open a transaction as
+// "authenticated" with the caller's claims. SET LOCAL and is_local
+// set_config both end with the transaction, so nothing leaks to the pool.
+async function rlsClient(pool, req) {
+  const client = await pool.connect();
+  if (!ENFORCE_RLS) return { client, done: async () => client.release(), fail: async () => client.release() };
+  const claims = claimsFor(req);
+  if (!claims) { client.release(); const e = new Error('no Helm profile bound to this sign-in'); e.status = 403; throw e; }
+  try {
+    await client.query('BEGIN');
+    await client.query('SET LOCAL ROLE authenticated');
+    await client.query(
+      "SELECT set_config('request.jwt.claims', $1, true), set_config('request.jwt.claim.sub', $2, true), set_config('request.jwt.claim.role', 'authenticated', true), set_config('request.jwt.claim.email', $3, true)",
+      [JSON.stringify(claims), claims.sub, claims.email || '']
+    );
+  } catch (e) { try { await client.query('ROLLBACK'); } catch {} client.release(); throw e; }
+  return {
+    client,
+    done: async () => { try { await client.query('COMMIT'); } finally { client.release(); } },
+    fail: async () => { try { await client.query('ROLLBACK'); } catch {} client.release(); },
+  };
+}
+
+module.exports = Object.assign(function(app, { requireAuth, pool }) {
 
   const handleSelect = async (req, res) => {
     const { table } = req.params;
@@ -42,7 +78,8 @@ module.exports = function(app, { requireAuth, pool }) {
         query: req.query,
         headers: req.headers,
       });
-      const client = await pool.connect();
+      const tx = await rlsClient(pool, req);
+      const client = tx.client;
       try {
         let totalCount = null;
         if (countMode === 'exact') {
@@ -63,15 +100,17 @@ module.exports = function(app, { requireAuth, pool }) {
           res.setHeader('Content-Range', `${from}-${to}/${totalCount ?? '*'}`);
         }
         res.setHeader('X-Helm-Rest', '1');
+        await tx.done();
         if (req.method === 'HEAD') return res.status(200).end();
         return res.status(200).json(result.rows);
-      } finally {
-        client.release();
+      } catch (e) {
+        await tx.fail();
+        throw e;
       }
     } catch (err) {
       const msg = err?.message || String(err);
       console.error(`[rest] error on ${req.method} /rest/v1/${table}:`, msg);
-      const status = /invalid|unsupported|bad|ambiguous|no FK/.test(msg) ? 400 : 500;
+      const status = err?.status || (/permission denied|row-level security/.test(msg) ? 403 : /invalid|unsupported|bad|ambiguous|no FK/.test(msg) ? 400 : 500);
       return res.status(status).json({ code: 'PGRST100', message: msg, details: null, hint: null });
     }
   };
@@ -85,9 +124,16 @@ module.exports = function(app, { requireAuth, pool }) {
         query: req.query,
         headers: req.headers,
       });
-      const client = await pool.connect();
+      const tx = await rlsClient(pool, req);
+      let result;
       try {
-        const result = await client.query(sql, params);
+        result = await tx.client.query(sql, params);
+        await tx.done();
+      } catch (e) {
+        await tx.fail();
+        throw e;
+      }
+      {
         res.setHeader('X-Helm-Rest', '1');
         if (!prefer || prefer.includes('return=minimal') || (!prefer.includes('return='))) {
           // PostgREST default: 201 (POST) / 204 (PATCH, DELETE) with empty body
@@ -98,13 +144,11 @@ module.exports = function(app, { requireAuth, pool }) {
           return res.status(req.method === 'POST' ? 201 : 200).end();
         }
         return res.status(req.method === 'POST' ? 201 : 200).json(result.rows);
-      } finally {
-        client.release();
       }
     } catch (err) {
       const msg = err?.message || String(err);
       console.error(`[rest] error on ${req.method} /rest/v1/${table}:`, msg);
-      const status = /invalid|unsupported|refusing|require|empty body|must|ambiguous/.test(msg) ? 400 : 500;
+      const status = err?.status || (/permission denied|row-level security/.test(msg) ? 403 : /invalid|unsupported|refusing|require|empty body|must|ambiguous/.test(msg) ? 400 : 500);
       return res.status(status).json({
         code: status === 400 ? 'PGRST100' : 'PGRST200',
         message: msg, details: null, hint: null,
@@ -122,19 +166,22 @@ module.exports = function(app, { requireAuth, pool }) {
     const { fn } = req.params;
     try {
       const { sql, params } = buildRpcQuery({ fn, body: req.body });
-      const client = await pool.connect();
+      const tx = await rlsClient(pool, req);
+      let result;
       try {
-        const result = await client.query(sql, params);
-        res.setHeader('X-Helm-Rest', '1');
-        return res.status(200).json(result.rows);
-      } finally {
-        client.release();
+        result = await tx.client.query(sql, params);
+        await tx.done();
+      } catch (e) {
+        await tx.fail();
+        throw e;
       }
+      res.setHeader('X-Helm-Rest', '1');
+      return res.status(200).json(result.rows);
     } catch (err) {
       const msg = err?.message || String(err);
       console.error(`[rest] rpc error on /rest/v1/rpc/${fn}:`, msg);
-      const status = /invalid|unsupported|bad/.test(msg) ? 400 : 500;
+      const status = err?.status || (/permission denied|row-level security/.test(msg) ? 403 : /invalid|unsupported|bad/.test(msg) ? 400 : 500);
       return res.status(status).json({ code: 'PGRST300', message: msg });
     }
   });
-};
+}, { _internal: { rlsClient, claimsFor, tableAllowed, rpcAllowed } });
