@@ -16,6 +16,21 @@ const {
   buildRpcQuery,
 } = require('../lib/pgrest');
 
+// Server-side allowlists. The browser interceptor only routes these tables
+// here, but the server must not trust that: queries run as the table owner,
+// so row-level security does not apply. Widen only after RLS is enforced.
+const ALLOWED_TABLES = new Set((process.env.REST_ALLOWED_TABLES || 'plm_ai_conversations,plm_ai_messages').split(',').map(s => s.trim()).filter(Boolean));
+const ALLOWED_RPCS = new Set((process.env.REST_ALLOWED_RPCS || '').split(',').map(s => s.trim()).filter(Boolean));
+
+function tableAllowed(req, res, next) {
+  if (ALLOWED_TABLES.has(req.params.table)) return next();
+  return res.status(403).json({ code: 'PGRST301', message: `table "${req.params.table}" is not available via helm-api`, details: null, hint: null });
+}
+function rpcAllowed(req, res, next) {
+  if (ALLOWED_RPCS.has(req.params.fn)) return next();
+  return res.status(403).json({ code: 'PGRST301', message: `function "${req.params.fn}" is not available via helm-api` });
+}
+
 module.exports = function(app, { requireAuth, pool }) {
 
   const handleSelect = async (req, res) => {
@@ -97,13 +112,13 @@ module.exports = function(app, { requireAuth, pool }) {
     }
   };
 
-  app.get('/rest/v1/:table',     requireAuth, handleSelect);
-  app.head('/rest/v1/:table',    requireAuth, handleSelect);
-  app.post('/rest/v1/:table',    requireAuth, handleWrite(buildInsertQuery));
-  app.patch('/rest/v1/:table',   requireAuth, handleWrite(buildUpdateQuery));
-  app.delete('/rest/v1/:table',  requireAuth, handleWrite(buildDeleteQuery));
+  app.get('/rest/v1/:table',     requireAuth, tableAllowed, handleSelect);
+  app.head('/rest/v1/:table',    requireAuth, tableAllowed, handleSelect);
+  app.post('/rest/v1/:table',    requireAuth, tableAllowed, handleWrite(buildInsertQuery));
+  app.patch('/rest/v1/:table',   requireAuth, tableAllowed, handleWrite(buildUpdateQuery));
+  app.delete('/rest/v1/:table',  requireAuth, tableAllowed, handleWrite(buildDeleteQuery));
 
-  app.post('/rest/v1/rpc/:fn', requireAuth, async (req, res) => {
+  app.post('/rest/v1/rpc/:fn', requireAuth, rpcAllowed, async (req, res) => {
     const { fn } = req.params;
     try {
       const { sql, params } = buildRpcQuery({ fn, body: req.body });

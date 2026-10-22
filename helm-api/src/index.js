@@ -51,6 +51,10 @@ app.use(express.json({ limit: '10mb' }));
 
 app.get('/health', (_req, res) => res.json({ ok: true, ts: new Date().toISOString() }));
 
+// Default-deny gate in front of every route below (see lib/auth-gate.js).
+const { authGate } = require('./lib/auth-gate');
+app.use(authGate({ pool, verifyIdToken: (t) => admin.auth().verifyIdToken(t) }));
+
 async function requireAuth(req, res, next) {
   const auth = req.headers.authorization || '';
   const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
