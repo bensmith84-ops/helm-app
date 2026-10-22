@@ -30,7 +30,7 @@ module.exports = function(app, { pool }) {
       const year = body.year || new Date().getFullYear();
 
       const conn = await getActiveConnection(pool);
-      if (!conn) return res.json({ error: 'QBO not connected' });
+      if (!conn) return res.status(503).json({ error: 'QBO not connected' });
 
       const rid = conn.realm_id;
       const oid = conn.org_id || 'a0000000-0000-0000-0000-000000000001';
@@ -454,7 +454,8 @@ module.exports = function(app, { pool }) {
         [E.length > 0 ? E.join('; ').slice(0, 2000) : null, rid]
       );
 
-      res.json({ success: true, status, ...R, errors: E.length > 0 ? E.slice(0, 10) : undefined });
+      // 'error' = every requested resource failed; 'partial' stays 200 with an errors list.
+      res.status(status === 'error' ? 500 : 200).json({ success: status !== 'error', status, ...R, errors: E.length > 0 ? E.slice(0, 10) : undefined, error: status === 'error' ? E.slice(0, 3).join('; ') : undefined });
     } catch (e) {
       const msg = e?.message || String(e);
       try {
@@ -464,7 +465,7 @@ module.exports = function(app, { pool }) {
           [msg]
         );
       } catch {}
-      res.json({ error: msg });
+      res.status(500).json({ error: msg });
     }
   });
 };

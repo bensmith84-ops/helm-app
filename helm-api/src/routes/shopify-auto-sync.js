@@ -26,7 +26,7 @@ module.exports = function(app) {
 
       res.json({ triggered_at: new Date().toISOString(), results });
     } catch (e) {
-      res.json({ error: e?.message || String(e) });
+      res.status(500).json({ error: e?.message || String(e) });
     }
   });
 };
