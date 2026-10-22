@@ -106,6 +106,40 @@ steps:
       - '--update-env-vars=FIREBASE_PROJECT_ID=$PROJECT_ID,PGUSER=helmuser,PGDATABASE=helm,PGHOST=/cloudsql/$PROJECT_ID:us-central1:helm-db,HELM_MIRROR_SHEET_ID=1lnrkd7oSq7TAtw0hN-5lavrqx97tjll9OMNQT062iG4'
       - '--update-secrets=PGPASSWORD=helm-db-password:latest,ANTHROPIC_API_KEY=anthropic-api-key:latest,SLACK_BOT_TOKEN=slack-bot-token:latest'
 
+  # 7. Build and register the Supabase -> Cloud SQL copy job (run on demand from
+  #    the Cloud Run Jobs console; never executed by this build). allowFailure
+  #    so the app deploy above is never blocked by it, e.g. before the
+  #    SUPABASE_DB_URL secret exists.
+  - name: 'gcr.io/cloud-builders/docker'
+    id: resync-build
+    dir: 'gcp-migration/resync'
+    allowFailure: true
+    args: ['build', '-t', 'us-central1-docker.pkg.dev/$PROJECT_ID/helm/helm-resync:$SHORT_SHA', '.']
+  - name: 'gcr.io/cloud-builders/docker'
+    id: resync-push
+    allowFailure: true
+    args: ['push', 'us-central1-docker.pkg.dev/$PROJECT_ID/helm/helm-resync:$SHORT_SHA']
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: resync-job
+    allowFailure: true
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'jobs'
+      - 'deploy'
+      - 'helm-resync'
+      - '--image=us-central1-docker.pkg.dev/$PROJECT_ID/helm/helm-resync:$SHORT_SHA'
+      - '--region=us-central1'
+      - '--tasks=1'
+      - '--max-retries=0'
+      - '--task-timeout=6h'
+      - '--memory=2Gi'
+      - '--cpu=2'
+      - '--service-account=helm-app-runtime@$PROJECT_ID.iam.gserviceaccount.com'
+      - '--set-cloudsql-instances=$PROJECT_ID:us-central1:helm-db'
+      - '--set-env-vars=PGUSER=helmuser,SRC_DB=helm,TARGET_DB=helm_v2'
+      - '--set-secrets=SUPABASE_DB_URL=SUPABASE_DB_URL:latest,PGPASSWORD=helm-db-password:latest'
+
 images:
   - 'us-central1-docker.pkg.dev/$PROJECT_ID/helm/helm-app:$SHORT_SHA'
   - 'us-central1-docker.pkg.dev/$PROJECT_ID/helm/helm-app:latest'

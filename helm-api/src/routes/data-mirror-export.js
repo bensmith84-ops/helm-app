@@ -149,6 +149,17 @@ const DATASETS = [
            WHERE started_at > now() - interval '14 days' AND $1::text IS NOT NULL
            ORDER BY started_at DESC LIMIT 2000`,
   },
+  // Latest Supabase -> Cloud SQL copy: per-table row counts and restore errors.
+  {
+    tab: 'resync_report',
+    fresh: 'at',
+    sql: `SELECT run_id, kind, name, supabase, target,
+                 CASE WHEN kind = 'table' THEN (supabase = target)::text ELSE '' END AS match,
+                 left(coalesce(detail, ''), 500) AS detail, at::text AS at
+            FROM _resync_report
+           WHERE run_id = (SELECT max(run_id) FROM _resync_report) AND $1::text IS NOT NULL
+           ORDER BY CASE kind WHEN 'summary' THEN 0 WHEN 'error' THEN 1 ELSE 2 END, (supabase = target), name`,
+  },
   // Cutover readiness: schema metadata only (no row data). Shows whether the
   // RLS roles exist, which migrations applied, and per-table RLS/grant status.
   {
