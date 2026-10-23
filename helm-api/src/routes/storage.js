@@ -1,9 +1,11 @@
 // Supabase Storage-compatible API on Google Cloud Storage, so supabase-js's
 // storage client works unchanged when its base URL points at helm-api.
 //
-// Supabase bucket "b" + path "p" is stored as object "b/p" in one of two GCS
-// buckets: public buckets in GCS_PUBLIC_BUCKET (world-readable), the rest in
-// GCS_PRIVATE_BUCKET (read only through short-lived signed links).
+// Supabase bucket "b" + path "p" is stored as object "b/p" in one private GCS
+// bucket (GCS_PRIVATE_BUCKET). Files in Supabase's public buckets stay
+// reachable at their public URL because helm-api serves them; nothing in GCS
+// is world-readable. (Set GCS_PUBLIC_BUCKET to a world-readable bucket to
+// redirect public reads there instead.)
 //
 //   POST|PUT /storage/v1/object/:bucket/<path>          upload (raw or multipart)
 //   GET      /storage/v1/object/public/:bucket/<path>   302 to the public object
@@ -22,7 +24,7 @@ const list = (v, d) => new Set((v || d).split(',').map((s) => s.trim()).filter(B
 const PUBLIC_BUCKETS = list(process.env.STORAGE_PUBLIC_BUCKETS, 'avatars,org-logos,rfp-assets,attachments,bill-attachments');
 const KNOWN_BUCKETS = list(process.env.STORAGE_BUCKETS, 'avatars,org-logos,rfp-assets,attachments,bill-attachments,rfp-submissions,esign-documents');
 const EXTERNAL_BUCKETS = list(process.env.STORAGE_EXTERNAL_BUCKETS, 'rfp-submissions,esign-documents,avatars');
-const GCS_PUBLIC = process.env.GCS_PUBLIC_BUCKET || 'helm-496923-files-public';
+const GCS_PUBLIC = process.env.GCS_PUBLIC_BUCKET || '';
 const GCS_PRIVATE = process.env.GCS_PRIVATE_BUCKET || 'helm-496923-files-private';
 const MAX_BYTES = 50 * 1024 * 1024;
 
@@ -43,7 +45,7 @@ function verifyToken(bucket, path, token, nowSec = Math.floor(Date.now() / 1000)
   return got.length === want.length && crypto.timingSafeEqual(got, want);
 }
 
-const target = (bucket) => (PUBLIC_BUCKETS.has(bucket) ? GCS_PUBLIC : GCS_PRIVATE);
+const target = (bucket) => (GCS_PUBLIC && PUBLIC_BUCKETS.has(bucket) ? GCS_PUBLIC : GCS_PRIVATE);
 const cleanPath = (p) => String(p || '').replace(/^\/+/, '');
 const bad = (res, code, message) => res.status(code).json({ statusCode: String(code), error: code === 404 ? 'not_found' : code === 409 ? 'Duplicate' : 'Error', message });
 
@@ -78,20 +80,21 @@ function mount(app, { gcs = gcsClient() } = {}) {
   const isMultipart = (req) => /multipart\/form-data/i.test(req.headers['content-type'] || '');
   const bodyParser = (req, res, next) => (isMultipart(req) ? upload : raw)(req, res, next);
 
-  const stream = async (res, bucket, path) => {
+  const stream = async (res, bucket, path, { publicCache = false } = {}) => {
     const r = await gcs.download(target(bucket), `${bucket}/${path}`);
     if (r.status === 404) return bad(res, 404, 'Object not found');
     if (!r.ok) return bad(res, 502, 'download failed');
     res.setHeader('Content-Type', r.headers.get('content-type') || 'application/octet-stream');
     const len = r.headers.get('content-length'); if (len) res.setHeader('Content-Length', len);
-    res.setHeader('Cache-Control', 'private, max-age=300');
+    res.setHeader('Cache-Control', publicCache ? 'public, max-age=3600' : 'private, max-age=300');
     return res.end(Buffer.from(await r.arrayBuffer()));
   };
 
-  app.get('/storage/v1/object/public/:bucket/*', (req, res) => {
+  app.get('/storage/v1/object/public/:bucket/*', async (req, res) => {
     const bucket = req.params.bucket; const path = cleanPath(req.params[0]);
     if (!PUBLIC_BUCKETS.has(bucket)) return bad(res, 400, 'Bucket is not public');
-    return res.redirect(302, gcs.publicUrl(GCS_PUBLIC, `${bucket}/${path}`));
+    if (GCS_PUBLIC) return res.redirect(302, gcs.publicUrl(GCS_PUBLIC, `${bucket}/${path}`));
+    return stream(res, bucket, path, { publicCache: true });
   });
 
   app.post('/storage/v1/object/sign/:bucket/*', express.json(), (req, res) => {
@@ -144,4 +147,4 @@ function mount(app, { gcs = gcsClient() } = {}) {
   app.put('/storage/v1/object/:bucket/*', bodyParser, doUpload);
 }
 
-module.exports = Object.assign((app) => mount(app), { mount, _internal: { signToken, verifyToken, target, PUBLIC_BUCKETS } });
+module.exports = Object.assign((app) => mount(app), { mount, _internal: { signToken, verifyToken, target, PUBLIC_BUCKETS, GCS_PRIVATE } });
