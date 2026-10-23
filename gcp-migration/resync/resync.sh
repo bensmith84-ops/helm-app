@@ -49,9 +49,49 @@ while IFS='|' read -r ext sch; do
   cs "$TARGET_DB" -c "CREATE SCHEMA IF NOT EXISTS \"$sch\"; CREATE EXTENSION IF NOT EXISTS \"$ext\" WITH SCHEMA \"$sch\"" 2>>"$ERR" && log "   ext $ext ($sch)"
 done
 
+# Extensions Supabase's public schema uses (e.g. pg_trgm for search indexes),
+# skipping Supabase-only ones Cloud SQL doesn't offer.
+supa -Atc "select e.extname || '|' || case when n.nspname in ('public','extensions') then n.nspname else 'extensions' end from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname not in ('plpgsql','pg_graphql','pg_stat_statements','supabase_vault','pgsodium','pg_net','pg_cron','pgjwt','wrappers','supautils','pg_tle','plpgsql_check')" |
+while IFS='|' read -r ext sch; do
+  if cs "$TARGET_DB" -v ON_ERROR_STOP=1 -c "CREATE EXTENSION IF NOT EXISTS \"$ext\" WITH SCHEMA \"$sch\"" 2>/dev/null; then log "   ext $ext ($sch, from Supabase)"
+  elif cs "$TARGET_DB" -v ON_ERROR_STOP=1 -c "CREATE EXTENSION IF NOT EXISTS \"$ext\" WITH SCHEMA public" 2>>"$ERR"; then log "   ext $ext (public, fallback)"
+  else log "   ext $ext unavailable on Cloud SQL"; fi
+done
+
 log "3/8 auth shim and extension wrappers from $SRC_DB"
 pg_dump "host=$CSQL_HOST dbname=$SRC_DB" --schema-only --no-owner --no-privileges -n auth -n extensions |
   cs "$TARGET_DB" 2>>"$ERR"
+
+# Supabase-compatible auth.users so foreign keys and policies that reference it
+# restore. Rows are loaded in step 6; after cutover, new sign-ins get a row from
+# helm-api when their profile is created.
+cs "$TARGET_DB" 2>>"$ERR" <<'SQL'
+CREATE TABLE IF NOT EXISTS auth.users (
+  id uuid PRIMARY KEY,
+  instance_id uuid,
+  aud varchar(255),
+  role varchar(255),
+  email varchar(255),
+  encrypted_password varchar(255),
+  email_confirmed_at timestamptz,
+  invited_at timestamptz,
+  confirmation_sent_at timestamptz,
+  recovery_sent_at timestamptz,
+  last_sign_in_at timestamptz,
+  raw_app_meta_data jsonb,
+  raw_user_meta_data jsonb,
+  is_super_admin boolean,
+  created_at timestamptz,
+  updated_at timestamptz,
+  phone text,
+  phone_confirmed_at timestamptz,
+  banned_until timestamptz,
+  deleted_at timestamptz,
+  is_sso_user boolean NOT NULL DEFAULT false,
+  is_anonymous boolean NOT NULL DEFAULT false
+);
+CREATE INDEX IF NOT EXISTS users_email_idx ON auth.users (lower(email));
+SQL
 
 log "4/8 Supabase public schema (tables, types, functions)"
 supa_dump --section=pre-data -n public --no-owner --no-privileges | cs "$TARGET_DB" 2>>"$ERR"
@@ -101,6 +141,7 @@ while read -r t; do
   [[ "$a" != "$b" ]] && MISMATCH=$((MISMATCH+1))
   cs "$SRC_DB" -c "insert into _resync_report (run_id, kind, name, supabase, target) values ('$RUN_ID', 'table', \$q\$$t\$q\$, $a, $b)" 2>/dev/null
 done < "$W/tables"
+sed -i -e '/transaction_timeout/d' -e '/schema "\(public\|auth\|extensions\|_migration\)" already exists/d' "$ERR"
 NERR=$(grep -c 'ERROR:' "$ERR" || true)
 grep 'ERROR:' "$ERR" | sed 's/^psql:[^:]*:[0-9]*: //' | sort | uniq -c | sort -rn | head -200 |
 while read -r cnt msg; do
