@@ -58,9 +58,25 @@ while IFS='|' read -r ext sch; do
   else log "   ext $ext unavailable on Cloud SQL"; fi
 done
 
-log "3/8 auth shim and extension wrappers from $SRC_DB"
-pg_dump "host=$CSQL_HOST dbname=$SRC_DB" --schema-only --no-owner --no-privileges -n auth -n extensions |
+log "3/8 extension wrappers from $SRC_DB, and Supabase-native auth.* functions"
+pg_dump "host=$CSQL_HOST dbname=$SRC_DB" --schema-only --no-owner --no-privileges -n extensions |
   cs "$TARGET_DB" 2>>"$ERR"
+# auth.uid()/jwt()/role()/email() read the claims helm-api sets per request
+# (sub = Helm profile id), exactly as Supabase's PostgREST does.
+cs "$TARGET_DB" 2>>"$ERR" <<'SQL'
+CREATE OR REPLACE FUNCTION auth.jwt() RETURNS jsonb LANGUAGE sql STABLE AS $f$
+  SELECT coalesce(nullif(current_setting('request.jwt.claims', true), ''), '{}')::jsonb
+$f$;
+CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $f$
+  SELECT nullif(coalesce(nullif(current_setting('request.jwt.claim.sub', true), ''), auth.jwt() ->> 'sub'), '')::uuid
+$f$;
+CREATE OR REPLACE FUNCTION auth.role() RETURNS text LANGUAGE sql STABLE AS $f$
+  SELECT coalesce(nullif(current_setting('request.jwt.claim.role', true), ''), auth.jwt() ->> 'role')
+$f$;
+CREATE OR REPLACE FUNCTION auth.email() RETURNS text LANGUAGE sql STABLE AS $f$
+  SELECT coalesce(nullif(current_setting('request.jwt.claim.email', true), ''), auth.jwt() ->> 'email')
+$f$;
+SQL
 
 # Supabase-compatible auth.users so foreign keys and policies that reference it
 # restore. Rows are loaded in step 6; after cutover, new sign-ins get a row from
@@ -130,6 +146,12 @@ supa -c "\\copy (select u.id, u.email, u.encrypted_password, u.email_confirmed_a
 
 log "7/8 constraints, indexes, triggers, policies"
 supa_dump --section=post-data -n public --no-owner | cs "$TARGET_DB" 2>>"$ERR"
+
+log "   Helm additions: profiles.firebase_uid (links a Firebase sign-in to its profile)"
+cs "$TARGET_DB" 2>>"$ERR" <<'SQL'
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS firebase_uid text;
+CREATE UNIQUE INDEX IF NOT EXISTS profiles_firebase_uid_key ON public.profiles (firebase_uid) WHERE firebase_uid IS NOT NULL;
+SQL
 
 log "8/8 grants: Supabase's own GRANTs came with the schema; add schema usage and lock _migration"
 cs "$TARGET_DB" 2>>"$ERR" <<'SQL'
