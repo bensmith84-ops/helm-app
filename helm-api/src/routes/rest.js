@@ -77,6 +77,21 @@ module.exports = Object.assign(function(app, { requireAuth: requireFirebase, poo
     return requireFirebase(req, res, next);
   };
 
+  // With POSTGREST_URL set, /rest/v1 is served by real PostgREST (exact
+  // Supabase behaviour); the shim below is only the fallback.
+  if (process.env.POSTGREST_URL) {
+    const { makeProxy } = require('../lib/postgrest');
+    const proxy = makeProxy({ baseUrl: process.env.POSTGREST_URL });
+    const guard = (req, res, next) => {
+      const m = req.path.match(/^\/rest\/v1\/(rpc\/)?([^/?]+)/);
+      if (!m) return res.status(404).json({ code: 'PGRST125', message: 'not found' });
+      req.params = m[1] ? { fn: m[2] } : { table: m[2] };
+      return m[1] ? rpcAllowed(req, res, next) : tableAllowed(req, res, next);
+    };
+    app.all('/rest/v1/*', requireAuth, guard, proxy);
+    return;
+  }
+
   const handleSelect = async (req, res) => {
     const { table } = req.params;
     try {

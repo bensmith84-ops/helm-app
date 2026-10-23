@@ -129,8 +129,43 @@ steps:
       - '--timeout=900s'
       - '--service-account=helm-app-runtime@$PROJECT_ID.iam.gserviceaccount.com'
       - '--add-cloudsql-instances=$PROJECT_ID:us-central1:helm-db'
-      - '--update-env-vars=FIREBASE_PROJECT_ID=$PROJECT_ID,PGUSER=helmuser,PGDATABASE=helm_v2,PGHOST=/cloudsql/$PROJECT_ID:us-central1:helm-db,REST_ENFORCE_RLS=true,REST_ALLOWED_TABLES=*,REST_ALLOWED_RPCS=*,HELM_PREVIEW=true'
+      - '--update-env-vars=FIREBASE_PROJECT_ID=$PROJECT_ID,PGUSER=helmuser,PGDATABASE=helm_v2,PGHOST=/cloudsql/$PROJECT_ID:us-central1:helm-db,REST_ENFORCE_RLS=true,REST_ALLOWED_TABLES=*,REST_ALLOWED_RPCS=*,HELM_PREVIEW=true,POSTGREST_URL=https://helm-postgrest-preview-qp7o2dcl5a-uc.a.run.app'
       - '--update-secrets=PGPASSWORD=helm-db-password:latest,ANTHROPIC_API_KEY=anthropic-api-key:latest'
+
+  # 6a. PostgREST for the preview (IAM-private; only helm-api-preview calls it).
+  - name: 'gcr.io/cloud-builders/docker'
+    id: postgrest-build
+    waitFor: ['-']
+    allowFailure: true
+    dir: 'gcp-migration/postgrest'
+    args: ['build', '-t', 'us-central1-docker.pkg.dev/$PROJECT_ID/helm/helm-postgrest:$SHORT_SHA', '.']
+  - name: 'gcr.io/cloud-builders/docker'
+    id: postgrest-push
+    waitFor: ['postgrest-build']
+    allowFailure: true
+    args: ['push', 'us-central1-docker.pkg.dev/$PROJECT_ID/helm/helm-postgrest:$SHORT_SHA']
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: postgrest-preview
+    waitFor: ['postgrest-push']
+    allowFailure: true
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'helm-postgrest-preview'
+      - '--image=us-central1-docker.pkg.dev/$PROJECT_ID/helm/helm-postgrest:$SHORT_SHA'
+      - '--region=us-central1'
+      - '--platform=managed'
+      - '--no-allow-unauthenticated'
+      - '--port=8080'
+      - '--memory=512Mi'
+      - '--cpu=1'
+      - '--min-instances=0'
+      - '--max-instances=3'
+      - '--service-account=helm-app-runtime@$PROJECT_ID.iam.gserviceaccount.com'
+      - '--add-cloudsql-instances=$PROJECT_ID:us-central1:helm-db'
+      - '--update-env-vars=PGUSER=helmuser,PGDATABASE=helm_v2,PGHOST=/cloudsql/$PROJECT_ID:us-central1:helm-db'
+      - '--update-secrets=PGPASSWORD=helm-db-password:latest'
 
   # 6c. Preview app: same code built for Google Cloud (NEXT_PUBLIC_HELM_BACKEND=gcp)
   #     against the preview API. Built in parallel with the main image.
