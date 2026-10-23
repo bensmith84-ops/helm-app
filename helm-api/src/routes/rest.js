@@ -39,6 +39,7 @@ function rpcAllowed(req, res, next) {
 }
 
 function claimsFor(req) {
+  if (req.anon) return { role: 'anon' };
   const uid = req.helmMember?.profile_id || req.user?.helm_user?.uid || null;
   if (!uid) return null;
   return { sub: uid, role: 'authenticated', aud: 'authenticated', email: req.firebase?.email || req.user?.helm_user?.email || null };
@@ -54,10 +55,11 @@ async function rlsClient(pool, req) {
   if (!claims) { client.release(); const e = new Error('no Helm profile bound to this sign-in'); e.status = 403; throw e; }
   try {
     await client.query('BEGIN');
-    await client.query('SET LOCAL ROLE authenticated');
+    const role = claims.role === 'anon' ? 'anon' : 'authenticated';
+    await client.query(`SET LOCAL ROLE ${role}`);
     await client.query(
-      "SELECT set_config('request.jwt.claims', $1, true), set_config('request.jwt.claim.sub', $2, true), set_config('request.jwt.claim.role', 'authenticated', true), set_config('request.jwt.claim.email', $3, true)",
-      [JSON.stringify(claims), claims.sub, claims.email || '']
+      "SELECT set_config('request.jwt.claims', $1, true), set_config('request.jwt.claim.sub', $2, true), set_config('request.jwt.claim.role', $3, true), set_config('request.jwt.claim.email', $4, true)",
+      [JSON.stringify(claims), claims.sub || '', role, claims.email || '']
     );
   } catch (e) { try { await client.query('ROLLBACK'); } catch {} client.release(); throw e; }
   return {
@@ -67,7 +69,13 @@ async function rlsClient(pool, req) {
   };
 }
 
-module.exports = Object.assign(function(app, { requireAuth, pool }) {
+module.exports = Object.assign(function(app, { requireAuth: requireFirebase, pool }) {
+  // Anonymous requests (no token) were admitted by the auth gate as req.anon and
+  // run as the anon role under RLS; they only work with REST_ENFORCE_RLS on.
+  const requireAuth = (req, res, next) => {
+    if (req.anon) return ENFORCE_RLS ? next() : res.status(401).json({ code: 'PGRST301', message: 'sign-in required' });
+    return requireFirebase(req, res, next);
+  };
 
   const handleSelect = async (req, res) => {
     const { table } = req.params;

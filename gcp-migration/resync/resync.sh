@@ -91,23 +91,37 @@ CREATE TABLE IF NOT EXISTS auth.users (
   is_anonymous boolean NOT NULL DEFAULT false
 );
 CREATE INDEX IF NOT EXISTS users_email_idx ON auth.users (lower(email));
+CREATE TABLE IF NOT EXISTS auth.identities (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  provider_id text NOT NULL,
+  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  identity_data jsonb NOT NULL DEFAULT '{}'::jsonb,
+  provider text NOT NULL,
+  last_sign_in_at timestamptz,
+  created_at timestamptz,
+  updated_at timestamptz,
+  email text
+);
+CREATE INDEX IF NOT EXISTS identities_user_id_idx ON auth.identities (user_id);
 SQL
 
 log "4/8 Supabase public schema (tables, types, functions)"
-supa_dump --section=pre-data -n public --no-owner --no-privileges | cs "$TARGET_DB" 2>>"$ERR"
+supa_dump --section=pre-data -n public --no-owner | cs "$TARGET_DB" 2>>"$ERR"
 
 log "5/8 Supabase public data (streamed)"
 supa_dump --section=data -n public --no-owner --no-privileges | cs "$TARGET_DB" 2>>"$ERR"
 
-log "6/8 Supabase auth.users"
-TCOLS=$(cs "$TARGET_DB" -Atc "select string_agg(column_name, ' ') from information_schema.columns where table_schema='auth' and table_name='users' and is_generated='NEVER'")
-SCOLS=$(supa -Atc "select string_agg(column_name, ' ') from information_schema.columns where table_schema='auth' and table_name='users' and is_generated='NEVER'")
-COLS=$(comm -12 <(tr ' ' '\n' <<<"$TCOLS" | sort) <(tr ' ' '\n' <<<"$SCOLS" | sort) | sed 's/.*/"&"/' | paste -sd, -)
-if [[ -n "$COLS" ]]; then
-  supa -c "\\copy (select $COLS from auth.users) to stdout" | cs "$TARGET_DB" -c "\\copy auth.users($COLS) from stdin" 2>>"$ERR" && log "   auth.users columns: $COLS"
-else
-  log "   no auth.users table in shim; skipping (FKs to auth.users will be listed as errors)"
-fi
+log "6/8 Supabase auth.users and auth.identities"
+for T in users identities; do
+  TCOLS=$(cs "$TARGET_DB" -Atc "select string_agg(column_name, ' ') from information_schema.columns where table_schema='auth' and table_name='$T' and is_generated='NEVER'")
+  SCOLS=$(supa -Atc "select string_agg(column_name, ' ') from information_schema.columns where table_schema='auth' and table_name='$T' and is_generated='NEVER'")
+  COLS=$(comm -12 <(tr ' ' '\n' <<<"$TCOLS" | sort) <(tr ' ' '\n' <<<"$SCOLS" | sort) | sed 's/.*/"&"/' | paste -sd, -)
+  if [[ -n "$COLS" ]]; then
+    supa -c "\\copy (select $COLS from auth.$T) to stdout" | cs "$TARGET_DB" -c "\\copy auth.$T($COLS) from stdin" 2>>"$ERR" && log "   auth.$T: $(cs "$TARGET_DB" -Atc "select count(*) from auth.$T") rows"
+  else
+    log "   auth.$T: no matching columns; skipped"
+  fi
+done
 # Full export kept privately for the Firebase sign-in import (password hashes
 # are bcrypt; never exposed through the API).
 cs "$TARGET_DB" -c "CREATE TABLE _migration.supabase_auth_users (id uuid primary key, email text, encrypted_password text, email_confirmed_at timestamptz, last_sign_in_at timestamptz, created_at timestamptz, providers text, raw_user_meta_data jsonb, raw_app_meta_data jsonb)" 2>>"$ERR"
@@ -115,17 +129,11 @@ supa -c "\\copy (select u.id, u.email, u.encrypted_password, u.email_confirmed_a
   cs "$TARGET_DB" -c "\\copy _migration.supabase_auth_users from stdin" 2>>"$ERR"
 
 log "7/8 constraints, indexes, triggers, policies"
-supa_dump --section=post-data -n public --no-owner --no-privileges | cs "$TARGET_DB" 2>>"$ERR"
+supa_dump --section=post-data -n public --no-owner | cs "$TARGET_DB" 2>>"$ERR"
 
-log "8/8 grants (same as helm-api migrations 003/004)"
+log "8/8 grants: Supabase's own GRANTs came with the schema; add schema usage and lock _migration"
 cs "$TARGET_DB" 2>>"$ERR" <<'SQL'
 GRANT USAGE ON SCHEMA public, auth, extensions TO authenticated, anon;
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO authenticated;
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO authenticated;
-GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO authenticated;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO authenticated;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO authenticated;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO authenticated;
 REVOKE ALL ON SCHEMA _migration FROM PUBLIC;
 SQL
 
@@ -141,7 +149,7 @@ while read -r t; do
   [[ "$a" != "$b" ]] && MISMATCH=$((MISMATCH+1))
   cs "$SRC_DB" -c "insert into _resync_report (run_id, kind, name, supabase, target) values ('$RUN_ID', 'table', \$q\$$t\$q\$, $a, $b)" 2>/dev/null
 done < "$W/tables"
-sed -i -e '/transaction_timeout/d' -e '/schema "\(public\|auth\|extensions\|_migration\)" already exists/d' "$ERR"
+sed -i -e '/role "\(supabase_[a-z_]*\|dashboard_user\|pgbouncer\|authenticator\|supabase_auth_admin\|supabase_storage_admin\)" does not exist/d' -e '/transaction_timeout/d' -e '/schema "\(public\|auth\|extensions\|_migration\)" already exists/d' "$ERR"
 NERR=$(grep -c 'ERROR:' "$ERR" || true)
 grep 'ERROR:' "$ERR" | sed 's/^psql:[^:]*:[0-9]*: //' | sort | uniq -c | sort -rn | head -200 |
 while read -r cnt msg; do
