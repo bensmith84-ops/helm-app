@@ -149,11 +149,23 @@ const DATASETS = [
            WHERE started_at > now() - interval '14 days' AND $1::text IS NOT NULL
            ORDER BY started_at DESC LIMIT 2000`,
   },
+  // Latest Supabase -> Cloud SQL copy: per-table row counts and restore errors.
+  {
+    tab: 'resync_report',
+    fresh: 'at',
+    sql: `SELECT run_id, kind, name, supabase, target,
+                 CASE WHEN kind = 'table' THEN (supabase = target)::text ELSE '' END AS match,
+                 left(coalesce(detail, ''), 500) AS detail, at::text AS at
+            FROM _resync_report
+           WHERE run_id = (SELECT max(run_id) FROM _resync_report) AND $1::text IS NOT NULL
+           ORDER BY CASE kind WHEN 'summary' THEN 0 WHEN 'error' THEN 1 ELSE 2 END, (supabase = target), name`,
+  },
   // Cutover readiness: schema metadata only (no row data). Shows whether the
   // RLS roles exist, which migrations applied, and per-table RLS/grant status.
   {
     tab: 'db_readiness',
     fresh: 'checked_at',
+    first: true,
     sql: `SELECT 'role' AS kind, r.rolname AS name,
                  pg_has_role(current_user, r.oid, 'MEMBER')::text AS a,
                  r.rolbypassrls::text AS b, ''::text AS c, now()::text AS checked_at
@@ -174,6 +186,10 @@ const DATASETS = [
                  now()::text
             FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
            WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p')
+          UNION ALL
+          SELECT 'resync_' || kind, name, coalesce(supabase::text, ''), coalesce(target::text, ''),
+                 left(coalesce(detail, ''), 300), at::text
+            FROM _resync_report WHERE run_id = (SELECT max(run_id) FROM _resync_report)
            ORDER BY 1, 2`,
   },
 ];
@@ -322,8 +338,10 @@ async function runExport(pool, { sheetId, orgId, token, only, now = Date.now }) 
     await gapi(token, 'POST', `${SHEETS}/${sheetId}:batchUpdate`, {
       requests: ready.map(({ ds, out }) => ({
         updateSheetProperties: {
-          properties: { sheetId: ids[ds.tab], gridProperties: { rowCount: Math.max(out.values.length, 2), columnCount: Math.max(out.cols, 1), frozenRowCount: 1 } },
-          fields: 'gridProperties(rowCount,columnCount,frozenRowCount)',
+          // ds.first pins the tab to position 0, so a plain CSV export of the
+          // spreadsheet (which returns only the first tab) returns it.
+          properties: { sheetId: ids[ds.tab], ...(ds.first ? { index: 0 } : {}), gridProperties: { rowCount: Math.max(out.values.length, 2), columnCount: Math.max(out.cols, 1), frozenRowCount: 1 } },
+          fields: 'gridProperties(rowCount,columnCount,frozenRowCount)' + (ds.first ? ',index' : ''),
         },
       })),
     });
