@@ -51,6 +51,14 @@ app.use(express.json({ limit: '10mb' }));
 
 app.get('/health', (_req, res) => res.json({ ok: true, ts: new Date().toISOString() }));
 
+// Supabase-compatible URL aliases: supabase-js calls <base>/functions/v1/<name>;
+// helm-api serves functions at /<name>. Rewrite before the gate so the gate
+// classifies the real route.
+app.use((req, _res, next) => {
+  if (req.url.startsWith('/functions/v1/')) req.url = req.url.slice('/functions/v1'.length);
+  next();
+});
+
 // Default-deny gate in front of every route below (see lib/auth-gate.js).
 const { authGate } = require('./lib/auth-gate');
 app.use(authGate({ pool, verifyIdToken: (t) => admin.auth().verifyIdToken(t) }));
@@ -138,6 +146,7 @@ require('./routes/ai-deploy')(app, helpers);
 require('./routes/plm-ai')(app, helpers);
 require('./routes/metabase-sync')(app, helpers);
 require('./routes/rest')(app, helpers);
+require('./routes/storage')(app, helpers);
 require('./routes/plm-advisor')(app, helpers);
 require('./routes/doc-ai')(app, helpers);
 require('./routes/fin-analyze')(app, helpers);

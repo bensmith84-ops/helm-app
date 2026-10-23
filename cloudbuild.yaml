@@ -106,6 +106,32 @@ steps:
       - '--update-env-vars=FIREBASE_PROJECT_ID=$PROJECT_ID,PGUSER=helmuser,PGDATABASE=helm,PGHOST=/cloudsql/$PROJECT_ID:us-central1:helm-db,HELM_MIRROR_SHEET_ID=1lnrkd7oSq7TAtw0hN-5lavrqx97tjll9OMNQT062iG4'
       - '--update-secrets=PGPASSWORD=helm-db-password:latest,ANTHROPIC_API_KEY=anthropic-api-key:latest,SLACK_BOT_TOKEN=slack-bot-token:latest'
 
+  # 6b. Preview API on the fresh copy (helm_v2): same image, Supabase-compatible
+  #     data and storage routes fully open under RLS. Used by the preview app to
+  #     test the cutover; the production helm-api above is unchanged.
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: api-preview
+    allowFailure: true
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'helm-api-preview'
+      - '--image=us-central1-docker.pkg.dev/$PROJECT_ID/helm/helm-api:$SHORT_SHA'
+      - '--region=us-central1'
+      - '--platform=managed'
+      - '--allow-unauthenticated'
+      - '--port=8080'
+      - '--memory=512Mi'
+      - '--cpu=1'
+      - '--min-instances=0'
+      - '--max-instances=3'
+      - '--timeout=900s'
+      - '--service-account=helm-app-runtime@$PROJECT_ID.iam.gserviceaccount.com'
+      - '--add-cloudsql-instances=$PROJECT_ID:us-central1:helm-db'
+      - '--update-env-vars=FIREBASE_PROJECT_ID=$PROJECT_ID,PGUSER=helmuser,PGDATABASE=helm_v2,PGHOST=/cloudsql/$PROJECT_ID:us-central1:helm-db,REST_ENFORCE_RLS=true,REST_ALLOWED_TABLES=*,REST_ALLOWED_RPCS=*,HELM_PREVIEW=true'
+      - '--update-secrets=PGPASSWORD=helm-db-password:latest,ANTHROPIC_API_KEY=anthropic-api-key:latest'
+
   # 7. Build and register the Supabase -> Cloud SQL copy job (run on demand from
   #    the Cloud Run Jobs console; never executed by this build). allowFailure
   #    so the app deploy above is never blocked by it, e.g. before the

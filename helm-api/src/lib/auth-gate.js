@@ -13,6 +13,14 @@
 //               127.0.0.1 inside the container.
 //   admin     - user / permission management and credential storage:
 //               Firebase login + active membership with role owner or admin
+//   signedin  - /auth/bind and /whoami: any verified Firebase token (binding is
+//               how a sign-in becomes a Helm profile, so it can't need one yet;
+//               /auth/bind does its own email-verification checks)
+//   data      - /rest/v1 and /storage/v1 (the Supabase-compatible shims). With a
+//               token: any bound Helm profile, including external collaborators,
+//               because row-level security decides what they see. Without a
+//               token: passed through as anon (RLS as the anon role, public
+//               file reads only), matching Supabase's public anon key.
 //   member    - everything else: Firebase login bound to a Helm profile
 //               (profiles.firebase_uid) with an active org membership.
 //
@@ -39,6 +47,9 @@ const PUBLIC = [
   ['GET', '/gmail-scan'],            // OAuth redirect from Google (code exchange)
 ];
 
+const SIGNED_IN = ['/auth/bind', '/whoami'];
+const DATA_PREFIXES = ['/rest/v1/', '/storage/v1/'];
+
 const ADMIN = [
   '/remove-user', '/invite-user', '/invite-external-collaborator',
   '/manage-user', '/shopify-store-token', '/ai-deploy',
@@ -51,6 +62,8 @@ function classify(method, path) {
     if (hit && (m === '*' || m === method)) return 'public';
   }
   if (ADMIN.includes(p)) return 'admin';
+  if (SIGNED_IN.includes(p)) return 'signedin';
+  if (DATA_PREFIXES.some((d) => (p + '/').startsWith(d))) return 'data';
   return 'member';
 }
 
@@ -73,9 +86,24 @@ async function resolveMember(pool, firebaseUid) {
   return rows[0];
 }
 
-function authGate({ pool, verifyIdToken, mode = process.env.AUTH_GATE_MODE || 'enforce' }) {
+// Any Helm profile bound to this sign-in, member or external collaborator.
+async function resolveProfile(pool, firebaseUid) {
+  const { rows } = await pool.query(
+    `SELECT id AS profile_id, coalesce(is_external, false) AS is_external FROM profiles WHERE firebase_uid = $1 LIMIT 1`,
+    [firebaseUid]
+  );
+  return rows[0] || null;
+}
+
+// On the preview API (HELM_PREVIEW=true, running on a copy of live data), block
+// everything that talks to the outside world: syncing QuickBooks would rotate
+// the live refresh token, and Slack/email routes would message real people.
+const PREVIEW_BLOCK = /^\/(qbo-|shopify-|slack-|cx-email|cx-export|gmail-|send-invite|invite-|ramp-|sheets-|google-docs|meta-social|tiktok-|asana-|call-manager|livekit|esign|scorecard-auto-calc|cron|data-mirror|admin\/)/;
+
+function authGate({ pool, verifyIdToken, mode = process.env.AUTH_GATE_MODE || 'enforce', preview = process.env.HELM_PREVIEW === 'true' }) {
   return async function gate(req, res, next) {
     if (req.method === 'OPTIONS') return next(); // CORS preflight
+    if (preview && PREVIEW_BLOCK.test(req.path)) return res.status(503).json({ error: 'disabled_in_preview', path: req.path });
     const cls = classify(req.method, req.path);
     if (cls === 'public' || isInternal(req)) return next();
 
@@ -87,9 +115,21 @@ function authGate({ pool, verifyIdToken, mode = process.env.AUTH_GATE_MODE || 'e
 
     const auth = req.headers.authorization || '';
     const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
+    if (!token && cls === 'data') { req.anon = true; return next(); }
     if (!token) return deny(401, 'missing_token');
     let decoded;
     try { decoded = await verifyIdToken(token); } catch { return deny(401, 'invalid_token'); }
+    if (cls === 'signedin') { req.firebaseGate = decoded; return next(); }
+    if (cls === 'data') {
+      let prof;
+      try { prof = await resolveProfile(pool, decoded.sub); } catch (e) {
+        console.error('[auth-gate] profile lookup failed:', e.message);
+        return deny(503, 'membership_lookup_failed');
+      }
+      if (!prof) return deny(403, 'not_a_helm_member');
+      req.helmMember = { profile_id: prof.profile_id, role: prof.is_external ? 'external' : 'profile', is_external: prof.is_external };
+      return next();
+    }
 
     let member;
     try { member = await resolveMember(pool, decoded.sub); } catch (e) {
@@ -104,4 +144,4 @@ function authGate({ pool, verifyIdToken, mode = process.env.AUTH_GATE_MODE || 'e
   };
 }
 
-module.exports = { authGate, classify, isInternal, resolveMember, ROLE_LEVEL, PUBLIC, ADMIN };
+module.exports = { PREVIEW_BLOCK, authGate, classify, isInternal, resolveMember, resolveProfile, SIGNED_IN, DATA_PREFIXES, ROLE_LEVEL, PUBLIC, ADMIN };
