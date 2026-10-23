@@ -46,4 +46,16 @@ function loadServiceAccount() {
   return JSON.parse(raw);
 }
 
-module.exports = { getGoogleAccessToken, loadServiceAccount, base64url };
+// Google API token: from GOOGLE_SERVICE_ACCOUNT if set, otherwise keyless from
+// the Cloud Run service account (metadata server). The keyless path needs the
+// resource (e.g. a Sheet) shared with helm-app-runtime@helm-496923.iam.gserviceaccount.com.
+async function googleToken(scope = 'https://www.googleapis.com/auth/spreadsheets.readonly', { fetchImpl = fetch } = {}) {
+  if ((process.env.GOOGLE_SERVICE_ACCOUNT || '').trim()) return getGoogleAccessToken(loadServiceAccount(), scope);
+  const r = await fetchImpl(`http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token?scopes=${encodeURIComponent(scope)}`, { headers: { 'Metadata-Flavor': 'Google' } });
+  if (!r.ok) throw new Error(`metadata token ${r.status}`);
+  const d = await r.json();
+  if (!d.access_token) throw new Error('metadata server returned no access_token');
+  return d.access_token;
+}
+
+module.exports = { getGoogleAccessToken, loadServiceAccount, googleToken, base64url };

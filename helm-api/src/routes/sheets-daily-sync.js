@@ -3,7 +3,7 @@
 // Daily scoreboard pull. METRIC_MAP defines header → metric_key mapping.
 // COMPOSITES roll up multi-column metrics (gwp_cpa, sub_rate, etc.).
 // Calls upsert_scoreboard_daily RPC.
-const { getGoogleAccessToken, loadServiceAccount } = require('../lib/google-jwt');
+const { googleToken } = require('../lib/google-jwt');
 
 const SHEET_ID = '1qILvVIq_jLmoPUq7YTErQtaSc0ZQEZj65os1GKQh87A';
 const TAB_NAME = 'Earth Breeze Hydrogen';
@@ -196,8 +196,7 @@ function parseRowDate(s) {
 module.exports = function(app, { pool }) {
   app.post('/sheets-daily-sync', async (req, res) => {
     try {
-      const sa = loadServiceAccount();
-      const token = await getGoogleAccessToken(sa);
+      const token = await googleToken();
 
       const r = await fetch(
         `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${encodeURIComponent(`'${TAB_NAME}'!A1:FZ400`)}?valueRenderOption=FORMATTED_VALUE`,

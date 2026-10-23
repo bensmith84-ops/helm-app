@@ -2,7 +2,7 @@
 // POST /sheets-sync - port of supabase/functions/sheets-sync
 // Monthly P&L roll-up. Detects year boundaries (months reset Dec → Jan).
 // Upserts okr_financial_metrics + okr_financial_monthly.
-const { getGoogleAccessToken, loadServiceAccount } = require('../lib/google-jwt');
+const { googleToken } = require('../lib/google-jwt');
 
 const SHEET_ID = '1qILvVIq_jLmoPUq7YTErQtaSc0ZQEZj65os1GKQh87A';
 const TAB_NAME = 'Earth Breeze Hydrogen';
@@ -28,8 +28,7 @@ function parseMoney(s) {
 module.exports = function(app, { pool }) {
   app.post('/sheets-sync', async (req, res) => {
     try {
-      const sa = loadServiceAccount();
-      const token = await getGoogleAccessToken(sa);
+      const token = await googleToken();
 
       const range = encodeURIComponent(`'${TAB_NAME}'!A1:FG200`);
       const r = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${range}`, {

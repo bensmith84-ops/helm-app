@@ -99,7 +99,8 @@ async function resolveProfile(pool, firebaseUid) {
 // On the preview API (HELM_PREVIEW=true, running on a copy of live data), block
 // everything that talks to the outside world: syncing QuickBooks would rotate
 // the live refresh token, and Slack/email routes would message real people.
-const PREVIEW_BLOCK = /^\/(qbo-|shopify-|slack-|cx-email|cx-export|gmail-|send-invite|invite-|ramp-|sheets-|google-docs|meta-social|tiktok-|asana-|call-manager|livekit|esign|scorecard-auto-calc|cron|data-mirror|admin\/)/;
+// (Sheets syncs are allowed: they only read the sheet and write the copy.)
+const PREVIEW_BLOCK = /^\/(qbo-|shopify-|slack-|cx-email|cx-export|gmail-|send-invite|invite-|ramp-|google-docs|meta-social|tiktok-|asana-|call-manager|livekit|esign|scorecard-auto-calc|cron|data-mirror|admin\/)/;
 
 function authGate({ pool, verifyIdToken, mode = process.env.AUTH_GATE_MODE || 'enforce', preview = process.env.HELM_PREVIEW === 'true' }) {
   return async function gate(req, res, next) {
