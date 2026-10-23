@@ -53,6 +53,7 @@ const DATA_PREFIXES = ['/rest/v1/', '/storage/v1/'];
 const ADMIN = [
   '/remove-user', '/invite-user', '/invite-external-collaborator',
   '/manage-user', '/shopify-store-token', '/ai-deploy',
+  '/admin/import-auth-users',
 ];
 
 function classify(method, path) {
@@ -103,7 +104,7 @@ const PREVIEW_BLOCK = /^\/(qbo-|shopify-|slack-|cx-email|cx-export|gmail-|send-i
 function authGate({ pool, verifyIdToken, mode = process.env.AUTH_GATE_MODE || 'enforce', preview = process.env.HELM_PREVIEW === 'true' }) {
   return async function gate(req, res, next) {
     if (req.method === 'OPTIONS') return next(); // CORS preflight
-    if (preview && PREVIEW_BLOCK.test(req.path)) return res.status(503).json({ error: 'disabled_in_preview', path: req.path });
+    if (preview && PREVIEW_BLOCK.test(req.path) && req.path !== '/admin/import-auth-users') return res.status(503).json({ error: 'disabled_in_preview', path: req.path });
     const cls = classify(req.method, req.path);
     if (cls === 'public' || isInternal(req)) return next();
 
