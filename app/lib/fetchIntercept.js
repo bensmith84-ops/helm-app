@@ -14,6 +14,7 @@
 
 import { getCurrentIdToken, onAuthStateChanged } from "./firebase";
 import { USE_HELM_API } from "./helmApi";
+import { IS_GCP } from "./backend";
 
 const HELM_API_BASE =
   process.env.NEXT_PUBLIC_HELM_API_URL ||
@@ -48,10 +49,19 @@ const FUNCTIONS_DENYLIST = new Set([
 ]);
 const POSTGREST_RE = /^https?:\/\/[^/]+\.supabase\.co\/rest\/v1\/([^?/]+)(\?.*)?$/;
 
+// On Google Cloud every hardcoded Supabase URL (functions, data, files) goes to
+// helm-api's Supabase-compatible routes; nothing is left on Supabase.
+const ANY_SUPABASE_RE = /^https?:\/\/[^/]+\.supabase\.co\/((?:functions|rest|storage)\/v1\/.*)$/;
+
 function shouldIntercept(url) {
-  if (!USE_HELM_API) return null;
+  if (!USE_HELM_API && !IS_GCP) return null;
   if (typeof url !== "string") {
     try { url = url.toString(); } catch { return null; }
+  }
+  if (IS_GCP) {
+    const am = url.match(ANY_SUPABASE_RE);
+    if (!am) return null;
+    return { kind: am[1].split("/")[0], target: `${HELM_API_BASE}/${am[1]}` };
   }
   const fm = url.match(FUNCTIONS_RE);
   if (fm) {

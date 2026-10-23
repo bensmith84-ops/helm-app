@@ -3,6 +3,7 @@ import { useState } from "react";
 import { T } from "../tokens";
 import { useAuth } from "../lib/auth";
 import { supabase } from "../lib/supabase";
+import { IS_GCP } from "../lib/backend";
 
 export default function AuthPage() {
   const { signIn, signUp } = useAuth();
@@ -38,7 +39,23 @@ export default function AuthPage() {
       },
     });
     if (err) { setError(err.message); setLoading(false); }
-    // If successful, browser redirects to Google - no need to setLoading(false)
+    // Supabase: the browser redirects to Google. Google Cloud: a popup, after
+    // which the signed-in app replaces this page.
+    else if (IS_GCP) setLoading(false);
+  };
+
+  // Google Cloud only: Firebase password-reset email.
+  const handleForgot = async () => {
+    setError(""); setSuccess("");
+    if (!email) { setError("Enter your email above first."); return; }
+    setLoading(true);
+    try {
+      const { getFirebaseAuth } = await import("../lib/firebase");
+      const { sendPasswordResetEmail } = await import("firebase/auth");
+      await sendPasswordResetEmail(getFirebaseAuth(), email);
+      setSuccess("If that address has a Helm account, a reset link is on its way.");
+    } catch (e) { setSuccess("If that address has a Helm account, a reset link is on its way."); }
+    setLoading(false);
   };
 
   const dividerStyle = { display: "flex", alignItems: "center", gap: 12, margin: "20px 0" };
@@ -105,6 +122,15 @@ export default function AuthPage() {
           </button>
         </form>
 
+        {IS_GCP ? (
+        <div style={{ textAlign: "center", fontSize: 13, color: T.text3 }}>
+          <button onClick={handleForgot} disabled={loading}
+            style={{ background: "none", border: "none", color: T.accent, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>
+            Forgot password?
+          </button>
+          <div style={{ marginTop: 8 }}>New to Helm? Ask an admin to invite you.</div>
+        </div>
+        ) : (
         <div style={{ textAlign: "center", fontSize: 13, color: T.text3 }}>
           {mode === "signin" ? "Don\u0027t have an account? " : "Already have an account? "}
           <button onClick={() => { setMode(mode === "signin" ? "signup" : "signin"); setError(""); setSuccess(""); }}
@@ -112,6 +138,7 @@ export default function AuthPage() {
             {mode === "signin" ? "Sign up" : "Sign in"}
           </button>
         </div>
+        )}
       </div>
     </div>
   );
