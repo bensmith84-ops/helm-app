@@ -1,7 +1,7 @@
 
 // /sheets-explore - port of supabase/functions/sheets-explore
 // Debug: returns row 1 (headers) + first 6 rows of first 26 columns.
-const { getGoogleAccessToken, loadServiceAccount } = require('../lib/google-jwt');
+const { googleToken } = require('../lib/google-jwt');
 
 const SHEET_ID = '1qILvVIq_jLmoPUq7YTErQtaSc0ZQEZj65os1GKQh87A';
 const TAB_NAME = 'Earth Breeze Hydrogen';
@@ -9,8 +9,7 @@ const TAB_NAME = 'Earth Breeze Hydrogen';
 module.exports = function(app) {
   const handler = async (req, res) => {
     try {
-      const sa = loadServiceAccount();
-      const token = await getGoogleAccessToken(sa);
+      const token = await googleToken();
 
       const r1 = await fetch(
         `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${encodeURIComponent(`'${TAB_NAME}'!1:1`)}`,

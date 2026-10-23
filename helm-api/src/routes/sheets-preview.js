@@ -1,7 +1,7 @@
 
 // GET /sheets-preview - port of supabase/functions/sheets-preview
 // Returns header row inspection from the financial scoreboard sheet.
-const { getGoogleAccessToken, loadServiceAccount } = require('../lib/google-jwt');
+const { googleToken } = require('../lib/google-jwt');
 
 const SHEET_ID = '1qILvVIq_jLmoPUq7YTErQtaSc0ZQEZj65os1GKQh87A';
 const TAB_NAME = 'Earth Breeze Hydrogen';
@@ -21,8 +21,7 @@ module.exports = function(app) {
   // Original was GET-style (no body needed); accept both
   const handler = async (req, res) => {
     try {
-      const sa = loadServiceAccount();
-      const token = await getGoogleAccessToken(sa);
+      const token = await googleToken();
       const range = encodeURIComponent(`'${TAB_NAME}'!A1:FJ1`);
       const r = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${range}`, {
         headers: { Authorization: `Bearer ${token}` },
