@@ -45,6 +45,7 @@ const PUBLIC = [
   ['GET', '/qbo-callback'],          // OAuth redirect from Intuit
   ['GET', '/shopify-callback'],      // OAuth redirect from Shopify
   ['GET', '/gmail-scan'],            // OAuth redirect from Google (code exchange)
+  ['POST', '/rd-advisor'],           // own auth: Firebase or Supabase session + active membership
 ];
 
 const SIGNED_IN = ['/auth/bind', '/whoami'];

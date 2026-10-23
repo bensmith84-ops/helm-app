@@ -1,4 +1,5 @@
 "use client";
+import { HELM_API_BASE } from "../lib/backend";
 import { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
@@ -58,6 +59,7 @@ function PriorityBadge({ priority }) {
   const color = PRIORITY_COLORS[priority] || "#8b93a8";
   return <span style={{ fontSize:10, fontWeight:700, padding:"2px 7px", borderRadius:4, background:color+"22", color, letterSpacing:0.3 }}>{(priority||"-").toUpperCase()}</span>;
 }
+const escHtml = (v) => String(v || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 // Shared: render manufacturing instructions with markdown formatting
 function FormatMfgInstructions({ text }) {
   if (!text) return null;
@@ -70,16 +72,16 @@ function FormatMfgInstructions({ text }) {
     if (numMatch) return (
       <div key={i} style={{ display: "flex", gap: 8, marginBottom: 4, padding: "4px 0" }}>
         <span style={{ minWidth: 22, height: 22, borderRadius: 11, background: T.accent + "15", color: T.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, flexShrink: 0, marginTop: 1 }}>{numMatch[1]}</span>
-        <span style={{ fontSize: 12, color: T.text, lineHeight: 1.6 }} dangerouslySetInnerHTML={{ __html: numMatch[2].replace(/\*\*(.*?)\*\*/g, '<strong style="color:'+T.text+'">$1</strong>').replace(/\*(.*?)\*/g, '<em>$1</em>') }} />
+        <span style={{ fontSize: 12, color: T.text, lineHeight: 1.6 }} dangerouslySetInnerHTML={{ __html: escHtml(numMatch[2]).replace(/\*\*(.*?)\*\*/g, '<strong style="color:'+T.text+'">$1</strong>').replace(/\*(.*?)\*/g, '<em>$1</em>') }} />
       </div>
     );
     if (t.startsWith("- ") || t.startsWith("• ")) return (
       <div key={i} style={{ display: "flex", gap: 8, marginBottom: 2, paddingLeft: 4 }}>
         <span style={{ color: T.accent, fontWeight: 700, fontSize: 10, marginTop: 4 }}>•</span>
-        <span style={{ fontSize: 12, color: T.text2, lineHeight: 1.6 }} dangerouslySetInnerHTML={{ __html: t.slice(2).replace(/\*\*(.*?)\*\*/g, '<strong style="color:'+T.text+'">$1</strong>') }} />
+        <span style={{ fontSize: 12, color: T.text2, lineHeight: 1.6 }} dangerouslySetInnerHTML={{ __html: escHtml(t.slice(2)).replace(/\*\*(.*?)\*\*/g, '<strong style="color:'+T.text+'">$1</strong>') }} />
       </div>
     );
-    return <div key={i} style={{ fontSize: 12, color: T.text2, lineHeight: 1.6 }} dangerouslySetInnerHTML={{ __html: t.replace(/\*\*(.*?)\*\*/g, '<strong style="color:'+T.text+'">$1</strong>') }} />;
+    return <div key={i} style={{ fontSize: 12, color: T.text2, lineHeight: 1.6 }} dangerouslySetInnerHTML={{ __html: escHtml(t).replace(/\*\*(.*?)\*\*/g, '<strong style="color:'+T.text+'">$1</strong>') }} />;
   });
 }
 
@@ -2577,12 +2579,13 @@ function renderMarkdown(text) {
     const line = lines[i];
 
     // Table detection: line starts with | and next line has |---|
-    if (line.trim().startsWith("|") && i + 1 < lines.length && /^\|[\s-:|]+\|/.test(lines[i + 1]?.trim())) {
+    if (line.trim().startsWith("|") && i + 1 < lines.length && /^\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?$/.test(lines[i + 1]?.trim() || "")) {
       const tableLines = [];
       let j = i;
       while (j < lines.length && lines[j].trim().startsWith("|")) { tableLines.push(lines[j]); j++; }
-      const headers = tableLines[0].split("|").filter(c => c.trim()).map(c => c.trim());
-      const rows = tableLines.slice(2).map(r => r.split("|").filter(c => c.trim()).map(c => c.trim()));
+      const cells = (r) => { const t = r.trim().replace(/^\|/, "").replace(/\|$/, ""); return t.split("|").map(c => c.trim()); };
+      const headers = cells(tableLines[0]);
+      const rows = tableLines.slice(2).map(cells);
       elements.push(
         <div key={`t${i}`} style={{ overflowX: "auto", margin: "8px 0" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
@@ -2663,7 +2666,8 @@ function inlineMd(text) {
     .replace(/`([^`]+)`/g, `<code style="background:${T.surface3};padding:1px 4px;border-radius:3px;font-size:11px;font-family:monospace">$1</code>`)
     .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
     .replace(/\*(.+?)\*/g, "<em>$1</em>")
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, `<a href="$2" target="_blank" style="color:${T.accent};text-decoration:underline">$1</a>`);
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s"]+)\)/g, `<a href="$2" target="_blank" rel="noopener noreferrer" style="color:${T.accent};text-decoration:underline">$1</a>`)
+    .replace(/(^|[\s(])(https?:\/\/[^\s<)"]+)/g, `$1<a href="$2" target="_blank" rel="noopener noreferrer" style="color:${T.accent};text-decoration:underline;word-break:break-all">$2</a>`);
 }
 
 function AIAgentTab({ program }) {
@@ -2727,12 +2731,13 @@ function AIAgentTab({ program }) {
         setLoading(false);
         return;
       }
-      const res = await fetch("https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/plm-ai", {
+      // R&D Advisor v2 runs on helm-api (Google Cloud) for both backends: it
+      // verifies this session token itself and reads data as this user.
+      const res = await fetch(`${HELM_API_BASE}/rd-advisor`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`,
-          "apikey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVwYmpkbW55a2hldWJ4a3VrbnVqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxNDI3OTcsImV4cCI6MjA4NzcxODc5N30.pvTTkiZWNDPuo-Fdzm54uy8w1mlx0AjB5jtFm3MeGq4",
         },
         body: JSON.stringify({
           question: userMsg,
@@ -2890,7 +2895,7 @@ function AIAgentTab({ program }) {
               <div style={{ width: 28, height: 28, borderRadius: 14, background: "#a855f720", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12 }}>{"\uD83E\uDDEA"}</div>
               <div style={{ padding: "10px 14px", borderRadius: 12, background: T.surface2, border: `1px solid ${T.border}` }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ fontSize: 13, color: T.text3 }}>Consulting the panel</span>
+                  <span style={{ fontSize: 13, color: T.text3 }}>Researching and checking your formulas (web research can take a minute)</span>
                   <span style={{ display: "inline-flex", gap: 3 }}>
                     {[0, 1, 2].map(j => <span key={j} style={{ width: 4, height: 4, borderRadius: 2, background: T.text3, animation: `pulse 1.4s ease-in-out ${j * 0.2}s infinite` }} />)}
                   </span>
