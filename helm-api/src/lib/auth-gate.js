@@ -56,6 +56,7 @@ const ADMIN = [
   '/remove-user', '/invite-user', '/invite-external-collaborator',
   '/manage-user', '/shopify-store-token', '/ai-deploy',
   '/admin/import-auth-users', '/admin/db-inspect',
+  '/warehouse-sync',
 ];
 
 function classify(method, path) {
