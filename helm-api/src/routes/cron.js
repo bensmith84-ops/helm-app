@@ -119,13 +119,24 @@ const JOBS = {
 function mount(app, { pool }) {
   app.post('/cron', async (req, res) => {
     try {
+      // Auth: X-Cron-Secret (older Scheduler jobs) OR a Google-signed OIDC token
+      // from Cloud Scheduler as the Helm runtime account (newer jobs; no secret
+      // to store in the job).
       const provided = (req.headers['x-cron-secret'] || '').trim();
       const expected = (process.env.CRON_SHARED_SECRET || '').trim();
-      if (!expected) {
-        return res.status(500).json({ error: 'CRON_SHARED_SECRET not configured on server' });
+      let authed = !!expected && provided === expected;
+      if (!authed) {
+        const auth = req.headers.authorization || '';
+        if (auth.startsWith('Bearer ')) {
+          const { verifyOidc } = require('./data-mirror-export')._internal;
+          const audience = process.env.CRON_OIDC_AUDIENCE || 'https://helm-api-qp7o2dcl5a-uc.a.run.app/cron';
+          const invokers = (process.env.CRON_OIDC_INVOKERS || 'helm-app-runtime@helm-496923.iam.gserviceaccount.com').toLowerCase().split(',').map((x) => x.trim());
+          const v = await verifyOidc(auth.slice(7), { audience, invokers });
+          authed = v.ok;
+        }
       }
-      if (provided !== expected) {
-        console.warn('[cron] bad secret from', req.headers['x-forwarded-for'] || 'unknown');
+      if (!authed) {
+        console.warn('[cron] unauthorized from', req.headers['x-forwarded-for'] || 'unknown');
         return res.status(401).json({ error: 'Unauthorized' });
       }
 

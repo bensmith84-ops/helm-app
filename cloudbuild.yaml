@@ -207,6 +207,38 @@ steps:
       - '--set-env-vars=PGUSER=helmuser,LIST_DB=helm_v2,GCS_BUCKET=helm-496923-files-private'
       - '--set-secrets=SUPABASE_SERVICE_ROLE_KEY=SUPABASE_SERVICE_ROLE_KEY:latest,PGPASSWORD=helm-db-password:latest'
 
+  # 8. Cloud Scheduler jobs for the database/maintenance work that ran in
+  #    Supabase pg_cron. Created if missing (existing jobs are left as they are); OIDC as the Helm
+  #    runtime account (no secret in the job). allowFailure: never blocks deploys.
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: scheduler-jobs
+    allowFailure: true
+    entrypoint: bash
+    args:
+      - '-c'
+      - |
+        set -u
+        URI=https://helm-api-qp7o2dcl5a-uc.a.run.app/cron
+        SA=helm-app-runtime@$PROJECT_ID.iam.gserviceaccount.com
+        upsert() {
+          local name="$$1" sched="$$2" verb=create
+          if gcloud scheduler jobs describe "$$name" --location=us-central1 >/dev/null 2>&1; then echo "scheduler: $$name exists"; return 0; fi
+          gcloud scheduler jobs create http "$$name" --location=us-central1 --schedule="$$sched" --time-zone=Etc/UTC \
+            --uri="$$URI" --http-method=POST --headers=Content-Type=application/json \
+            --message-body="{\"job\":\"$$name\"}" --oidc-service-account-email="$$SA" --oidc-token-audience="$$URI" \
+            --attempt-deadline=900s && echo "scheduler: $$verb $$name ok" || echo "scheduler: $$verb $$name FAILED"
+        }
+        upsert fin-spend-match-daily '0 6 * * *'
+        upsert cx-wake-snoozed '*/5 * * * *'
+        upsert cx-detect-spikes '0 * * * *'
+        upsert cx-competitor-classify '*/15 * * * *'
+        upsert fin-vendor-spend-refresh '15 * * * *'
+        upsert notifications-prune-daily '0 7 * * *'
+        upsert dp-daily-sync '0 5 * * *'
+        upsert dp-daily-sync-verify '45 5 * * *'
+        upsert notification-dispatch '*/5 * * * *'
+        upsert shopify-backfill-tick '* * * * *'
+
 images:
   - 'us-central1-docker.pkg.dev/$PROJECT_ID/helm/helm-app:$SHORT_SHA'
   - 'us-central1-docker.pkg.dev/$PROJECT_ID/helm/helm-app:latest'
