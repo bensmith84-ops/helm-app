@@ -244,6 +244,7 @@ steps:
         upsert notification-dispatch '*/5 * * * *'
         upsert shopify-backfill-tick '* * * * *'
         upsert warehouse-sync '30 3 * * *' America/New_York
+        upsert sheets-daily-sync '5 4 * * *' America/New_York
 
   # Custom domain (helm.earthbreeze.com): Firebase Hosting forwards every request
   # to the helm-app service. Needs Firebase Hosting Admin on the build account.

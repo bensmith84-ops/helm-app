@@ -1,5 +1,5 @@
 // POST /warehouse-sync - copies curated warehouse tables into Helm.
-//   body.tasks: any of scorecard, inventory, orders, sku_sales, ad_spend (default all); body.since: 'YYYY-MM-DD' (scorecard)
+//   body.tasks: any of scorecard, inventory, orders, sku_sales, ad_spend, erp (default all; erp runs after inventory); body.since: 'YYYY-MM-DD' (scorecard)
 // Runs nightly from /cron (job 'warehouse-sync'); admins can also call it.
 const { mbSqlAll, day } = require('../lib/warehouse');
 
@@ -166,7 +166,92 @@ async function syncAdSpend(pool, { since, fetchImpl }) {
   return { ...w, saved };
 }
 
-const TASKS = { scorecard: syncScorecard, inventory: syncInventory, orders: syncOrders, sku_sales: syncSkuSales, ad_spend: syncAdSpend };
+// ERP: real facilities, SKUs (with Cin7 costs) and stock, from the warehouse copies.
+const ORG = 'a0000000-0000-0000-0000-000000000001';
+const STORD_NAMES = { MEDe001: 'Stord Medford (MEDe001)', CVGs001: 'Stord CVG1 Cincinnati (CVGs001)', RNOs004: 'Stord Reno (RNOs004)', RJWe001: 'RJW via Stord (RJWe001)' };
+// Cin7 locations that duplicate Stord's feed or aren't real stock locations.
+const CIN7_SKIP = /^(US-Stord|US - Stord Reno|RJW D01|RJW Logistics Group|UK-TEST)$|^DNU\b|DO NOT USE/i;
+function facilityFor(source, location) {
+  if (source === 'stord') return { name: STORD_NAMES[location] || `Stord ${location}`, facility_type: '3pl', operator: 'Stord', country: 'US' };
+  const l = location.toLowerCase();
+  const country = /uk |york|\buk\b/.test(l) ? 'GB' : /canad/.test(l) ? 'CA' : /austral|sydney/.test(l) ? 'AU' : 'US';
+  const facility_type = /manufactur|tooling/.test(l) ? 'factory' : /3pl|fulfillment center/.test(l) ? '3pl' : 'warehouse';
+  return { name: location, facility_type, operator: /amazon/.test(l) ? 'Amazon' : 'Cin7', country };
+}
+
+async function syncErp(pool, { fetchImpl }) {
+  // Latest snapshot per source.
+  const { rows: inv } = await pool.query(
+    `SELECT i.* FROM wh_inventory_snapshot i
+       JOIN (SELECT source, max(snapshot_date) d FROM wh_inventory_snapshot GROUP BY source) m ON m.source = i.source AND m.d = i.snapshot_date
+      WHERE i.org_id = $1`, [ORG]);
+  const stock = inv.filter((r) => !(r.source === 'cin7' && CIN7_SKIP.test(r.location)));
+
+  // Facilities
+  const { rows: facs } = await pool.query(`SELECT id, metadata FROM erp_facilities WHERE org_id = $1`, [ORG]);
+  const facBy = new Map(facs.filter((f) => f.metadata?.wh_location).map((f) => [`${f.metadata.wh_source}|${f.metadata.wh_location}`, f.id]));
+  let facAdded = 0;
+  for (const key of new Set(stock.map((r) => `${r.source}|${r.location}`))) {
+    if (facBy.has(key)) continue;
+    const [source, location] = key.split('|');
+    const f = facilityFor(source, location);
+    const { rows: [row] } = await pool.query(
+      `INSERT INTO erp_facilities (org_id, name, facility_type, operator, country, is_active, metadata)
+       VALUES ($1, $2, $3, $4, $5, true, $6) RETURNING id`,
+      [ORG, f.name, f.facility_type, f.operator, f.country, { wh_source: source, wh_location: location, managed_by: 'warehouse-sync' }]);
+    facBy.set(key, row.id); facAdded++;
+  }
+
+  // Products and variants: active Cin7 stock items, plus any SKU stocked at Stord that Cin7 lacks.
+  const cin7 = await mbSqlAll(
+    `SELECT ID AS id, SKU AS sku, Name AS name, Category AS category, Barcode AS barcode, UOM AS uom,
+            AverageCost AS cost, PriceTier1 AS price
+       FROM \`${BQ}.cin7.products\` WHERE Type = 'Stock' AND Status = 'Active' AND SKU IS NOT NULL ORDER BY SKU`, { fetchImpl });
+  const items = new Map(cin7.map((c) => [c.sku, c]));
+  for (const r of stock) if (!items.has(r.sku)) items.set(r.sku, { sku: r.sku, name: r.name || r.sku, category: null });
+  const { rows: vars } = await pool.query(`SELECT id, sku, product_id FROM erp_product_variants WHERE org_id = $1`, [ORG]);
+  const varBy = new Map(vars.map((v) => [v.sku, v]));
+  let varAdded = 0, varUpdated = 0;
+  for (const it of items.values()) {
+    const cost = it.cost != null && Number(it.cost) > 0 ? Number(it.cost) : null;
+    const price = it.price != null && Number(it.price) > 0 ? Number(it.price) : null;
+    const existing = varBy.get(it.sku);
+    if (existing) {
+      await pool.query(
+        `UPDATE erp_product_variants SET name = $2, barcode = COALESCE($3, barcode), cost = COALESCE($4, cost), msrp = COALESCE($5, msrp), updated_at = now()
+          WHERE id = $1`, [existing.id, it.name, it.barcode || null, cost, price]);
+      varUpdated++;
+      continue;
+    }
+    const cat = String(it.category || '');
+    const productType = /raw material/i.test(cat) ? 'raw_material' : /packaging/i.test(cat) ? 'packaging' : 'finished_good';
+    const { rows: [p] } = await pool.query(
+      `INSERT INTO erp_products (org_id, name, category, product_type, brand, status, default_uom, metadata)
+       VALUES ($1, $2, $3, $4, 'Earth Breeze', 'active', $5, $6) RETURNING id`,
+      [ORG, it.name, it.category || null, productType, it.uom || 'each', { cin7_id: it.id || null, managed_by: 'warehouse-sync' }]);
+    const { rows: [v] } = await pool.query(
+      `INSERT INTO erp_product_variants (org_id, product_id, sku, name, barcode, cost, msrp, status, is_primary, metadata)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', true, $8) RETURNING id, sku, product_id`,
+      [ORG, p.id, it.sku, it.name, it.barcode || null, cost, price, { cin7_id: it.id || null, managed_by: 'warehouse-sync' }]);
+    varBy.set(v.sku, v); varAdded++;
+  }
+
+  // Stock: replace the warehouse-owned rows with the latest snapshot.
+  await pool.query(`DELETE FROM erp_inventory WHERE org_id = $1 AND source = 'warehouse'`, [ORG]);
+  const rows = stock.filter((r) => Number(r.on_hand) || Number(r.reserved) || Number(r.incoming)).map((r) => {
+    const v = varBy.get(r.sku);
+    return { variant_id: v.id, product_id: v.product_id, facility_id: facBy.get(`${r.source}|${r.location}`), quantity: Number(r.on_hand) || 0, reserved: Number(r.reserved) || 0 };
+  });
+  const saved = await upsertJson(pool,
+    `INSERT INTO erp_inventory (org_id, variant_id, product_id, facility_id, quantity, reserved_quantity, unit, source, updated_at)
+     SELECT '${ORG}', (x->>'variant_id')::uuid, (x->>'product_id')::uuid, (x->>'facility_id')::uuid,
+            (x->>'quantity')::numeric, (x->>'reserved')::numeric, 'each', 'warehouse', now()
+       FROM jsonb_array_elements($1::jsonb) x`, rows);
+  return { facilities_added: facAdded, variants_added: varAdded, variants_updated: varUpdated, stock_rows: saved,
+           snapshot: Object.fromEntries([...new Set(inv.map((r) => r.source))].map((s) => [s, inv.find((r) => r.source === s).snapshot_date])) };
+}
+
+const TASKS = { scorecard: syncScorecard, inventory: syncInventory, orders: syncOrders, sku_sales: syncSkuSales, ad_spend: syncAdSpend, erp: syncErp };
 
 module.exports = function (app, { pool }, { fetchImpl = fetch } = {}) {
   app.post('/warehouse-sync', async (req, res) => {
@@ -187,4 +272,4 @@ module.exports = function (app, { pool }, { fetchImpl = fetch } = {}) {
     res.status(errors.length ? 500 : 200).json({ ok: !errors.length, results, errors: errors.length ? errors : undefined });
   });
 };
-module.exports._internal = { syncScorecard, syncInventory, syncOrders, syncSkuSales, syncAdSpend, windowFor };
+module.exports._internal = { syncScorecard, syncInventory, syncOrders, syncSkuSales, syncAdSpend, syncErp, windowFor };

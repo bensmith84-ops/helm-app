@@ -754,6 +754,12 @@ export default function ERPView({ modulePerms = {}, pendingSubView, clearPending
 // ERP DASHBOARD - Overview across all modules
 // ═══════════════════════════════════════════════════════════════════════════════
 function ERPDashboard({ navigateTo, products, variants, suppliers, purchaseOrders, inventory, lots, orders, customers, workOrders, facilities, entities, setView, isMobile }) {
+  // Yesterday's real orders (Shopify, all countries) from the warehouse copy.
+  const [whDay, setWhDay] = useState(null);
+  useEffect(() => {
+    supabase.from("wh_orders_by_day").select("*").order("date", { ascending: false }).limit(1)
+      .then(({ data }) => setWhDay(data?.[0] || null));
+  }, []);
   const totalStock = inventory.reduce((s, i) => s + (i.quantity || 0), 0);
   const inventoryValue = inventory.reduce((s, i) => { const v = variants.find(x => x.id === i.variant_id); return s + (i.quantity || 0) * (v?.cost || 0); }, 0);
   const openPOs = purchaseOrders.filter(p => !["received", "closed", "cancelled"].includes(p.status));
@@ -785,7 +791,7 @@ function ERPDashboard({ navigateTo, products, variants, suppliers, purchaseOrder
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr", gap: 10 }}>
         <DashCard icon="📦" title="Products" value={finishedGoods.length} sub={`${variants.length} SKUs · ${products.length} total items`} color={T.accent} onClick={() => setView("products")} />
         <DashCard icon="📊" title="Inventory" value={fmtN(totalStock)} sub={`${fmt(inventoryValue)} value · ${lots.filter(l=>l.status==="available").length} lots`} color="#10B981" onClick={() => setView("inventory")} />
-        <DashCard icon="🛒" title="Pending Orders" value={pendingOrders.length} sub={`${fmt(totalRev)} total revenue`} color={pendingOrders.length > 0 ? "#F59E0B" : T.text3} onClick={() => setView("orders")} />
+        <DashCard icon="🛒" title={whDay ? `Orders · ${new Date(whDay.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : "Orders"} value={whDay ? fmtN(whDay.orders) : "-"} sub={whDay ? `${fmt(Number(whDay.net_revenue))} net · ${fmtN(whDay.new_subscription_orders || 0)} new subs · ${fmtN(whDay.recurring_orders || 0)} recurring` : "Loading Shopify orders…"} color="#F59E0B" onClick={() => setView("reports")} />
         <DashCard icon="📋" title="Open POs" value={openPOs.length} sub={`${fmt(totalPOValue)} outstanding`} color={openPOs.length > 0 ? "#3B82F6" : T.text3} onClick={() => setView("purchase_orders")} />
       </div>
 
@@ -5496,6 +5502,19 @@ function ReportsView({ products, variants, suppliers, purchaseOrders, poItems, i
   const [subView, setSubView] = useState("library"); // library, builder, results
   const [builderConfig, setBuilderConfig] = useState({ source: "", fields: [], filters: [], groupBy: "", sortBy: "", sortDir: "asc" });
   const [customResults, setCustomResults] = useState(null);
+  // Real sales from the warehouse copies (last 30 complete days), loaded once.
+  const [whChannels, setWhChannels] = useState([]);
+  const [whSkus, setWhSkus] = useState([]);
+  useEffect(() => {
+    (async () => {
+      const [{ data: ch }, { data: sk }] = await Promise.all([
+        supabase.from("wh_sales_channel_30d").select("*"),
+        supabase.from("wh_sku_30d").select("*").order("revenue", { ascending: false }).limit(2000),
+      ]);
+      setWhChannels(ch || []); setWhSkus(sk || []);
+    })();
+  }, []);
+  const whRange = whChannels[0] ? `${whChannels[0].from_date} to ${whChannels[0].to_date}` : "last 30 days";
 
   // Data map for the report builder
   const DATA_MAP = { products, variants, suppliers, purchase_orders: purchaseOrders, po_items: poItems, inventory, lots, orders, order_items: orderItems, customers, work_orders: workOrders, facilities, entities, supplier_items: supplierItems, boms, bom_items: bomItems };
@@ -5552,18 +5571,13 @@ function ReportsView({ products, variants, suppliers, purchaseOrders, poItems, i
         return { columns: ["Lot #", "SKU", "Product", "Supplier", "Qty", "Expiry", "Days Left"], rows: rows.map(r => r.row), summary: `${rows.filter(r => r.days <= 30).length} critical (<30d), ${rows.filter(r => r.days <= 90).length} total` };
       }
     },
-    { id: "sales_by_channel", name: "Sales by Channel", icon: "🛒", category: "Sales", description: "Revenue and order count breakdown by sales channel",
+    { id: "sales_by_channel", name: "Sales by Channel", icon: "🛒", category: "Sales", description: "Orders and net revenue by sales channel, last 30 days (from the data warehouse)",
       run: () => {
-        const channels = {};
-        orders.forEach(o => {
-          if (!channels[o.channel]) channels[o.channel] = { channel: o.channel, orders: 0, revenue: 0, avgOrder: 0, fulfilled: 0 };
-          channels[o.channel].orders++;
-          channels[o.channel].revenue += o.total || 0;
-          if (o.fulfillment_status === "fulfilled") channels[o.channel].fulfilled++;
-        });
-        Object.values(channels).forEach(c => c.avgOrder = c.orders > 0 ? c.revenue / c.orders : 0);
-        return { columns: ["Channel", "Orders", "Revenue", "Avg Order", "Fulfilled", "Fill Rate"], rows: Object.values(channels).sort((a,b) => b.revenue - a.revenue).map(c => [c.channel, c.orders, fmt(c.revenue), fmt(c.avgOrder), c.fulfilled, c.orders > 0 ? `${Math.round(c.fulfilled/c.orders*100)}%` : "-"]),
-          summary: `Total: ${fmt(orders.reduce((s,o) => s + (o.total||0), 0))}` };
+        const rows = [...whChannels].sort((a, b) => Number(b.revenue) - Number(a.revenue));
+        const total = rows.reduce((s, c) => s + Number(c.revenue || 0), 0);
+        const orders = rows.reduce((s, c) => s + Number(c.orders || 0), 0);
+        return { columns: ["Channel", "Orders", "Net Revenue", "Avg Order", "Share"], rows: rows.map(c => [c.channel, fmtN(c.orders), fmt(Number(c.revenue)), fmt(c.orders > 0 ? Number(c.revenue) / c.orders : 0), total > 0 ? `${(Number(c.revenue) / total * 100).toFixed(1)}%` : "-"]),
+          summary: `${whRange}: ${fmtN(orders)} orders, ${fmt(total)} net revenue` };
       }
     },
     { id: "sales_by_customer", name: "Sales by Customer", icon: "👥", category: "Sales", description: "Top customers by revenue with order counts",
@@ -5580,19 +5594,12 @@ function ReportsView({ products, variants, suppliers, purchaseOrders, poItems, i
         return { columns: ["Customer", "Type", "Orders", "Revenue", "Avg Order", "Last Order"], rows: Object.values(custs).sort((a,b) => b.revenue - a.revenue).map(c => [c.name, c.type, c.orders, fmt(c.revenue), fmt(c.revenue/c.orders), c.lastOrder ? new Date(c.lastOrder).toLocaleDateString() : "-"]) };
       }
     },
-    { id: "top_skus", name: "Top Selling SKUs", icon: "🏆", category: "Sales", description: "Best-selling products by units sold and revenue",
-      run: () => {
-        const skus = {};
-        orderItems.forEach(oi => {
-          const key = oi.sku || oi.variant_id || "unknown";
-          const v = getVariant(oi.variant_id);
-          if (!skus[key]) skus[key] = { sku: oi.sku || v?.sku || "-", name: oi.title || v?.name || "-", units: 0, revenue: 0, orders: 0 };
-          skus[key].units += oi.quantity || 0;
-          skus[key].revenue += oi.total || (oi.quantity * oi.unit_price) || 0;
-          skus[key].orders++;
-        });
-        return { columns: ["SKU", "Product", "Units Sold", "Revenue", "Avg Price", "# Orders"], rows: Object.values(skus).sort((a,b) => b.revenue - a.revenue).map(s => [s.sku, s.name, fmtN(s.units), fmt(s.revenue), fmt(s.units > 0 ? s.revenue/s.units : 0), s.orders]) };
-      }
+    { id: "top_skus", name: "Top Selling SKUs", icon: "🏆", category: "Sales", description: "Best-selling SKUs by revenue across Shopify and Amazon, last 30 days (from the data warehouse)",
+      run: () => ({
+        columns: ["SKU", "Product", "Units Sold", "Shopify Units", "Amazon Units", "Net Revenue", "Avg Price", "# Orders"],
+        rows: whSkus.filter(s => s.sku !== "NO_SKU").map(s => [s.sku, s.product_name || "-", fmtN(Number(s.units)), fmtN(Number(s.shopify_units || 0)), fmtN(Number(s.amazon_units || 0)), fmt(Number(s.revenue)), fmt(Number(s.units) > 0 ? Number(s.revenue) / Number(s.units) : 0), fmtN(s.orders)]),
+        summary: `${whRange} · ${whSkus.length} SKUs`,
+      })
     },
     { id: "po_summary", name: "PO Summary", icon: "📋", category: "Purchasing", description: "Purchase order overview by status and supplier",
       run: () => {
@@ -5663,13 +5670,8 @@ function ReportsView({ products, variants, suppliers, purchaseOrders, poItems, i
           if (!skuData[v.sku]) skuData[v.sku] = { sku: v.sku, name: v.name, stock: 0, sold30d: 0, daysOfStock: 0, cost: v.cost || 0 };
           skuData[v.sku].stock += inv.quantity || 0;
         });
-        const thirtyAgo = new Date(Date.now() - 30 * 86400000);
-        orderItems.forEach(oi => {
-          const v = getVariant(oi.variant_id);
-          if (!v || !skuData[v.sku]) return;
-          const order = orders.find(o => o.id === oi.order_id);
-          if (order && new Date(order.order_date) >= thirtyAgo) skuData[v.sku].sold30d += oi.quantity || 0;
-        });
+        // Sales velocity: units sold in the last 30 days (Shopify + Amazon, from the warehouse).
+        whSkus.forEach(w => { if (skuData[w.sku]) skuData[w.sku].sold30d += Number(w.units || 0); });
         Object.values(skuData).forEach(s => { s.dailyRate = s.sold30d / 30; s.daysOfStock = s.dailyRate > 0 ? Math.round(s.stock / s.dailyRate) : 999; });
         return { columns: ["SKU", "Product", "Stock", "Sold (30d)", "Daily Rate", "Days of Stock", "Reorder Value"], rows: Object.values(skuData).sort((a,b) => a.daysOfStock - b.daysOfStock).map(s => [s.sku, s.name, fmtN(s.stock), fmtN(s.sold30d), s.dailyRate.toFixed(1), s.daysOfStock >= 999 ? "∞" : s.daysOfStock, s.daysOfStock < 60 ? fmt(s.dailyRate * 90 * s.cost) : "-"]) };
       }
