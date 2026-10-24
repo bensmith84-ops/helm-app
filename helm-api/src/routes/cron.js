@@ -109,6 +109,7 @@ const JOBS = {
   // Demand-planning tables from Metabase (was pg_cron dp_daily_sync_fire_all,
   // seven parallel calls). Now sequential; verify runs ~45 min later.
   'dp-daily-sync':            { path: '/metabase-daily-sync',     body: { source: 'cron' } },
+  'warehouse-sync':           { path: '/warehouse-sync',          body: {} },
   'dp-daily-sync-verify':     { sql: 'SELECT public.dp_daily_sync_verify_and_log()' },
   // dp-daily-sync was a Postgres fn (dp_daily_sync_fire_all) that internally
   // http_posted to multiple Supabase fns. After cutover, this becomes a
