@@ -128,12 +128,12 @@ module.exports = function(app, { pool }) {
       for (const n of pending) {
         const p = prefBy[n.user_id];
         if (!p || !p.slack_enabled || !p.slack_user_id) {
-          await setStatus(n.id, 'in_app_only');
+          await setStatus(n.id, 'skipped');
           skipped++; continue;
         }
         const cat = n.category || n.type;
         if (p.category_settings && p.category_settings[cat] === false) {
-          await setStatus(n.id, 'muted');
+          await setStatus(n.id, 'skipped');
           skipped++; continue;
         }
         const r = await slack('chat.postMessage', {
@@ -145,7 +145,7 @@ module.exports = function(app, { pool }) {
           await setStatus(n.id, 'delivered', true);
           sent++;
         } else {
-          await setStatus(n.id, `failed:${r.error}`.slice(0, 40));
+          await setStatus(n.id, 'failed');
           failed++; detail.push({ id: n.id, error: r.error });
         }
       }
