@@ -6,6 +6,7 @@
 //   what=fks       table=...  foreign keys from/to a public table
 //   what=cron                 Supabase pg_cron jobs captured by helm-resync
 //   what=storage              Supabase buckets + file counts/sizes captured by helm-resync
+//   what=function  name=...   source of a public function
 //   what=migrations           helm-api boot-migration ledger
 
 const REPORTS = {
@@ -28,6 +29,11 @@ const REPORTS = {
     sql: `SELECT b.id AS bucket, b.public, count(o.name) AS files, coalesce(sum(o.size), 0) AS bytes, max(o.updated_at) AS last_change
             FROM _migration.supabase_buckets b LEFT JOIN _migration.supabase_objects o ON o.bucket_id = b.id GROUP BY b.id, b.public ORDER BY files DESC`,
   },
+  function: {
+    needsName: true,
+    sql: `SELECT p.proname AS function, pg_get_function_identity_arguments(p.oid) AS args, pg_get_functiondef(p.oid) AS source
+            FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND p.proname = $1`,
+  },
   migrations: { sql: `SELECT filename, applied_at FROM _helm_migrations ORDER BY filename` },
 };
 
@@ -37,8 +43,10 @@ module.exports = function (app, { pool }) {
     if (!rep) return res.status(400).json({ error: 'what must be one of: ' + Object.keys(REPORTS).join(', ') });
     const table = String(req.query.table || '');
     if (rep.needsTable && !/^[a-z_][a-z0-9_]{0,62}$/.test(table)) return res.status(400).json({ error: 'table must be a plain table name' });
+    const name = String(req.query.name || '');
+    if (rep.needsName && !/^[a-z_][a-z0-9_]{0,62}$/.test(name)) return res.status(400).json({ error: 'name must be a plain function name' });
     try {
-      const { rows } = await pool.query(rep.sql, rep.needsTable ? [table] : []);
+      const { rows } = await pool.query(rep.sql, rep.needsTable ? [table] : rep.needsName ? [name] : []);
       res.json({ what: req.query.what, table: table || undefined, rows });
     } catch (e) {
       res.status(500).json({ error: e.message });

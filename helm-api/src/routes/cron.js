@@ -64,7 +64,27 @@ async function runTarget(url, body, { waitMs = CRON_WAIT_MS, fetchImpl = fetch }
   }
 }
 
-// Map of job name → { path, body }. Add new jobs here.
+// Run a fixed SQL job with a time limit; same result shape as runTarget.
+async function runSql(pool, sql, { timeoutMs = CRON_WAIT_MS } = {}) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(`SET LOCAL statement_timeout = ${Math.max(1000, Math.min(timeoutMs, 840000))}`);
+    const r = await client.query(sql);
+    await client.query('COMMIT');
+    const snippet = JSON.stringify({ rowCount: r.rowCount, rows: (r.rows || []).slice(0, 3) }).slice(0, 500);
+    return { ok: true, httpStatus: 200, errors: [], snippet };
+  } catch (e) {
+    try { await client.query('ROLLBACK'); } catch {}
+    const timedOut = /statement timeout/i.test(e.message || '');
+    return { ok: false, timedOut, httpStatus: timedOut ? null : 500, errors: [e.message || String(e)], snippet: '' };
+  } finally {
+    client.release();
+  }
+}
+
+// Map of job name → { path, body } (HTTP route) or { sql } (database job).
+// Add new jobs here.
 const JOBS = {
   'qbo-auto-sync':            { path: '/qbo-auto-sync',            body: { what: 'all', sequential: true } },
   'shopify-auto-sync':        { path: '/shopify-auto-sync',        body: {} },
@@ -74,6 +94,15 @@ const JOBS = {
   'cx-appreciation-weekly':   { path: '/cx-appreciation-drafter',  body: { org_id: 'a0000000-0000-0000-0000-000000000001' } },
   'sheets-daily-sync':        { path: '/sheets-daily-sync',        body: {} },
   'sheets-monthly-sync':      { path: '/sheets-sync',              body: {} },
+  // Supabase pg_cron jobs that are pure SQL (inventoried by helm-resync into
+  // _migration.supabase_cron_jobs). Same statements, now fired by Cloud
+  // Scheduler. Fixed text only; nothing from the request reaches the SQL.
+  'fin-spend-match-daily':    { sql: `SELECT fin_run_match_pass('a0000000-0000-0000-0000-000000000001')` },
+  'cx-wake-snoozed':          { sql: 'SELECT cx_wake_snoozed_tickets()' },
+  'cx-detect-spikes':         { sql: 'SELECT cx_detect_spikes()' },
+  'cx-competitor-classify':   { sql: 'SELECT cx_classify_competitor_mentions(NULL, 5000)' },
+  'fin-vendor-spend-refresh': { sql: 'SELECT fin_refresh_vendor_spend(NULL)' },
+  'notifications-prune-daily':{ sql: `DELETE FROM notifications WHERE is_read = true AND created_at < now() - interval '30 days'` },
   // dp-daily-sync was a Postgres fn (dp_daily_sync_fire_all) that internally
   // http_posted to multiple Supabase fns. After cutover, this becomes a
   // sequence of helm-api calls - adding here so Cloud Scheduler can fire it.
@@ -102,22 +131,23 @@ function mount(app, { pool }) {
       }
 
       const startedAt = new Date().toISOString();
-      console.log(`[cron] running ${job} → ${def.path}`);
-      const out = await runTarget(`${SELF_URL}${def.path}`, def.body);
+      console.log(`[cron] running ${job} → ${def.path || 'sql'}`);
+      const out = def.sql ? await runSql(pool, def.sql) : await runTarget(`${SELF_URL}${def.path}`, def.body);
+      const target = def.path || `sql:${job}`;
       const finishedAt = new Date().toISOString();
       const summary = out.ok ? 'ok' : out.errors.slice(0, 5).join(' | ').slice(0, 480);
-      console.log(JSON.stringify({ event: 'cron_run', job, path: def.path, ok: out.ok, http_status: out.httpStatus, timed_out: !!out.timedOut, errors: out.errors.slice(0, 10) }));
+      console.log(JSON.stringify({ event: 'cron_run', job, path: target, ok: out.ok, http_status: out.httpStatus, timed_out: !!out.timedOut, errors: out.errors.slice(0, 10) }));
 
       // Audit log (optional - only insert if table exists, swallow errors)
       pool.query(
         `INSERT INTO cron_run_log (job, path, status_code, response_snippet, started_at, finished_at)
          VALUES ($1, $2, $3, $4, $5, NOW())
          ON CONFLICT DO NOTHING`,
-        [job, def.path, out.httpStatus || (out.timedOut ? 504 : 0), (out.ok ? '' : `FAILED: ${summary} || `) + (out.snippet || ''), startedAt]
+        [job, target, out.httpStatus || (out.timedOut ? 504 : 0), (out.ok ? '' : `FAILED: ${summary} || `) + (out.snippet || ''), startedAt]
       ).catch(() => {}); // table may not exist yet
 
       const code = out.ok ? 200 : (out.timedOut ? 504 : 502);
-      res.status(code).json({ ok: out.ok, job, path: def.path, started_at: startedAt, finished_at: finishedAt, target_status: out.httpStatus, errors: out.ok ? undefined : out.errors.slice(0, 20) });
+      res.status(code).json({ ok: out.ok, job, path: target, started_at: startedAt, finished_at: finishedAt, target_status: out.httpStatus, errors: out.ok ? undefined : out.errors.slice(0, 20) });
     } catch (e) {
       console.error('[cron] dispatcher error:', e?.message);
       res.status(500).json({ error: e?.message || String(e) });
@@ -128,10 +158,10 @@ function mount(app, { pool }) {
   app.get('/cron', (req, res) => {
     res.json({
       ok: true,
-      jobs: Object.keys(JOBS).map(j => ({ name: j, path: JOBS[j].path })),
+      jobs: Object.keys(JOBS).map(j => ({ name: j, path: JOBS[j].path || null, kind: JOBS[j].sql ? 'sql' : 'http' })),
     });
   });
 }
 
 module.exports = mount;
-module.exports._internal = { findErrors, runTarget, JOBS };
+module.exports._internal = { findErrors, runTarget, runSql, JOBS };

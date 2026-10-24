@@ -21,8 +21,8 @@ const multer = require('multer');
 const { gcsClient } = require('../lib/gcs');
 
 const list = (v, d) => new Set((v || d).split(',').map((s) => s.trim()).filter(Boolean));
-const PUBLIC_BUCKETS = list(process.env.STORAGE_PUBLIC_BUCKETS, 'avatars,org-logos,rfp-assets,attachments,bill-attachments');
-const KNOWN_BUCKETS = list(process.env.STORAGE_BUCKETS, 'avatars,org-logos,rfp-assets,attachments,bill-attachments,rfp-submissions,esign-documents');
+const PUBLIC_BUCKETS = list(process.env.STORAGE_PUBLIC_BUCKETS, 'avatars,org-logos,rfp-assets,attachments,bill-attachments,asana-attachments,esign-documents');
+const KNOWN_BUCKETS = list(process.env.STORAGE_BUCKETS, 'avatars,org-logos,rfp-assets,attachments,bill-attachments,asana-attachments,rfp-submissions,esign-documents');
 const EXTERNAL_BUCKETS = list(process.env.STORAGE_EXTERNAL_BUCKETS, 'rfp-submissions,esign-documents,avatars');
 const GCS_PUBLIC = process.env.GCS_PUBLIC_BUCKET || '';
 const GCS_PRIVATE = process.env.GCS_PRIVATE_BUCKET || 'helm-496923-files-private';

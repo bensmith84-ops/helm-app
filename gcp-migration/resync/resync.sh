@@ -173,6 +173,22 @@ GRANT USAGE ON SCHEMA public, auth, extensions TO authenticated, anon;
 REVOKE ALL ON SCHEMA _migration FROM PUBLIC;
 SQL
 
+log "   schema fixes (fixes.sql) and helm-api table migrations"
+cs "$TARGET_DB" -v ON_ERROR_STOP=1 -f /fixes.sql 2>>"$ERR" || log "   WARNING: fixes.sql failed (see errors)"
+cs "$TARGET_DB" -c "CREATE TABLE IF NOT EXISTS _helm_migrations (filename text PRIMARY KEY, sha256 text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())" 2>>"$ERR"
+for f in /migrations/*.sql; do
+  [ -e "$f" ] || continue
+  name=$(basename "$f"); sum=$(sha256sum "$f" | cut -d' ' -f1)
+  case "$name" in
+    # Role/grant migrations were written for the old snapshot; the copy keeps
+    # Supabase's exact grants instead. Recorded as applied so helm-api skips them.
+    003_*|004_*) ;;
+    *) cs "$TARGET_DB" -v ON_ERROR_STOP=1 -1 -f "$f" 2>>"$ERR" || { log "   WARNING: migration $name failed"; continue; } ;;
+  esac
+  cs "$TARGET_DB" -c "INSERT INTO _helm_migrations (filename, sha256) VALUES ('$name', '$sum') ON CONFLICT (filename) DO NOTHING" 2>>"$ERR"
+  log "   migration $name"
+done
+
 log "verify: exact row counts, Supabase vs $TARGET_DB"
 RUN_ID=$(date -u +%Y%m%dT%H%M%SZ)
 cs "$SRC_DB" -c "CREATE TABLE IF NOT EXISTS _resync_report (run_id text, kind text, name text, supabase bigint, target bigint, detail text, at timestamptz default now()); REVOKE ALL ON _resync_report FROM authenticated, anon;" 2>>"$ERR"
