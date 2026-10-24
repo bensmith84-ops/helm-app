@@ -47,7 +47,6 @@ const PUBLIC = [
   ['GET', '/gmail-scan'],            // OAuth redirect from Google (code exchange)
   ['POST', '/rd-advisor'],
   ['POST', '/public-form'],
-  ['POST', '/admin/secret-relay'],   // TEMPORARY: own check (Supabase service-role key); remove after use          // outside submitters; route validates an active form's public_token           // own auth: Firebase or Supabase session + active membership
 ];
 
 const SIGNED_IN = ['/auth/bind', '/whoami'];
