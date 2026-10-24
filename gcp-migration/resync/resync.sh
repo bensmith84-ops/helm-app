@@ -144,6 +144,20 @@ cs "$TARGET_DB" -c "CREATE TABLE _migration.supabase_auth_users (id uuid primary
 supa -c "\\copy (select u.id, u.email, u.encrypted_password, u.email_confirmed_at, u.last_sign_in_at, u.created_at, (select string_agg(distinct i.provider, ',') from auth.identities i where i.user_id = u.id), u.raw_user_meta_data, u.raw_app_meta_data from auth.users u) to stdout" |
   cs "$TARGET_DB" -c "\\copy _migration.supabase_auth_users from stdin" 2>>"$ERR"
 
+log "   Supabase inventory: scheduled jobs, storage buckets and file list (metadata only)"
+cs "$TARGET_DB" 2>>"$ERR" <<'SQL'
+CREATE TABLE IF NOT EXISTS _migration.supabase_cron_jobs (jobid bigint, jobname text, schedule text, command text, active boolean, last_status text, last_run timestamptz);
+CREATE TABLE IF NOT EXISTS _migration.supabase_buckets (id text, name text, public boolean, file_size_limit bigint, allowed_mime_types text[]);
+CREATE TABLE IF NOT EXISTS _migration.supabase_objects (bucket_id text, name text, size bigint, mimetype text, created_at timestamptz, updated_at timestamptz);
+SQL
+supa -c "\\copy (select j.jobid, j.jobname, j.schedule, j.command, j.active, (select d.status from cron.job_run_details d where d.jobid = j.jobid order by d.start_time desc limit 1), (select max(d.start_time) from cron.job_run_details d where d.jobid = j.jobid) from cron.job j) to stdout" 2>>"$ERR" |
+  cs "$TARGET_DB" -c "\\copy _migration.supabase_cron_jobs from stdin" 2>>"$ERR"
+supa -c "\\copy (select id, name, public, file_size_limit, allowed_mime_types from storage.buckets) to stdout" 2>>"$ERR" |
+  cs "$TARGET_DB" -c "\\copy _migration.supabase_buckets from stdin" 2>>"$ERR"
+supa -c "\\copy (select bucket_id, name, (metadata->>'size')::bigint, metadata->>'mimetype', created_at, updated_at from storage.objects) to stdout" 2>>"$ERR" |
+  cs "$TARGET_DB" -c "\\copy _migration.supabase_objects from stdin" 2>>"$ERR"
+log "   cron jobs: $(cs "$TARGET_DB" -Atc "select count(*) from _migration.supabase_cron_jobs"), buckets: $(cs "$TARGET_DB" -Atc "select count(*) from _migration.supabase_buckets"), files: $(cs "$TARGET_DB" -Atc "select count(*) || ' (' || pg_size_pretty(coalesce(sum(size),0)) || ')' from _migration.supabase_objects")"
+
 log "7/8 constraints, indexes, triggers, policies"
 supa_dump --section=post-data -n public --no-owner | cs "$TARGET_DB" 2>>"$ERR"
 

@@ -54,7 +54,7 @@ const DATA_PREFIXES = ['/rest/v1/', '/storage/v1/'];
 const ADMIN = [
   '/remove-user', '/invite-user', '/invite-external-collaborator',
   '/manage-user', '/shopify-store-token', '/ai-deploy',
-  '/admin/import-auth-users',
+  '/admin/import-auth-users', '/admin/db-inspect',
 ];
 
 function classify(method, path) {
@@ -103,10 +103,13 @@ async function resolveProfile(pool, firebaseUid) {
 // (Sheets syncs are allowed: they only read the sheet and write the copy.)
 const PREVIEW_BLOCK = /^\/(qbo-|shopify-|slack-|cx-email|cx-export|gmail-|send-invite|invite-|ramp-|google-docs|meta-social|tiktok-|asana-|call-manager|livekit|esign|scorecard-auto-calc|cron|data-mirror|admin\/)/;
 
+// Admin tools that only read the copy (or write Firebase) are allowed on preview.
+const PREVIEW_ALLOWED_ADMIN = new Set(['/admin/import-auth-users', '/admin/db-inspect']);
+
 function authGate({ pool, verifyIdToken, mode = process.env.AUTH_GATE_MODE || 'enforce', preview = process.env.HELM_PREVIEW === 'true' }) {
   return async function gate(req, res, next) {
     if (req.method === 'OPTIONS') return next(); // CORS preflight
-    if (preview && PREVIEW_BLOCK.test(req.path) && req.path !== '/admin/import-auth-users') return res.status(503).json({ error: 'disabled_in_preview', path: req.path });
+    if (preview && PREVIEW_BLOCK.test(req.path) && !PREVIEW_ALLOWED_ADMIN.has(req.path)) return res.status(503).json({ error: 'disabled_in_preview', path: req.path });
     const cls = classify(req.method, req.path);
     if (cls === 'public' || isInternal(req)) return next();
 
