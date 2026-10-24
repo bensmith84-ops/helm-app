@@ -26,7 +26,7 @@ const ALLOWED_RPCS = new Set((process.env.REST_ALLOWED_RPCS || '').split(',').ma
 // caller's profile id as auth.uid(), so Supabase's RLS policies apply. Tables
 // that hold credentials are never served, whatever the allowlist says.
 const ENFORCE_RLS = process.env.REST_ENFORCE_RLS !== 'false';
-const NEVER_TABLES = new Set((process.env.REST_NEVER_TABLES || '_helm_migrations,cron_run_log,_resync_report,qbo_connections,integrations,shopify_store_tokens,oauth_tokens,api_keys').split(',').map(s => s.trim()).filter(Boolean));
+const NEVER_TABLES = new Set((process.env.REST_NEVER_TABLES || '_helm_migrations,cron_run_log,_resync_report,_cutover_live,qbo_connections,integrations,shopify_store_tokens,oauth_tokens,api_keys').split(',').map(s => s.trim()).filter(Boolean));
 
 function tableAllowed(req, res, next) {
   const t = req.params.table;
