@@ -47,7 +47,10 @@ module.exports = function(app, { pool }) {
       st = rows[0];
     } catch (_e) { st = null; }
     if (!st) return res.status(500).json({ error: 'no state' });
-    if (!st.secret || req.headers['x-backfill-key'] !== st.secret) return res.status(403).type('text/plain').send('forbidden');
+    // The /cron dispatcher calls from inside the container (no header needed);
+    // anything else must present the key stored in shopify_backfill_state.
+    const internal = require('../lib/auth-gate').isInternal(req);
+    if (!internal && (!st.secret || req.headers['x-backfill-key'] !== st.secret)) return res.status(403).type('text/plain').send('forbidden');
     if (st.status !== 'running') return res.status(200).json({ status: st.status });
 
     const setState = (fields) => {

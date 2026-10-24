@@ -1,13 +1,48 @@
 
-// POST /qbo-sync - port of supabase/functions/qbo-sync
-// 13 sub-syncs: accounts, vendors, items, customers, bills, purchases,
-// payments, deposits, transfers, invoices, journal_entries, pl, pl_monthly,
-// balance_sheet, attachments. Uses supabase-storage wrapper for bill PDFs.
+// POST /qbo-sync - port of supabase/functions/qbo-sync (v35)
+// Sub-syncs (body.what, default 'all'): accounts, vendors, items|inventory,
+// bills, attachments, purchases, journal_entries, payments, deposits,
+// transfers, customers, invoices, pl, pl_monthly, balance_sheet.
+// Uses supabase-storage wrapper for bill PDFs.
+//
+// v35 behaviour carried over: bills and invoices pull full history (no year
+// filter); queries page up to 60 x 1000; upserts in batches of 200; reports
+// (pl, pl_monthly, balance_sheet) are fetched first and their rows deleted
+// only when the fetch returned rows, so a failed/empty QBO report no longer
+// wipes the stored one. pl_monthly deletes per month, not the whole realm.
 const { uploadToStorage } = require('../lib/supabase-storage');
 const {
-  qboFetch, bulkUpsert, queryAll, extractGL, sectionFromLabel,
+  qboFetch, bulkUpsert: libBulkUpsert, extractGL, sectionFromLabel,
   getQboBase, getActiveConnection, ensureToken,
 } = require('../lib/qbo');
+
+// Supabase bu(): batches of 200, errors prefixed with the table name.
+async function bulkUpsert(pool, table, rows, columns, conflictTarget) {
+  try {
+    return await libBulkUpsert(pool, table, rows, columns, conflictTarget, 200);
+  } catch (e) {
+    throw new Error(`${table}: ${e?.message || e}`);
+  }
+}
+
+// Same as lib/qbo queryAll but with Supabase v35's 60-page cap (60k rows).
+async function queryAll(base, realmId, token, entity, where) {
+  const all = [];
+  for (let sp = 1, pg = 0; pg < 60; pg++) {
+    let q = `SELECT * FROM ${entity}`;
+    if (where) q += ` WHERE ${where}`;
+    q += ` STARTPOSITION ${sp} MAXRESULTS 1000`;
+    const d = await qboFetch(
+      `${base}/v3/company/${realmId}/query?query=${encodeURIComponent(q)}&minorversion=65`,
+      token
+    );
+    const items = d?.QueryResponse?.[entity] || [];
+    all.push(...items);
+    if (items.length < 1000) break;
+    sp += 1000;
+  }
+  return all;
+}
 
 async function downloadAndStore(downloadUrl, storagePath, contentType) {
   try {
@@ -103,25 +138,9 @@ module.exports = function(app, { pool }) {
         } catch (e) { E.push(`items: ${e?.message}`); }
       }
 
-      if (what === 'all' || what === 'customers') {
-        try {
-          const items = await queryAll(base, rid, token, 'Customer');
-          const rows = items.map(c => ({
-            org_id: oid, realm_id: rid, qbo_id: String(c.Id),
-            display_name: c.DisplayName, company_name: c.CompanyName,
-            email: c.PrimaryEmailAddr?.Address, phone: c.PrimaryPhone?.FreeFormNumber,
-            balance: Number(c.Balance) || 0, active: c.Active !== false,
-            synced_at: now(),
-          }));
-          R.customers = await bulkUpsert(pool, 'qbo_customers', rows,
-            ['org_id','realm_id','qbo_id','display_name','company_name','email','phone','balance','active','synced_at'],
-            'realm_id, qbo_id');
-        } catch (e) { E.push(`customers: ${e?.message}`); }
-      }
-
       if (what === 'all' || what === 'bills') {
         try {
-          const items = await queryAll(base, rid, token, 'Bill', `TxnDate >= '${year}-01-01'`);
+          const items = await queryAll(base, rid, token, 'Bill');
           const rows = items.map(b => {
             const { glNames, lineItems } = extractGL(b.Line);
             return {
@@ -283,9 +302,25 @@ module.exports = function(app, { pool }) {
         } catch (e) { E.push(`transfers: ${e?.message}`); }
       }
 
+      if (what === 'all' || what === 'customers') {
+        try {
+          const items = await queryAll(base, rid, token, 'Customer');
+          const rows = items.map(c => ({
+            org_id: oid, realm_id: rid, qbo_id: String(c.Id),
+            display_name: c.DisplayName, company_name: c.CompanyName,
+            email: c.PrimaryEmailAddr?.Address, phone: c.PrimaryPhone?.FreeFormNumber,
+            balance: Number(c.Balance) || 0, active: c.Active !== false,
+            synced_at: now(),
+          }));
+          R.customers = await bulkUpsert(pool, 'qbo_customers', rows,
+            ['org_id','realm_id','qbo_id','display_name','company_name','email','phone','balance','active','synced_at'],
+            'realm_id, qbo_id');
+        } catch (e) { E.push(`customers: ${e?.message}`); }
+      }
+
       if (what === 'all' || what === 'invoices') {
         try {
-          const items = await queryAll(base, rid, token, 'Invoice', `TxnDate >= '${year}-01-01'`);
+          const items = await queryAll(base, rid, token, 'Invoice');
           const rows = items.map(inv => ({
             org_id: oid, realm_id: rid, qbo_id: String(inv.Id),
             customer_ref: inv.CustomerRef?.value, customer_name: inv.CustomerRef?.name,
@@ -302,10 +337,6 @@ module.exports = function(app, { pool }) {
 
       if (what === 'all' || what === 'pl') {
         try {
-          await pool.query(
-            `DELETE FROM qbo_pl WHERE realm_id = $1 AND period_start = $2`,
-            [rid, `${year}-01-01`]
-          );
           const d = await qboFetch(
             `${base}/v3/company/${rid}/reports/ProfitAndLoss?start_date=${year}-01-01&end_date=${year}-12-31&accounting_method=Accrual&minorversion=65`,
             token
@@ -331,6 +362,11 @@ module.exports = function(app, { pool }) {
             if (s.Rows?.Row) proc(s.Rows.Row, lbl);
           }
           if (rows.length) {
+            // Fetch-before-delete: only replace the stored P&L once QBO returned rows.
+            await pool.query(
+              `DELETE FROM qbo_pl WHERE realm_id = $1 AND period_start = $2`,
+              [rid, `${year}-01-01`]
+            );
             R.pl_rows = await bulkUpsert(pool, 'qbo_pl', rows,
               ['org_id','realm_id','period_start','period_end','account_name','account_type','classification','amount','synced_at'],
               'realm_id, period_start, period_end, account_name');
@@ -342,7 +378,6 @@ module.exports = function(app, { pool }) {
 
       if (what === 'all' || what === 'pl_monthly') {
         try {
-          await pool.query(`DELETE FROM qbo_pl_monthly WHERE realm_id = $1`, [rid]);
           const months = [];
           const nowDt = new Date();
           for (let m = 0; m < 12; m++) {
@@ -378,6 +413,11 @@ module.exports = function(app, { pool }) {
                 if (s.Rows?.Row) proc(s.Rows.Row, lbl);
               }
               if (rows.length) {
+                // Per-month fetch-before-delete (no realm-wide wipe).
+                await pool.query(
+                  `DELETE FROM qbo_pl_monthly WHERE realm_id = $1 AND period_month = $2`,
+                  [rid, mo.label]
+                );
                 await bulkUpsert(pool, 'qbo_pl_monthly', rows,
                   ['org_id','realm_id','period_month','account_name','account_type','classification','amount','synced_at'],
                   'realm_id, period_month, account_name');
@@ -391,10 +431,6 @@ module.exports = function(app, { pool }) {
       if (what === 'all' || what === 'balance_sheet') {
         try {
           const today = new Date().toISOString().slice(0, 10);
-          await pool.query(
-            `DELETE FROM qbo_balance_sheet WHERE realm_id = $1 AND report_date = $2`,
-            [rid, today]
-          );
           const d = await qboFetch(
             `${base}/v3/company/${rid}/reports/BalanceSheet?date_macro=Today&accounting_method=Accrual&minorversion=65`,
             token
@@ -439,6 +475,11 @@ module.exports = function(app, { pool }) {
             }
           }
           if (rows.length) {
+            // Fetch-before-delete: only replace today's snapshot once QBO returned rows.
+            await pool.query(
+              `DELETE FROM qbo_balance_sheet WHERE realm_id = $1 AND report_date = $2`,
+              [rid, today]
+            );
             R.balance_sheet = await bulkUpsert(pool, 'qbo_balance_sheet', rows,
               ['org_id','realm_id','report_date','section','account_name','account_type','amount','is_summary','group_name','synced_at'],
               'realm_id, report_date, account_name');

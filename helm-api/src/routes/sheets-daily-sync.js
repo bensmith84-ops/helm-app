@@ -1,12 +1,18 @@
 
-// POST /sheets-daily-sync - port of supabase/functions/sheets-daily-sync
-// Daily scoreboard pull. METRIC_MAP defines header → metric_key mapping.
+// POST /sheets-daily-sync - port of supabase/functions/sheets-daily-sync (v31)
+// Daily scoreboard pull. METRIC_MAP defines header → metric_key mapping;
+// approved overrides in scoreboard_column_map (metric_key → sheet_header) are
+// consulted first, so a renamed column can be re-pointed without a deploy.
 // COMPOSITES roll up multi-column metrics (gwp_cpa, sub_rate, etc.).
-// Calls upsert_scoreboard_daily RPC.
+// Calls upsert_scoreboard_daily(rows jsonb).
+// Google auth: keyless googleToken() (Cloud Run service account).
 const { googleToken } = require('../lib/google-jwt');
 
 const SHEET_ID = '1qILvVIq_jLmoPUq7YTErQtaSc0ZQEZj65os1GKQh87A';
 const TAB_NAME = 'Earth Breeze Hydrogen';
+// Read a wide column range: the sheet is ~558 columns and key metrics (e.g. "Net $"
+// at column GI/191) live past FZ. ZZ (702) gives headroom for future column shifts.
+const READ_RANGE = 'A1:ZZ400';
 
 function normalize(s) {
   return String(s)
@@ -155,19 +161,32 @@ const COMPOSITES = [
   ] } },
 ];
 
-function matchHeader(header) {
+const LABEL_BY_KEY = (() => { const m = {}; for (const e of METRIC_MAP) if (!m[e.key]) m[e.key] = e.label; return m; })();
+
+// Approved overrides from the Sync health panel: normalized header → metric.
+// Consulted before METRIC_MAP.
+function matchHeader(header, overrideByHeader) {
   const n = normalize(header);
   if (!n) return null;
+  if (overrideByHeader && overrideByHeader[n]) return overrideByHeader[n];
   for (const m of METRIC_MAP) if (n === m.norm) return { key: m.key, label: m.label };
   return null;
 }
 
+// Handles accounting negatives "(1,234)", unicode minus/dashes and trailing "-".
 function parseMoney(s) {
-  if (!s) return null;
-  const c = String(s).replace(/[$,\s%]/g, '').trim();
+  if (s === undefined || s === null) return null;
+  let c = String(s).trim();
+  if (!c) return null;
+  let neg = false;
+  if (/^\(.*\)$/.test(c)) { neg = true; c = c.slice(1, -1); }
+  c = c.replace(/[\u2010\u2011\u2012\u2013\u2014\u2015\u2212]/g, '-');
+  c = c.replace(/[$,\s%\u00a0]/g, '').trim();
+  if (c.endsWith('-')) { neg = true; c = c.slice(0, -1); }
   if (!c || c === '-') return null;
   const n = parseFloat(c);
-  return isNaN(n) ? null : n;
+  if (isNaN(n)) return null;
+  return neg ? -Math.abs(n) : n;
 }
 
 function parseRowDate(s) {
@@ -196,10 +215,25 @@ function parseRowDate(s) {
 module.exports = function(app, { pool }) {
   app.post('/sheets-daily-sync', async (req, res) => {
     try {
+      // Load approved column overrides. Never fatal: if this fails the sync
+      // proceeds on the built-in mapping.
+      const overrideByHeader = {};
+      const overridesApplied = [];
+      let overrideError = null;
+      try {
+        const { rows: ovr } = await pool.query(`SELECT metric_key, sheet_header FROM scoreboard_column_map`);
+        for (const o of (ovr || [])) {
+          const n = normalize(String(o.sheet_header || ''));
+          if (!n || !o.metric_key) continue;
+          overrideByHeader[n] = { key: o.metric_key, label: LABEL_BY_KEY[o.metric_key] || o.metric_key };
+          overridesApplied.push({ metric_key: o.metric_key, sheet_header: o.sheet_header });
+        }
+      } catch (e) { overrideError = String(e?.message ?? e); }
+
       const token = await googleToken();
 
       const r = await fetch(
-        `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${encodeURIComponent(`'${TAB_NAME}'!A1:FZ400`)}?valueRenderOption=FORMATTED_VALUE`,
+        `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${encodeURIComponent(`'${TAB_NAME}'!${READ_RANGE}`)}?valueRenderOption=FORMATTED_VALUE`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
       const data = await r.json();
@@ -209,8 +243,19 @@ module.exports = function(app, { pool }) {
       if (!rows.length) return res.json({ error: 'No data' });
 
       const headerRow = rows[0];
-      const colMetrics = headerRow.map((h, i) => i === 0 ? null : matchHeader(h));
+      const colMetrics = headerRow.map((h, i) => i === 0 ? null : matchHeader(h, overrideByHeader));
       const matchedKeys = [...new Set(colMetrics.filter(Boolean).map(m => m.key))];
+
+      // Flag overrides that point at a header which does not exist, and overrides
+      // that hijacked a column another metric was already reading.
+      const headerSet = new Set(headerRow.map(h => normalize(String(h || ''))).filter(Boolean));
+      const overrideWarnings = [];
+      for (const o of overridesApplied) {
+        const n = normalize(String(o.sheet_header));
+        if (!headerSet.has(n)) { overrideWarnings.push(`"${o.sheet_header}" (mapped to ${o.metric_key}) is not a column in the sheet`); continue; }
+        const natural = METRIC_MAP.find(m => m.norm === n);
+        if (natural && natural.key !== o.metric_key) overrideWarnings.push(`"${o.sheet_header}" now feeds ${o.metric_key} instead of ${natural.key}`);
+      }
 
       const headerToCol = {};
       headerRow.forEach((h, i) => {
@@ -229,17 +274,6 @@ module.exports = function(app, { pool }) {
       const matchedCols = colMetrics
         .map((m, i) => m ? `col${i}:${headerRow[i]}->${m.key}` : null)
         .filter(Boolean);
-
-      const compositeReport = activeComposites.map(c => {
-        if (c.agg.kind === 'sum') {
-          const present = c.agg.sources.filter(s => headerToCol[s] !== undefined);
-          return { key: c.key, kind: 'sum', sources_present: present,
-            sources_missing: c.agg.sources.filter(s => headerToCol[s] === undefined) };
-        }
-        const present = c.agg.pairs.filter(p => headerToCol[p.rate] !== undefined && headerToCol[p.weight] !== undefined);
-        return { key: c.key, kind: 'weighted_avg', pairs_present: present.map(p => p.rate),
-          pairs_missing: c.agg.pairs.filter(p => headerToCol[p.rate] === undefined || headerToCol[p.weight] === undefined).map(p => p.rate) };
-      });
 
       const upsertRows = [];
       let datesParsed = 0;
@@ -305,24 +339,27 @@ module.exports = function(app, { pool }) {
 
       const netDollarRows = upsertRows.filter(r => r.metric_key === 'net_dollars');
       const netDollarLatest = netDollarRows.length > 0
-        ? netDollarRows.sort((a, b) => b.date.localeCompare(a.date))[0]
+        ? netDollarRows.slice().sort((a, b) => b.date.localeCompare(a.date))[0]
         : null;
+      const netCol = colMetrics.findIndex(m => m && m.key === 'net_dollars');
 
       res.json({
         success: !rpcError,
         matched: matchedKeys, matched_count: matchedKeys.length,
         matched_cols: matchedCols,
-        composites: compositeReport,
-        composite_keys_emitted: activeComposites.map(c => c.key),
         unmatched_headers: unmatchedHeaders, unmatched_count: unmatchedHeaders.length,
+        composite_keys_emitted: activeComposites.map(c => c.key),
+        overrides_applied: overridesApplied,
+        override_warnings: overrideWarnings,
+        override_load_error: overrideError,
         rows_upserted: upserted, rows_built: upsertRows.length,
         dates_parsed: datesParsed,
-        total_columns_read: headerRow.length,
+        net_dollars_col: netCol,
         net_dollars_debug: { rows_found: netDollarRows.length, latest: netDollarLatest },
         rpc_error: rpcError,
       });
     } catch (e) {
-      res.status(500).json({ error: e?.message || String(e) });
+      res.status(500).json({ error: String(e) });
     }
   });
 };
