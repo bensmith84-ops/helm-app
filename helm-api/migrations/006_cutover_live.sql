@@ -7,6 +7,7 @@
 --    every public relation except six internal ones; writes per
 --    _helm_freeze_snapshot (taken just before the freeze); anon -> no table access.
 GRANT SELECT, REFERENCES, TRIGGER ON ALL TABLES IN SCHEMA public TO authenticated;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO authenticated;
 DO $g$
 DECLARE r record;
 BEGIN
