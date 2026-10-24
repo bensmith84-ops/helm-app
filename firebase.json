@@ -1,0 +1,9 @@
+{
+  "hosting": {
+    "public": "hosting",
+    "ignore": ["firebase.json", "**/.*"],
+    "rewrites": [
+      { "source": "**", "run": { "serviceId": "helm-app", "region": "us-central1", "pinTag": false } }
+    ]
+  }
+}
