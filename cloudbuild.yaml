@@ -221,9 +221,15 @@ steps:
   #    so the app deploy above is never blocked by it, e.g. before the
   #    SUPABASE_DB_URL secret exists.
   - name: 'gcr.io/cloud-builders/docker'
+    id: resync-ctx
+    allowFailure: true
+    entrypoint: bash
+    args: ['-c', 'rm -rf resync-ctx && mkdir -p resync-ctx && cp gcp-migration/resync/* resync-ctx/ && cp -r helm-api/migrations resync-ctx/migrations']
+  - name: 'gcr.io/cloud-builders/docker'
     id: resync-build
     allowFailure: true
-    args: ['build', '-f', 'gcp-migration/resync/Dockerfile', '-t', 'us-central1-docker.pkg.dev/$PROJECT_ID/helm/helm-resync:$SHORT_SHA', '.']
+    dir: 'resync-ctx'
+    args: ['build', '-t', 'us-central1-docker.pkg.dev/$PROJECT_ID/helm/helm-resync:$SHORT_SHA', '.']
   - name: 'gcr.io/cloud-builders/docker'
     id: resync-push
     allowFailure: true
