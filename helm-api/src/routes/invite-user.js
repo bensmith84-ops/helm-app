@@ -4,7 +4,7 @@
 // Replaces supabase.auth.admin.{listUsers, inviteUserByEmail, deleteUser, updateUserById, resetPasswordForEmail}.
 // Note: requires Firebase Admin SDK init (admin) and profiles.firebase_uid mapping.
 
-const APP_URL = 'https://helm-app-six.vercel.app';
+const APP_URL = process.env.APP_URL || process.env.HELM_APP_URL || 'https://helm-app-qp7o2dcl5a-uc.a.run.app';
 const ORG_DEFAULT = 'a0000000-0000-0000-0000-000000000001';
 const DEFAULT_DENY_PERMS = { _default_deny: true };
 

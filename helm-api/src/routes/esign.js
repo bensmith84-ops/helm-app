@@ -70,7 +70,7 @@ module.exports = function(app, { pool }) {
           `SELECT display_name, email FROM profiles WHERE id = $1 LIMIT 1`, [envelope.created_by]
         );
         const senderName = creatorRows[0]?.display_name || creatorRows[0]?.email || 'Someone';
-        const SIGNING_BASE = body.signing_base_url || 'https://helm-app-six.vercel.app/sign';
+        const SIGNING_BASE = body.signing_base_url || `${process.env.HELM_APP_URL || 'https://helm-app-qp7o2dcl5a-uc.a.run.app'}/sign`;
         const toNotify = envelope.signing_order === 'sequential' ? [signers[0]] : signers.filter(s => s.role !== 'cc');
         let emailsSent = 0;
 
@@ -252,7 +252,7 @@ module.exports = function(app, { pool }) {
             .filter(s => s.status !== 'signed' && s.id !== signer.id)
             .sort((a, b) => a.signing_order - b.signing_order)[0];
           if (nextSigner) {
-            const SIGNING_BASE = body.signing_base_url || 'https://helm-app-six.vercel.app/sign';
+            const SIGNING_BASE = body.signing_base_url || `${process.env.HELM_APP_URL || 'https://helm-app-qp7o2dcl5a-uc.a.run.app'}/sign`;
             await pool.query(`UPDATE esign_signers SET status = 'sent' WHERE id = $1`, [nextSigner.id]);
             await sendEmail(nextSigner.email, `Please sign: ${envelope.title}`,
               signingEmailHtml(nextSigner.name, envelope.title, envelope.message || '',
@@ -326,7 +326,7 @@ module.exports = function(app, { pool }) {
           `SELECT * FROM esign_signers WHERE envelope_id = $1 AND status IN ('sent','opened')`,
           [envelope_id]
         );
-        const SIGNING_BASE = body.signing_base_url || 'https://helm-app-six.vercel.app/sign';
+        const SIGNING_BASE = body.signing_base_url || `${process.env.HELM_APP_URL || 'https://helm-app-qp7o2dcl5a-uc.a.run.app'}/sign`;
         let sent = 0;
         for (const signer of signers) {
           const emailSent = await sendEmail(signer.email,
