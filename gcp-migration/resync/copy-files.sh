@@ -16,7 +16,7 @@ export GCS_BUCKET="${GCS_BUCKET:-helm-496923-files-private}"
 export PGUSER="${PGUSER:-helmuser}"
 CSQL_HOST="${CSQL_HOST:-/cloudsql/helm-496923:us-central1:helm-db}"
 LIST_DB="${LIST_DB:-helm_v2}"
-PARALLEL="${PARALLEL:-8}"
+PARALLEL="${PARALLEL:-4}"
 W=/tmp/files; mkdir -p "$W"
 log() { echo "[files $(date -u +%H:%M:%S)] $*"; }
 
@@ -32,10 +32,13 @@ copy_one() {
   tok=$(cat "$TOKFILE")
   if curl -sf -H "Authorization: Bearer $tok" "https://storage.googleapis.com/storage/v1/b/$GCS_BUCKET/o/$enc?fields=size" | grep -q "\"size\": *\"$size\""; then echo "SKIP"; return 0; fi
   tmp=$(mktemp -p /tmp/files)
-  if ! curl -sf -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -o "$tmp" "$SUPA/storage/v1/object/$b/$path"; then
-    rm -f "$tmp"; echo "FAIL download $obj"; return 0
+  local code
+  code=$(curl -s --retry 4 --retry-delay 3 --retry-all-errors --max-time 900 -w '%{http_code}' \
+    -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -o "$tmp" "$SUPA/storage/v1/object/$b/$path")
+  if [ "$code" != "200" ]; then
+    rm -f "$tmp"; echo "FAIL download http=$code $obj"; return 0
   fi
-  if curl -sf -X POST -H "Authorization: Bearer $tok" -H "Content-Type: ${mime:-application/octet-stream}" --data-binary @"$tmp" \
+  if curl -sf --retry 4 --retry-delay 3 --retry-all-errors -X POST -H "Authorization: Bearer $tok" -H "Content-Type: ${mime:-application/octet-stream}" --data-binary @"$tmp" \
        "https://storage.googleapis.com/upload/storage/v1/b/$GCS_BUCKET/o?uploadType=media&name=$enc" >/dev/null; then
     echo "OK"
   else
@@ -57,5 +60,6 @@ TOTAL=$(wc -l < "$W/list"); log "files to check: $TOTAL"
 tr '\n' '\0' < "$W/list" | xargs -0 -P "$PARALLEL" -I{} bash -c 'copy_one "$1"' _ {} > "$W/results"
 OK=$(grep -c '^OK' "$W/results" || true); SKIP=$(grep -c '^SKIP' "$W/results" || true); FAIL=$(grep -c '^FAIL' "$W/results" || true)
 log "done: copied=$OK already_there=$SKIP failed=$FAIL of $TOTAL"
-grep '^FAIL' "$W/results" | head -50
+grep '^FAIL' "$W/results" | cut -d' ' -f1-3 | sort | uniq -c | sort -rn | head -10   # failure reasons
+grep '^FAIL' "$W/results" | head -30
 [ "$FAIL" -eq 0 ]
