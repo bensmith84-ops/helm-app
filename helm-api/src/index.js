@@ -149,6 +149,7 @@ require('./routes/rest')(app, helpers);
 require('./routes/storage')(app, helpers);
 require('./routes/import-auth-users')(app, helpers);
 require('./routes/rd-advisor')(app, helpers);
+require('./routes/db-inspect')(app, helpers);
 require('./routes/plm-advisor')(app, helpers);
 require('./routes/doc-ai')(app, helpers);
 require('./routes/fin-analyze')(app, helpers);
