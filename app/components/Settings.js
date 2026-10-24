@@ -80,7 +80,7 @@ export default function SettingsView({ isAdmin, allowedModules }) {
   const [qboSyncing, setQboSyncing] = useState(false);
   const [qboSyncStep, setQboSyncStep] = useState("");
   useEffect(() => {
-    supabase.from("qbo_connections").select("*").eq("org_id", orgId).order("connected_at", { ascending: false }).limit(1).then(({ data }) => {
+    supabase.from("qbo_connection_status").select("*").eq("org_id", orgId).order("connected_at", { ascending: false }).limit(1).then(({ data }) => {
       if (data && data.length > 0) setQboConn(data[0]);
     });
   }, []);
@@ -745,7 +745,7 @@ export default function SettingsView({ isAdmin, allowedModules }) {
                           if (errors.length) { showToast(`QBO synced with ${errors.length} issue(s): ` + errors.slice(0,2).join("; "), "#f59e0b"); }
                           else { showToast(`QBO synced: ${totals.accounts||0} accounts, ${totals.vendors||0} vendors, ${totals.bills||0} bills, ${totals.customers||0} customers, ${totals.invoices||0} invoices`, "#22c55e"); }
                           // Refresh connection state
-                          const { data: conn } = await supabase.from("qbo_connections").select("*").eq("org_id", orgId).order("connected_at", { ascending: false }).limit(1);
+                          const { data: conn } = await supabase.from("qbo_connection_status").select("*").eq("org_id", orgId).order("connected_at", { ascending: false }).limit(1);
                           if (conn && conn.length > 0) setQboConn(conn[0]);
                         } catch(e) { showToast("Sync failed: " + e, "#ef4444"); }
                         setQboSyncStep("");
@@ -778,7 +778,7 @@ export default function SettingsView({ isAdmin, allowedModules }) {
                       </button>
                       <button onClick={async ()=>{
                         if (!confirm("Disconnect QuickBooks? You can reconnect later.")) return;
-                        await supabase.from("qbo_connections").delete().eq("org_id", orgId).eq("id", qboConn.id);
+                        await supabase.from("qbo_connection_status").delete().eq("org_id", orgId).eq("id", qboConn.id);
                         setQboConn(null);
                         showToast("QuickBooks disconnected", "#f59e0b");
                       }} style={{ padding:"7px 14px", fontSize:12, fontWeight:500, borderRadius:7, cursor:"pointer", flexShrink:0, background:T.surface2, color:T.text3, border:`1px solid ${T.border}` }}>

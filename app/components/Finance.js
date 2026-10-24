@@ -3338,7 +3338,7 @@ function CFODashboard({ isMobile }) {
         supabase.from("qbo_transfers").select("*"),
         supabase.from("qbo_journal_entries").select("qbo_id,txn_date,total_amount,memo"),
         supabase.from("qbo_category_mappings").select("*").eq("org_id", orgId),
-        supabase.from("qbo_connections").select("*").eq("org_id", orgId).order("connected_at", { ascending: false }).limit(1),
+        supabase.from("qbo_connection_status").select("*").eq("org_id", orgId).order("connected_at", { ascending: false }).limit(1),
         supabase.from("qbo_accounts").select("*").eq("org_id", orgId).eq("account_type", "Bank"),
       ]);
       setPL(r1.data || []); setPLMonthly(r2.data || []); setBS(r3.data || []);
