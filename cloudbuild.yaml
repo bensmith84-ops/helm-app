@@ -130,7 +130,7 @@ steps:
       - '--service-account=helm-app-runtime@$PROJECT_ID.iam.gserviceaccount.com'
       - '--add-cloudsql-instances=$PROJECT_ID:us-central1:helm-db'
       - '--update-env-vars=FIREBASE_PROJECT_ID=$PROJECT_ID,PGUSER=helmuser,PGDATABASE=helm_v2,PGHOST=/cloudsql/$PROJECT_ID:us-central1:helm-db,REST_ENFORCE_RLS=true,REST_ALLOWED_TABLES=*,REST_ALLOWED_RPCS=*,HELM_PREVIEW=true,POSTGREST_URL=https://helm-postgrest-preview-qp7o2dcl5a-uc.a.run.app'
-      - '--update-secrets=PGPASSWORD=helm-db-password:latest,ANTHROPIC_API_KEY=anthropic-api-key:latest'
+      - '--update-secrets=PGPASSWORD=helm-db-password:latest,ANTHROPIC_API_KEY=anthropic-api-key:latest,METABASE_API_KEY=METABASE_API_KEY:latest'
 
   # 6a. PostgREST for the preview (IAM-private; only helm-api-preview calls it).
   - name: 'gcr.io/cloud-builders/docker'
