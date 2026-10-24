@@ -221,9 +221,14 @@ steps:
         URI=https://helm-api-qp7o2dcl5a-uc.a.run.app/cron
         SA=helm-app-runtime@$PROJECT_ID.iam.gserviceaccount.com
         upsert() {
-          local name="$$1" sched="$$2" verb=create
-          if gcloud scheduler jobs describe "$$name" --location=us-central1 >/dev/null 2>&1; then echo "scheduler: $$name exists"; return 0; fi
-          gcloud scheduler jobs create http "$$name" --location=us-central1 --schedule="$$sched" --time-zone=Etc/UTC \
+          local name="$$1" sched="$$2" tz="$${3:-Etc/UTC}" verb=create
+          if gcloud scheduler jobs describe "$$name" --location=us-central1 >/dev/null 2>&1; then
+            # Keep an existing job's schedule in line with this file.
+            gcloud scheduler jobs update http "$$name" --location=us-central1 --schedule="$$sched" --time-zone="$$tz" >/dev/null \
+              && echo "scheduler: $$name schedule $$sched ($$tz)" || echo "scheduler: update $$name FAILED"
+            return 0
+          fi
+          gcloud scheduler jobs create http "$$name" --location=us-central1 --schedule="$$sched" --time-zone="$$tz" \
             --uri="$$URI" --http-method=POST --headers=Content-Type=application/json \
             --message-body="{\"job\":\"$$name\"}" --oidc-service-account-email="$$SA" --oidc-token-audience="$$URI" \
             --attempt-deadline=900s && echo "scheduler: $$verb $$name ok" || echo "scheduler: $$verb $$name FAILED"
@@ -238,7 +243,7 @@ steps:
         upsert dp-daily-sync-verify '45 5 * * *'
         upsert notification-dispatch '*/5 * * * *'
         upsert shopify-backfill-tick '* * * * *'
-        upsert warehouse-sync '30 18 * * *'
+        upsert warehouse-sync '30 3 * * *' America/New_York
 
   # Custom domain (helm.earthbreeze.com): Firebase Hosting forwards every request
   # to the helm-app service. Needs Firebase Hosting Admin on the build account.
