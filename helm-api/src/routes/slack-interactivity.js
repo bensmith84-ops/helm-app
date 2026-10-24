@@ -16,7 +16,7 @@ const APPROVAL_CHAINS = {
   high_value: [{ role: 'Mgr', label: 'Manager' }, { role: 'CFO', label: 'CFO' }, { role: 'CEO', label: 'CEO' }],
 };
 
-const HELM_URL = 'https://helm-app-six.vercel.app';
+const HELM_URL = process.env.HELM_APP_URL || 'https://helm-app-qp7o2dcl5a-uc.a.run.app';
 
 const STATUS_LABELS = {
   approved: '\u2705 Approved',

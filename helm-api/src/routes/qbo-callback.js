@@ -3,7 +3,7 @@
 // OAuth callback: CSRF verify state, exchange code for tokens, fetch company info, upsert connection.
 const { getTokenEndpoint } = require('../lib/qbo');
 
-const APP_URL = process.env.APP_URL || 'https://helm-app-six.vercel.app';
+const APP_URL = process.env.APP_URL || 'https://helm-app-qp7o2dcl5a-uc.a.run.app';
 
 module.exports = function(app, { pool }) {
   app.get('/qbo-callback', async (req, res) => {

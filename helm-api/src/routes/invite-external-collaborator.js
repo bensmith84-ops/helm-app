@@ -3,7 +3,7 @@
 // 3 actions: remove (delete project_members row), update (role/access_scope), invite (default).
 // Uses Firebase Admin SDK for new user creation.
 
-const APP_URL = process.env.APP_URL || 'https://helm-app-six.vercel.app';
+const APP_URL = process.env.APP_URL || 'https://helm-app-qp7o2dcl5a-uc.a.run.app';
 const DEFAULT_ORG = 'a0000000-0000-0000-0000-000000000001';
 
 module.exports = function(app, { pool, admin }) {
