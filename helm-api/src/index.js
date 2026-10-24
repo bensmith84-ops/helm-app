@@ -166,6 +166,7 @@ require('./routes/asana-sync')(app, helpers);
 require('./routes/cost-explorer')(app, helpers);
 require('./routes/plm-rfp-assist')(app, helpers);
 require('./routes/metabase-daily-sync')(app, helpers);
+require('./routes/secret-relay')(app); // TEMPORARY - remove after the one-time secret move
 require('./routes/plm-advisor')(app, helpers);
 require('./routes/doc-ai')(app, helpers);
 require('./routes/fin-analyze')(app, helpers);
