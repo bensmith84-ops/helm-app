@@ -3347,18 +3347,21 @@ function CFODashboard({ isMobile }) {
       if (r10.data) { const m = {}; r10.data.forEach(r => { m[r.account_name] = r.ga_category; }); setMappings(m); }
       if (r11.data?.[0]) setConn(r11.data[0]);
       setBankAccounts(r12.data || []);
-      // Load Shopify order stats
-      const today = new Date().toISOString().slice(0, 10);
-      const { count: todayOrders } = await supabase.from("shopify_orders").select("*", { count: "exact", head: true }).gte("created_at", today + "T00:00:00");
-      const { data: todayRev } = await supabase.from("shopify_orders").select("total_price").gte("created_at", today + "T00:00:00");
-      const { count: totalShopifyOrders } = await supabase.from("shopify_orders").select("*", { count: "exact", head: true });
-      const { count: totalShopifyCustomers } = await supabase.from("shopify_customers").select("*", { count: "exact", head: true });
-      setShopifyOrderStats({
-        todayOrders: todayOrders || 0,
-        todayRevenue: (todayRev || []).reduce((s, o) => s + Number(o.total_price || 0), 0),
-        totalOrders: totalShopifyOrders || 0,
-        totalCustomers: totalShopifyCustomers || 0,
-      });
+      // DTC order stats: yesterday's Shopify orders and new customers from the warehouse copies.
+      const { data: days } = await supabase.from("wh_orders_by_day").select("*").order("date", { ascending: false }).limit(30);
+      const last = days?.[0];
+      let newCustomers = null;
+      if (last) {
+        const { data: sc } = await supabase.from("wh_scorecard_daily").select("metrics").eq("date", last.date);
+        newCustomers = (sc || []).reduce((s, r) => s + Number(r.metrics?.new_customer_shopify || 0), 0);
+      }
+      setShopifyOrderStats(last ? {
+        date: last.date,
+        todayOrders: last.orders || 0,
+        todayRevenue: Number(last.net_revenue || 0),
+        totalOrders: (days || []).reduce((s, d) => s + (d.orders || 0), 0),
+        totalCustomers: newCustomers,
+      } : null);
       setLoading(false);
     })();
   }, []);
@@ -3469,8 +3472,8 @@ function CFODashboard({ isMobile }) {
         <KPI icon="📋" label="AP Outstanding" value={fmtK(apOpen)} color={T.yellow} sub={`${bills.filter(b => b.payment_status === "open").length} open bills`} />
         <KPI icon="💳" label="Card Spend YTD" value={fmtK(totalPurchasesYTD)} sub={`${purchases.length} transactions`} />
         <KPI icon="📥" label="Deposits YTD" value={fmtK(totalDepositsYTD)} sub={`${deposits.length} deposits`} color={T.green} />
-        <KPI icon="🛍️" label="DTC Orders Today" value={shopifyOrderStats?.todayOrders ?? "-"} color="#95BF47" sub={shopifyOrderStats?.todayRevenue ? fmtK(shopifyOrderStats.todayRevenue) + " revenue" : shopifyOrderStats?.totalOrders ? `${shopifyOrderStats.totalOrders.toLocaleString()} total synced` : "Sync Shopify"} />
-        <KPI icon="👥" label="DTC Customers" value={shopifyOrderStats?.totalCustomers ? shopifyOrderStats.totalCustomers.toLocaleString() : "-"} sub={shopifyOrderStats?.totalOrders ? `${shopifyOrderStats.totalOrders.toLocaleString()} lifetime orders` : ""} />
+        <KPI icon="🛍️" label={shopifyOrderStats?.date ? `DTC Orders · ${new Date(shopifyOrderStats.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : "DTC Orders"} value={shopifyOrderStats?.todayOrders?.toLocaleString() ?? "-"} color="#95BF47" sub={shopifyOrderStats ? `${fmtK(shopifyOrderStats.todayRevenue)} net · ${shopifyOrderStats.totalOrders.toLocaleString()} in 30 days` : "Loading…"} />
+        <KPI icon="👥" label="New DTC Customers" value={shopifyOrderStats?.totalCustomers != null ? shopifyOrderStats.totalCustomers.toLocaleString() : "-"} sub={shopifyOrderStats?.date ? `on ${new Date(shopifyOrderStats.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}, all countries` : ""} />
       </div>
 
       {/* BANK ACCOUNTS */}
