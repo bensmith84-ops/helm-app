@@ -222,9 +222,8 @@ steps:
   #    SUPABASE_DB_URL secret exists.
   - name: 'gcr.io/cloud-builders/docker'
     id: resync-build
-    dir: 'gcp-migration/resync'
     allowFailure: true
-    args: ['build', '-t', 'us-central1-docker.pkg.dev/$PROJECT_ID/helm/helm-resync:$SHORT_SHA', '.']
+    args: ['build', '-f', 'gcp-migration/resync/Dockerfile', '-t', 'us-central1-docker.pkg.dev/$PROJECT_ID/helm/helm-resync:$SHORT_SHA', '.']
   - name: 'gcr.io/cloud-builders/docker'
     id: resync-push
     allowFailure: true
