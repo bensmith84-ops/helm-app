@@ -57,6 +57,45 @@ async function downloadAndStore(downloadUrl, storagePath, contentType) {
   }
 }
 
+
+// Large entities (customers, invoices): oldest-change-first, saved page by page,
+// stopping after a time budget so one request never hits Cloud Run's limit.
+// The cursor in qbo_sync_cursors lets the next run carry on from there.
+const PAGE_TIMEOUT_MS = 60000;
+async function syncIncremental(pool, { base, rid, token, entity, table, columns, mapRow, budgetMs = 240000 }) {
+  const started = Date.now();
+  const { rows: cur } = await pool.query(
+    'SELECT last_updated FROM qbo_sync_cursors WHERE realm_id = $1 AND entity = $2', [rid, entity]);
+  const since = cur[0]?.last_updated ? new Date(cur[0].last_updated).toISOString() : null;
+  let saved = 0, more = false, last = since;
+  for (let sp = 1; ; sp += 1000) {
+    let q = `SELECT * FROM ${entity}`;
+    if (since) q += ` WHERE Metadata.LastUpdatedTime >= '${since}'`;
+    q += ` ORDERBY Metadata.LastUpdatedTime STARTPOSITION ${sp} MAXRESULTS 1000`;
+    const r = await fetch(`${base}/v3/company/${rid}/query?query=${encodeURIComponent(q)}&minorversion=65`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+      signal: AbortSignal.timeout(PAGE_TIMEOUT_MS),
+    });
+    if (!r.ok) throw new Error(`QBO ${r.status}: ${(await r.text()).slice(0, 300)}`);
+    const d = await r.json();
+    const items = d?.QueryResponse?.[entity] || [];
+    if (items.length) {
+      saved += await bulkUpsert(pool, table, items.map(mapRow), columns, 'realm_id, qbo_id');
+      last = items[items.length - 1]?.MetaData?.LastUpdatedTime || last;
+    }
+    const done = items.length < 1000;
+    await pool.query(
+      `INSERT INTO qbo_sync_cursors (realm_id, entity, last_updated, complete, updated_at)
+       VALUES ($1, $2, $3, $4, now())
+       ON CONFLICT (realm_id, entity) DO UPDATE SET last_updated = EXCLUDED.last_updated,
+         complete = EXCLUDED.complete, updated_at = now()`,
+      [rid, entity, last, done]);
+    if (done) break;
+    if (Date.now() - started > budgetMs) { more = true; break; }
+  }
+  return { saved, more };
+}
+
 module.exports = function(app, { pool }) {
   app.post('/qbo-sync', async (req, res) => {
     try {
@@ -304,34 +343,36 @@ module.exports = function(app, { pool }) {
 
       if (what === 'all' || what === 'customers') {
         try {
-          const items = await queryAll(base, rid, token, 'Customer');
-          const rows = items.map(c => ({
-            org_id: oid, realm_id: rid, qbo_id: String(c.Id),
-            display_name: c.DisplayName, company_name: c.CompanyName,
-            email: c.PrimaryEmailAddr?.Address, phone: c.PrimaryPhone?.FreeFormNumber,
-            balance: Number(c.Balance) || 0, active: c.Active !== false,
-            synced_at: now(),
-          }));
-          R.customers = await bulkUpsert(pool, 'qbo_customers', rows,
-            ['org_id','realm_id','qbo_id','display_name','company_name','email','phone','balance','active','synced_at'],
-            'realm_id, qbo_id');
+          const r = await syncIncremental(pool, {
+            base, rid, token, entity: 'Customer', table: 'qbo_customers',
+            columns: ['org_id','realm_id','qbo_id','display_name','company_name','email','phone','balance','active','synced_at'],
+            mapRow: c => ({
+              org_id: oid, realm_id: rid, qbo_id: String(c.Id),
+              display_name: c.DisplayName, company_name: c.CompanyName,
+              email: c.PrimaryEmailAddr?.Address, phone: c.PrimaryPhone?.FreeFormNumber,
+              balance: Number(c.Balance) || 0, active: c.Active !== false,
+              synced_at: now(),
+            }),
+          });
+          R.customers = r.saved; if (r.more) R.customers_more = true;
         } catch (e) { E.push(`customers: ${e?.message}`); }
       }
 
       if (what === 'all' || what === 'invoices') {
         try {
-          const items = await queryAll(base, rid, token, 'Invoice');
-          const rows = items.map(inv => ({
-            org_id: oid, realm_id: rid, qbo_id: String(inv.Id),
-            customer_ref: inv.CustomerRef?.value, customer_name: inv.CustomerRef?.name,
-            txn_date: inv.TxnDate, due_date: inv.DueDate,
-            total_amount: Number(inv.TotalAmt) || 0, balance: Number(inv.Balance) || 0,
-            currency: inv.CurrencyRef?.value || 'USD', status: inv.EmailStatus,
-            memo: inv.PrivateNote, synced_at: now(),
-          }));
-          R.invoices = await bulkUpsert(pool, 'qbo_invoices', rows,
-            ['org_id','realm_id','qbo_id','customer_ref','customer_name','txn_date','due_date','total_amount','balance','currency','status','memo','synced_at'],
-            'realm_id, qbo_id');
+          const r = await syncIncremental(pool, {
+            base, rid, token, entity: 'Invoice', table: 'qbo_invoices',
+            columns: ['org_id','realm_id','qbo_id','customer_ref','customer_name','txn_date','due_date','total_amount','balance','currency','status','memo','synced_at'],
+            mapRow: inv => ({
+              org_id: oid, realm_id: rid, qbo_id: String(inv.Id),
+              customer_ref: inv.CustomerRef?.value, customer_name: inv.CustomerRef?.name,
+              txn_date: inv.TxnDate, due_date: inv.DueDate,
+              total_amount: Number(inv.TotalAmt) || 0, balance: Number(inv.Balance) || 0,
+              currency: inv.CurrencyRef?.value || 'USD', status: inv.EmailStatus,
+              memo: inv.PrivateNote, synced_at: now(),
+            }),
+          });
+          R.invoices = r.saved; if (r.more) R.invoices_more = true;
         } catch (e) { E.push(`invoices: ${e?.message}`); }
       }
 
