@@ -39,7 +39,7 @@ async function syncInventory(pool, { fetchImpl }) {
       WHERE snapshot_date = (SELECT MAX(snapshot_date) FROM \`${BQ}.data_team_earth_breeze.inventory_report_helm\`)
       ORDER BY location, sku`, { fetchImpl });
   const cin7 = await mbSqlAll(
-    `SELECT CURRENT_DATE('America/Los_Angeles') AS snapshot_date, Location AS location, SKU AS sku, ANY_VALUE(Name) AS name,
+    `SELECT (SELECT DATE(MAX(_airbyte_extracted_at), 'America/Los_Angeles') FROM \`${BQ}.cin7.product_availability\`) AS snapshot_date, Location AS location, SKU AS sku, ANY_VALUE(Name) AS name,
             SUM(OnHand) AS on_hand, SUM(Available) AS available, SUM(Allocated) AS reserved, SUM(COALESCE(OnOrder,0) + COALESCE(InTransit,0)) AS incoming
        FROM \`${BQ}.cin7.product_availability\`
       WHERE SKU IS NOT NULL AND Location IS NOT NULL
