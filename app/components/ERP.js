@@ -790,7 +790,7 @@ function ERPDashboard({ navigateTo, products, variants, suppliers, purchaseOrder
       {/* Primary KPIs */}
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr", gap: 10 }}>
         <DashCard icon="📦" title="Products" value={finishedGoods.length} sub={`${variants.length} SKUs · ${products.length} total items`} color={T.accent} onClick={() => setView("products")} />
-        <DashCard icon="📊" title="Inventory" value={fmtN(totalStock)} sub={`${fmt(inventoryValue)} value · ${lots.filter(l=>l.status==="available").length} lots`} color="#10B981" onClick={() => setView("inventory")} />
+        <DashCard icon="📊" title="Inventory" value={fmtN(Math.round(totalStock))} sub={`${fmt(inventoryValue)} value · ${lots.filter(l=>l.status==="available").length} lots`} color="#10B981" onClick={() => setView("inventory")} />
         <DashCard icon="🛒" title={whDay ? `Orders · ${new Date(whDay.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : "Orders"} value={whDay ? fmtN(whDay.orders) : "-"} sub={whDay ? `${fmt(Number(whDay.net_revenue))} net · ${fmtN(whDay.new_subscription_orders || 0)} new subs · ${fmtN(whDay.recurring_orders || 0)} recurring` : "Loading Shopify orders…"} color="#F59E0B" onClick={() => setView("reports")} />
         <DashCard icon="📋" title="Open POs" value={openPOs.length} sub={`${fmt(totalPOValue)} outstanding`} color={openPOs.length > 0 ? "#3B82F6" : T.text3} onClick={() => setView("purchase_orders")} />
       </div>
@@ -873,7 +873,7 @@ function ERPDashboard({ navigateTo, products, variants, suppliers, purchaseOrder
                 <span style={{ fontSize: 16 }}>{TYPE_ICONS[f.facility_type] || "🏢"}</span>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 11, fontWeight: 600, color: T.text }}>{f.name}</div>
-                  <div style={{ fontSize: 10, color: T.text3 }}>{fmtN(units)} units · {skus} SKUs</div>
+                  <div style={{ fontSize: 10, color: T.text3 }}>{fmtN(Math.round(units))} units · {skus} SKUs</div>
                 </div>
                 <div style={{ width: 40, height: 40, borderRadius: 20, background: `conic-gradient(${T.accent} ${Math.min(100, Math.round((units / Math.max(totalStock, 1)) * 100))}%, ${T.surface2} 0)`, display: "flex", alignItems: "center", justifyContent: "center" }}>
                   <div style={{ width: 30, height: 30, borderRadius: 15, background: T.surface2, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: T.text3 }}>{Math.round((units / Math.max(totalStock, 1)) * 100)}%</div>
@@ -5597,7 +5597,7 @@ function ReportsView({ products, variants, suppliers, purchaseOrders, poItems, i
     { id: "top_skus", name: "Top Selling SKUs", icon: "🏆", category: "Sales", description: "Best-selling SKUs by revenue across Shopify and Amazon, last 30 days (from the data warehouse)",
       run: () => ({
         columns: ["SKU", "Product", "Units Sold", "Shopify Units", "Amazon Units", "Net Revenue", "Avg Price", "# Orders"],
-        rows: whSkus.filter(s => s.sku !== "NO_SKU").map(s => [s.sku, s.product_name || "-", fmtN(Number(s.units)), fmtN(Number(s.shopify_units || 0)), fmtN(Number(s.amazon_units || 0)), fmt(Number(s.revenue)), fmt(Number(s.units) > 0 ? Number(s.revenue) / Number(s.units) : 0), fmtN(s.orders)]),
+        rows: whSkus.filter(s => s.sku !== "NO_SKU" && Number(s.revenue) > 0).map(s => [s.sku, s.product_name || "-", fmtN(Number(s.units)), fmtN(Number(s.shopify_units || 0)), fmtN(Number(s.amazon_units || 0)), fmt(Number(s.revenue)), fmt(Number(s.units) > 0 ? Number(s.revenue) / Number(s.units) : 0), fmtN(s.orders)]),
         summary: `${whRange} · ${whSkus.length} SKUs`,
       })
     },
