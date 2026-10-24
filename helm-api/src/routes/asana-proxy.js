@@ -1,7 +1,14 @@
-
-// POST /asana-proxy - port of supabase/functions/asana-proxy
-// 3 actions: list_projects, get_project_detail, get_task_full.
+// POST /asana-proxy - port of supabase/functions/asana-proxy (v15)
+// 4 actions: list_projects, get_project_detail, get_task_full, import_attachment.
 // Requires ASANA_PAT (Personal Access Token).
+// import_attachment re-hosts an Asana file in Cloud Storage under the
+// Supabase-style bucket "attachments" (object "attachments/asana-import/...").
+
+const { gcsClient } = require('../lib/gcs');
+
+const ATTACH_BUCKET = 'attachments';
+const PUBLIC_BUCKETS = new Set((process.env.STORAGE_PUBLIC_BUCKETS || 'avatars,org-logos,rfp-assets,attachments,bill-attachments,asana-attachments,esign-documents').split(',').map(s => s.trim()).filter(Boolean));
+const gcsTarget = (bucket) => ((process.env.GCS_PUBLIC_BUCKET && PUBLIC_BUCKETS.has(bucket)) ? process.env.GCS_PUBLIC_BUCKET : (process.env.GCS_PRIVATE_BUCKET || 'helm-496923-files-private'));
 
 async function asanaGet(path) {
   const ASANA_PAT = process.env.ASANA_PAT;
@@ -35,7 +42,7 @@ module.exports = function(app) {
         return res.status(500).json({ error: 'ASANA_PAT not configured.' });
       }
 
-      const { action, project_id, task_gid } = req.body || {};
+      const { action, project_id, task_gid, attachment_gid } = req.body || {};
 
       if (action === 'list_projects') {
         const meResult = await asanaGet('/users/me');
@@ -103,8 +110,14 @@ module.exports = function(app) {
 
         let attachments = [];
         try {
-          const atts = await asanaGetAll(`/tasks/${task_gid}/attachments?opt_fields=name,download_url,permanent_url,size`, 2);
-          attachments = atts.map(a => ({ name: a.name || 'file', url: a.download_url || a.permanent_url || '', size: a.size || 0 }));
+          const atts = await asanaGetAll(`/tasks/${task_gid}/attachments?opt_fields=name,download_url,permanent_url,view_url,size,resource_subtype`, 2);
+          attachments = atts.map(a => ({
+            gid: a.gid,
+            name: a.name || 'file',
+            url: a.download_url || a.permanent_url || a.view_url || '',
+            size: a.size || 0,
+            resource_subtype: a.resource_subtype || 'asana',
+          }));
         } catch {}
 
         return res.json({
@@ -133,6 +146,51 @@ module.exports = function(app) {
             custom_fields: (st.custom_fields || []).filter(f => f.display_value).map(f => ({ name: f.name, value: f.display_value })),
           })),
         });
+      }
+
+      // Download an Asana attachment and re-host it in storage so the link is permanent
+      // (Asana download_urls are short-lived signed URLs). Returns { stored, path, mime, size }
+      // for re-hosted files, or { external, url } for attachments hosted elsewhere
+      // (Google Drive, Dropbox, etc.) that can't be downloaded. `path` is relative to the
+      // "attachments" bucket, as before.
+      if (action === 'import_attachment' && attachment_gid) {
+        let a;
+        try {
+          const detail = await asanaGet(`/attachments/${attachment_gid}?opt_fields=name,download_url,permanent_url,view_url,size,resource_subtype`);
+          a = detail.data || {};
+        } catch (e) {
+          return res.json({ error: String(e?.message || e) });
+        }
+        const name = a.name || 'file';
+        const size = a.size || 0;
+        // Non-Asana hosts aren't downloadable via the PAT - keep them as an external link.
+        if (a.resource_subtype && a.resource_subtype !== 'asana') {
+          return res.json({ external: true, name, url: a.view_url || a.permanent_url || a.download_url || '', size });
+        }
+        const dl = a.download_url;
+        if (!dl) return res.json({ external: true, name, url: a.permanent_url || a.view_url || '', size });
+        let bytes, contentType;
+        try {
+          const fr = await fetch(dl);
+          if (!fr.ok) return res.json({ external: true, name, url: a.permanent_url || dl, size, warn: `download ${fr.status}` });
+          bytes = Buffer.from(await fr.arrayBuffer());
+          contentType = fr.headers.get('content-type') || 'application/octet-stream';
+        } catch (e) {
+          return res.json({ external: true, name, url: a.permanent_url || dl, size, warn: String(e?.message || e) });
+        }
+        const safe = name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120) || 'file';
+        const path = `asana-import/${task_gid || 'task'}/${attachment_gid}-${safe}`;
+        try {
+          // upsert (no ifGenerationMatch), matching x-upsert: true
+          const up = await gcsClient().upload(gcsTarget(ATTACH_BUCKET), `${ATTACH_BUCKET}/${path}`, bytes, contentType);
+          if (!up.ok) {
+            const txt = typeof up.data === 'string' ? up.data : JSON.stringify(up.data);
+            return res.json({ external: true, name, url: a.permanent_url || dl, size, warn: `upload ${up.status}: ${txt}` });
+          }
+        } catch (e) {
+          return res.json({ external: true, name, url: a.permanent_url || dl, size, warn: String(e?.message || e) });
+        }
+        return res.json({ stored: true, path, name, mime: contentType, size: size || bytes.length });
       }
 
       return res.status(400).json({ error: 'Invalid action' });

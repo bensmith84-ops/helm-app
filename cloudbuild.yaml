@@ -254,6 +254,28 @@ steps:
       - '--set-cloudsql-instances=$PROJECT_ID:us-central1:helm-db'
       - '--set-env-vars=PGUSER=helmuser,SRC_DB=helm,TARGET_DB=helm_v2'
       - '--set-secrets=SUPABASE_DB_URL=SUPABASE_DB_URL:latest,PGPASSWORD=helm-db-password:latest'
+  # 7b. File copy job (same image): Supabase Storage -> Cloud Storage. Run on demand.
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: files-copy-job
+    allowFailure: true
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'jobs'
+      - 'deploy'
+      - 'helm-files-copy'
+      - '--image=us-central1-docker.pkg.dev/$PROJECT_ID/helm/helm-resync:$SHORT_SHA'
+      - '--command=/copy-files.sh'
+      - '--region=us-central1'
+      - '--tasks=1'
+      - '--max-retries=0'
+      - '--task-timeout=6h'
+      - '--memory=2Gi'
+      - '--cpu=2'
+      - '--service-account=helm-app-runtime@$PROJECT_ID.iam.gserviceaccount.com'
+      - '--set-cloudsql-instances=$PROJECT_ID:us-central1:helm-db'
+      - '--set-env-vars=PGUSER=helmuser,LIST_DB=helm_v2,GCS_BUCKET=helm-496923-files-private'
+      - '--set-secrets=SUPABASE_SERVICE_ROLE_KEY=SUPABASE_SERVICE_ROLE_KEY:latest,PGPASSWORD=helm-db-password:latest'
 
 images:
   - 'us-central1-docker.pkg.dev/$PROJECT_ID/helm/helm-app:$SHORT_SHA'

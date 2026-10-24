@@ -47,6 +47,9 @@ app.use(cors({
   methods: ['GET','POST','PUT','DELETE','PATCH','OPTIONS'],
   allowedHeaders: ['Authorization','Content-Type','x-client-info','apikey','X-Requested-With','Prefer','Accept-Profile','Content-Profile','Range','Range-Unit','X-Helm-Rest'],
 }));
+// public-form takes up to six 5 MB files as base64 in JSON; parse it first with
+// a larger limit (express.json skips bodies already parsed).
+app.use('/public-form', express.json({ limit: '45mb' }));
 app.use(express.json({ limit: '10mb' }));
 
 app.get('/health', (_req, res) => res.json({ ok: true, ts: new Date().toISOString() }));
@@ -78,6 +81,10 @@ async function requireAuth(req, res, next) {
         `SELECT id FROM profiles WHERE firebase_uid = $1 LIMIT 1`, [decoded.sub]
       );
       req.user = { helm_user: { uid: rows[0]?.id || null, firebase_uid: decoded.sub, email: decoded.email || null } };
+      // Database claims Supabase-style: auth.uid() is the Helm profile id (what
+      // RLS policies and SECURITY DEFINER checks compare against), not the
+      // Firebase uid. Used by withAuthedClient().
+      req.jwtClaims = { ...decoded, sub: rows[0]?.id || null, firebase_sub: decoded.sub, role: 'authenticated', email: decoded.email || null };
     } catch (e) {
       console.error('profile resolution failed in requireAuth:', e?.message);
       req.user = { helm_user: { uid: null, firebase_uid: decoded.sub, email: decoded.email || null } };
@@ -150,6 +157,15 @@ require('./routes/storage')(app, helpers);
 require('./routes/import-auth-users')(app, helpers);
 require('./routes/rd-advisor')(app, helpers);
 require('./routes/db-inspect')(app, helpers);
+// Ported from Supabase Edge Functions for the cutover.
+require('./routes/notification-dispatch')(app, helpers);
+require('./routes/shopify-backfill')(app, helpers);
+require('./routes/scoreboard-remap')(app, helpers);
+require('./routes/public-form')(app, helpers);
+require('./routes/asana-sync')(app, helpers);
+require('./routes/cost-explorer')(app, helpers);
+require('./routes/plm-rfp-assist')(app, helpers);
+require('./routes/metabase-daily-sync')(app, helpers);
 require('./routes/plm-advisor')(app, helpers);
 require('./routes/doc-ai')(app, helpers);
 require('./routes/fin-analyze')(app, helpers);
