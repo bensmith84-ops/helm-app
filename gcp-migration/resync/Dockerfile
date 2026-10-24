@@ -1,9 +1,9 @@
-# Built from the repo root (see cloudbuild.yaml) so the copy can also apply
-# helm-api's table migrations and the schema fixes in fixes.sql.
+# Build context is assembled by cloudbuild.yaml (resync-ctx/: this folder plus
+# helm-api/migrations), because the repo-root .dockerignore excludes gcp-migration.
 FROM postgres:17-bookworm
-COPY gcp-migration/resync/resync.sh /resync.sh
-COPY gcp-migration/resync/fixes.sql /fixes.sql
-COPY helm-api/migrations /migrations
+COPY resync.sh /resync.sh
+COPY fixes.sql /fixes.sql
+COPY migrations /migrations
 RUN chmod +x /resync.sh
 USER postgres
 ENTRYPOINT ["/resync.sh"]
