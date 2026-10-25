@@ -193,6 +193,7 @@ export default function InventoryCoverView({ isMobile }) {
   const [unmapped, setUnmapped] = useState([]);
   const [maps, setMaps] = useState([]);
   const [aliases, setAliases] = useState([]);
+  const [planned, setPlanned] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [range] = useState(() => { const t = today(); return { from: addDays(t, -HISTORY_DAYS), to: addDays(t, -1), today: t }; });
@@ -208,17 +209,18 @@ export default function InventoryCoverView({ isMobile }) {
   }, [range, includeAmazon]);
 
   const loadRest = useCallback(async () => {
-    const [st, po, it, um, mp, al] = await Promise.all([
+    const [st, po, it, um, mp, al, ps] = await Promise.all([
       supabase.from("v_dp_stock").select("source,location,sku,snapshot_date,on_hand,available,region,default_on,plan_sku,plan_qty").range(0, 9999),
       supabase.from("v_dp_open_po").select("po_id,order_number,supplier,location,status,sku,name,qty_open,required_by,order_date,region,plan_sku,plan_qty").range(0, 9999),
       supabase.from("dp_items").select("sku,name,family").range(0, 9999),
       supabase.rpc("dp_unmapped_skus", { p_from: addDays(range.today, -90), p_to: range.today }),
       supabase.from("dp_sku_map").select("sales_sku,item_sku,qty,note,updated_at").order("updated_at", { ascending: false }),
       supabase.from("dp_item_alias").select("alias_sku,item_sku,qty,note,updated_at").order("updated_at", { ascending: false }),
+      supabase.from("dp_planned_supply").select("id,item_sku,region,qty,arrive_date,kind,location,note").order("arrive_date"),
     ]);
-    const err = [st, po, it, um, mp, al].find((r) => r.error);
+    const err = [st, po, it, um, mp, al, ps].find((r) => r.error);
     if (err) setError(err.error.message);
-    setStock(st.data || []); setPos(po.data || []); setItems(it.data || []); setUnmapped(um.data || []); setMaps(mp.data || []); setAliases(al.data || []);
+    setStock(st.data || []); setPos(po.data || []); setItems(it.data || []); setUnmapped(um.data || []); setMaps(mp.data || []); setAliases(al.data || []); setPlanned(ps.data || []);
   }, [range]);
 
   useEffect(() => { setLoading(true); Promise.all([loadDemand(), loadRest()]).finally(() => setLoading(false)); }, [loadDemand, loadRest]);
@@ -262,6 +264,15 @@ export default function InventoryCoverView({ isMobile }) {
       if (!poBy.has(k)) poBy.set(k, []);
       poBy.get(k).push({ ...p, ...a, idx, qty_open: Number(p.qty_open) * Number(p.plan_qty || 1) });
     });
+    // Planned production runs entered in Helm count like POs on their date;
+    // past-dated runs are assumed to be in stock already.
+    planned.forEach((r) => {
+      const k = `${r.item_sku}|${r.region}`;
+      const idx = Math.round((Date.parse(r.arrive_date) - Date.parse(t)) / 864e5);
+      if (!poBy.has(k)) poBy.set(k, []);
+      poBy.get(k).push({ planned: true, id: r.id, order_number: r.kind === "production" ? "Production" : r.kind, supplier: r.note || "", location: r.location, status: "planned",
+        expected: r.arrive_date, arrive: r.arrive_date, idx, qty_open: Number(r.qty), counted: idx >= 0, stale: idx < 0, overdue: false, assumed: false });
+    });
     // Series end on the last day with any sales (the day before today, unless
     // today's sync hasn't run yet).
     let last = -1;
@@ -300,7 +311,7 @@ export default function InventoryCoverView({ isMobile }) {
       });
     });
     return out;
-  }, [demand, stock, pos, locations, itemName, range, leadDays, safetyDays, targetDays, countStale, basis]);
+  }, [demand, stock, pos, planned, locations, itemName, range, leadDays, safetyDays, targetDays, countStale, basis]);
 
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -333,6 +344,11 @@ export default function InventoryCoverView({ isMobile }) {
   const snapshotDates = useMemo(() => {
     const m = {}; locations.forEach((l) => { m[l.source] = l.snapshot_date > (m[l.source] || "") ? l.snapshot_date : m[l.source]; }); return m;
   }, [locations]);
+
+  const removeRun = async (id) => {
+    const { error: e } = await supabase.from("dp_planned_supply").delete().eq("id", id);
+    if (e) setError(e.message); else loadRest();
+  };
 
   const exportCsv = () => {
     const head = ["item_sku", "name", "region", "available", "avg_daily_next30", "days_cover_on_hand", "stockout_date_with_pos", "next_po_date", "next_po_qty", "open_po_qty", "reorder_by", "suggested_order_qty", "status", "forecast_model", "backtest_error"];
@@ -421,7 +437,7 @@ export default function InventoryCoverView({ isMobile }) {
           <thead>
             <tr>
               {th("sku", "Item", "left")}{th("region", "Region", "left")}{th("stock", basis === "on_hand" ? "On hand" : "Available")}{th("avg", "Daily fcst")}
-              {th("cover", "Days cover")}{th("stockout", "Stockout (with POs)")}{th("po", "Next PO")}{th("reorder", "Reorder by")}{th("qty", "Suggested order")}{th("status", "Status", "left")}
+              {th("cover", "Days cover")}{th("stockout", "Stockout (with POs)")}{th("po", "Next supply")}{th("reorder", "Reorder by")}{th("qty", "Suggested order")}{th("status", "Status", "left")}
             </tr>
           </thead>
           <tbody>
@@ -463,13 +479,14 @@ export default function InventoryCoverView({ isMobile }) {
                             const counted = locations.find((k) => k.key === `${l.source}|${l.location}`)?.on;
                             return <div key={i} style={{ display: "flex", justifyContent: "space-between", color: counted ? T.text2 : T.text3, lineHeight: 1.7 }}><span>{l.location}{l.sku !== x.sku ? ` · ${l.sku}${Number(l.plan_qty) !== 1 ? ` x${l.plan_qty}` : ""}` : ""}{counted ? "" : " (not counted)"}</span><span style={{ fontVariantNumeric: "tabular-nums" }} title={`on hand ${fmtN(l.on_hand)}`}>{fmtN(basis === "on_hand" ? l.on_hand : l.available ?? l.on_hand)}</span></div>;
                           }) : <div style={{ color: T.text3 }}>No stock recorded.</div>}
-                          <div style={{ fontWeight: 700, color: T.text, margin: "10px 0 4px" }}>Open POs</div>
+                          <div style={{ fontWeight: 700, color: T.text, margin: "10px 0 4px" }}>Open POs and planned production</div>
                           {x.pos.length ? x.pos.map((p, i) => (
                             <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: 8, color: p.counted ? T.text2 : T.text3, lineHeight: 1.7 }}>
-                              <span title={`${p.supplier || ""} → ${p.location || ""} · ${p.status}`}>{p.order_number} · {p.expected ? fmtDate(p.expected) : "no date"}{p.assumed ? " (est.)" : ""}{p.stale ? " · stale" : p.overdue ? " · late" : ""}</span>
-                              <span style={{ fontVariantNumeric: "tabular-nums" }}>{fmtN(p.qty_open)}</span>
+                              <span title={`${p.supplier || ""} → ${p.location || ""} · ${p.status}`}>{p.order_number} · {p.expected ? fmtDate(p.expected) : "no date"}{p.assumed ? " (est.)" : ""}{p.planned && p.stale ? " · past, not counted" : p.stale ? " · stale" : p.overdue ? " · late" : ""}{p.planned && p.supplier ? ` · ${p.supplier}` : ""}</span>
+                              <span style={{ fontVariantNumeric: "tabular-nums" }}>{fmtN(p.qty_open)}{p.planned && <button onClick={() => removeRun(p.id)} title="Remove this run" style={{ marginLeft: 6, fontSize: 11, color: T.red, background: "none", border: "none", cursor: "pointer" }}>×</button>}</span>
                             </div>
                           )) : <div style={{ color: T.text3 }}>None.</div>}
+                          <RunEditor item={x.sku} region={x.region} defaultQty={x.plan.suggestQty} defaultDate={x.plan.reorderDays != null ? addDays(x.today, Math.max(0, x.plan.reorderDays) + leadDays) : addDays(x.today, leadDays)} onSaved={loadRest} />
                           <AliasEditor item={x.sku} items={items} aliases={aliases} onSaved={() => { loadRest(); loadDemand(); }} />
                         </div>
                       </div>
@@ -484,10 +501,40 @@ export default function InventoryCoverView({ isMobile }) {
 
       <div style={{ fontSize: 11, color: T.text3, marginTop: 8, lineHeight: 1.6 }}>
         Demand is the Daily Units forecast per stock item, with kits and multi-packs expanded to the units they use, free units included, and sales assigned to a region by ship-to country.
-        PO dates are Cin7's required-by date; POs without one are assumed to land one lead time after ordering. Stock is available (on hand less reserved, never below zero at a location) or on hand, at the counted locations.
+        PO dates are Cin7's required-by date; POs without one are assumed to land one lead time after ordering. Harrodsburg production isn't in the Cin7 data yet, so planned runs are entered per item (open a row). Stock is available (on hand less reserved, never below zero at a location) or on hand, at the counted locations.
       </div>
 
       <SkuMapping unmapped={unmapped} maps={maps} aliases={aliases} items={items} onSaved={() => { loadRest(); loadDemand(); }} />
+    </div>
+  );
+}
+
+// ── Planned production run for this item ────────────────────────────────────
+function RunEditor({ item, region, defaultQty, defaultDate, onSaved }) {
+  const [date, setDate] = useState(defaultDate);
+  const [qty, setQty] = useState(defaultQty > 0 ? defaultQty : "");
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const inp = { padding: "4px 6px", fontSize: 12, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text };
+  const add = async () => {
+    setBusy(true); setErr("");
+    const { error } = await supabase.from("dp_planned_supply").insert({ item_sku: item, region, qty: Number(qty), arrive_date: date, kind: "production", note: note || null });
+    setBusy(false);
+    if (error) setErr(error.message); else { setNote(""); onSaved(); }
+  };
+  return (
+    <div style={{ marginTop: 10 }}>
+      <div style={{ fontWeight: 700, color: T.text, marginBottom: 4 }}>Add a production run</div>
+      <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} title="Date the stock is available" style={inp} />
+        <input type="number" min={1} value={qty} onChange={(e) => setQty(e.target.value)} placeholder="Qty" style={{ ...inp, width: 80 }} />
+        <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (optional)" style={{ ...inp, width: 120 }} />
+        <button disabled={busy || !(Number(qty) > 0) || !date} onClick={add}
+          style={{ padding: "4px 10px", fontSize: 11.5, fontWeight: 700, borderRadius: 6, border: "none", background: Number(qty) > 0 ? T.accent : T.surface2, color: Number(qty) > 0 ? "#fff" : T.text3, cursor: "pointer" }}>Add</button>
+      </div>
+      <div style={{ fontSize: 10.5, color: T.text3, marginTop: 3 }}>Counts as supply in {region} on that date. Prefilled with the suggested order.</div>
+      {err && <div style={{ color: T.red, fontSize: 11.5 }}>{err}</div>}
     </div>
   );
 }
