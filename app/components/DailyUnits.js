@@ -16,8 +16,10 @@ const PALETTE = {
 };
 const OTHER_COLOR = { light: "#9a9993", dark: "#77766f" };
 
-const GROUPS = [["total", "Total"], ["family", "Product family"], ["sku", "Top SKUs"], ["channel", "Channel"], ["country", "Country"]];
-const MEASURES = [["units", "Units"], ["packs", "Packs"], ["orders", "Orders"], ["revenue", "Revenue"]];
+const GROUPS = [["total", "Total"], ["line", "Product line"], ["family", "Product family"], ["sku", "Top SKUs"], ["channel", "Channel"], ["country", "Country"]];
+// "Product units" breaks bundles and multi-packs into the products they contain
+// (Cin7 kits, -03P = 3x, manual mappings from Inventory Cover).
+const MEASURES = [["items", "Product units"], ["units", "Units sold"], ["packs", "Packs"], ["orders", "Orders"], ["revenue", "Revenue"]];
 const RANGES = [["90", "90 days"], ["182", "6 months"], ["365", "1 year"], ["all", "All"], ["custom", "Custom"]];
 // Review period for the table: totals over the period vs the period before and the same dates last year.
 const PERIODS = [["1", "Yesterday"], ["7", "Last 7 days"], ["28", "Last 28 days"], ["mtd", "Month to date"], ["chart", "Chart range"]];
@@ -209,7 +211,7 @@ export default function DailyUnitsView({ isMobile }) {
   const theme = useTheme();
   const mode = theme?.mode === "dark" ? "dark" : "light";
   const [group, setGroup] = useState("total");
-  const [measure, setMeasure] = useState("units");
+  const [measure, setMeasure] = useState("items");
   const [range, setRange] = useState("182");
   const [view, setView] = useState("daily");
   const [horizon, setHorizon] = useState("90");
@@ -218,6 +220,8 @@ export default function DailyUnitsView({ isMobile }) {
   const [includeFree, setIncludeFree] = useState(false);
   const [families, setFamilies] = useState([]);
   const [skus, setSkus] = useState([]);
+  const [lines, setLines] = useState([]);
+  const [lineList, setLineList] = useState([]);
   const [skuList, setSkuList] = useState([]);
   const [period, setPeriod] = useState("7");
   const [customFrom, setCustomFrom] = useState(() => addDays(new Date().toISOString().slice(0, 10), -60));
@@ -242,7 +246,11 @@ export default function DailyUnitsView({ isMobile }) {
 
   useEffect(() => {
     const to = new Date().toISOString().slice(0, 10);
-    supabase.rpc("dp_units_skus", { p_from: addDays(to, -365), p_to: to }).then(({ data }) => setSkuList(data || []));
+    supabase.rpc("dp_units_skus", { p_from: addDays(to, -365), p_to: to, p_items: measure === "items" }).then(({ data }) => setSkuList(data || []));
+  }, [measure === "items"]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const to = new Date().toISOString().slice(0, 10);
+    supabase.rpc("dp_units_lines", { p_from: addDays(to, -365), p_to: to }).then(({ data }) => setLineList((data || []).filter((l) => l.line !== "Other")));
   }, []);
 
   const load = useCallback(async () => {
@@ -252,12 +260,12 @@ export default function DailyUnitsView({ isMobile }) {
       p_from: HISTORY_START, p_to: new Date().toISOString().slice(0, 10), p_group: group,
       p_families: families.length ? families : null, p_channels: channels.length ? channels : null,
       p_countries: countries.length ? countries : null, p_include_free: includeFree, p_measure: measure, p_top: skus.length ? Math.max(8, skus.length) : 8,
-      p_skus: skus.length ? skus : null,
+      p_skus: skus.length ? skus : null, p_lines: lines.length ? lines : null,
     });
     if (req !== lastReq.current) return;
     if (e) { setError(e.message); setRows([]); } else setRows(data || []);
     setLoading(false);
-  }, [group, measure, families, channels, countries, includeFree, skus]);
+  }, [group, measure, families, channels, countries, includeFree, skus, lines]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => { setHidden(new Set()); }, [group]);
 
@@ -473,6 +481,8 @@ export default function DailyUnitsView({ isMobile }) {
         {dims.channel.map((c) => <Chip key={c.k} on={channels.includes(c.k)} onClick={() => toggle(channels, setChannels, c.k)}>{c.k === "shopify" ? "Shopify" : c.k === "amazon" ? "Amazon" : c.k}</Chip>)}
         <span style={{ fontSize: 11, color: T.text3, fontWeight: 600, margin: "0 2px 0 10px" }}>Country</span>
         {dims.country.slice(0, 5).map((c) => <Chip key={c.k} on={countries.includes(c.k)} onClick={() => toggle(countries, setCountries, c.k)}>{c.k}</Chip>)}
+        <span style={{ fontSize: 11, color: T.text3, fontWeight: 600, margin: "0 2px 0 10px" }}>Line</span>
+        {lineList.slice(0, 8).map((l) => <Chip key={l.line} on={lines.includes(l.line)} onClick={() => toggle(lines, setLines, l.line)}><span title={l.family}>{l.line}</span></Chip>)}
         <span style={{ fontSize: 11, color: T.text3, fontWeight: 600, margin: "0 2px 0 10px" }}>SKU</span>
         <SkuPicker list={skuList} value={skus} onChange={(v) => { if (!skus.length && v.length && group === "total") setGroup("sku"); setSkus(v); }} />
         <span style={{ fontSize: 11, color: T.text3, fontWeight: 600, margin: "0 2px 0 10px" }}>Product</span>
@@ -483,7 +493,7 @@ export default function DailyUnitsView({ isMobile }) {
         <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11.5, color: T.text2, cursor: "pointer" }}>
           <input type="checkbox" checked={compareLY} onChange={(e) => setCompareLY(e.target.checked)} /> Last year
         </label>
-        {(channels.length || countries.length || families.length || skus.length) ? <button onClick={() => { setChannels([]); setCountries([]); setFamilies([]); setSkus([]); }} style={{ fontSize: 11, color: T.accent, background: "none", border: "none", cursor: "pointer" }}>Clear filters</button> : null}
+        {(channels.length || countries.length || families.length || skus.length || lines.length) ? <button onClick={() => { setChannels([]); setCountries([]); setFamilies([]); setSkus([]); setLines([]); }} style={{ fontSize: 11, color: T.accent, background: "none", border: "none", cursor: "pointer" }}>Clear filters</button> : null}
       </div>
 
       {error && <div style={{ padding: 12, borderRadius: 8, background: T.redDim, color: T.red, fontSize: 12.5 }}>Couldn't load daily units: {error}</div>}
@@ -491,7 +501,7 @@ export default function DailyUnitsView({ isMobile }) {
       {/* KPI tiles */}
       {kpi && (
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <Tile label={`${mLabel} · ${fmtDate(model_.lastDate)}`} value={fmtN(kpi.last, measure)} delta={kpi.wkAgo ? kpi.last / kpi.wkAgo - 1 : null} sub="vs same day last week" />
+          <Tile label={`${model_.lastDate === addDays(new Date().toISOString().slice(0, 10), -1) || model_.lastDate === addDays(new Date().toLocaleDateString("en-CA"), -1) ? "Yesterday" : mLabel} · ${fmtDate(model_.lastDate)}`} value={fmtN(kpi.last, measure)} delta={kpi.wkAgo ? kpi.last / kpi.wkAgo - 1 : null} sub="vs same day last week" />
           <Tile label="Last 7 days" value={fmtN(kpi.l7, measure)} delta={kpi.p7 ? kpi.l7 / kpi.p7 - 1 : null} sub={`vs prior 7 · ${fmtN(kpi.l7 / 7, measure)}/day`} />
           <Tile label="Last 28 days" value={fmtN(kpi.l28, measure)} delta={kpi.ly28 ? kpi.l28 / kpi.ly28 - 1 : null} sub={kpi.ly28 ? "vs same 28 days last year" : "no year-ago data"} />
           <Tile label="90-day trend" value={fmtPct(kpi.trend)} sub="per month (7-day average)" />
@@ -566,7 +576,7 @@ export default function DailyUnitsView({ isMobile }) {
       )}
       <div style={{ fontSize: 11, color: T.text3, lineHeight: 1.5 }}>
         Source: warehouse order lines (Shopify from Jul 2024, Amazon from Dec 2023), refreshed daily at 9:30am and 12:30pm ET; through {model_ ? fmtDateY(model_.lastDate) : "-"}.
-        {" "}Units = items ordered; Packs = units x pack size from the SKU catalog. Free gifts and non-product lines (shipping, protection) are excluded unless turned on.
+        {" "}Product units = what was ordered broken down to products: bundles into their contents, 3-packs as 3 (from Cin7 kits and SKU pack sizes; SKUs that don't map yet are listed on Inventory Cover). Units sold = line items as sold; Packs = units x pack size from the SKU catalog. Free gifts and non-product lines (shipping, protection) are excluded unless turned on.
         {" "}Backtest error = average miss (WAPE) when forecasting 28 days ahead from each of the last three 4-week points.
       </div>
     </div>

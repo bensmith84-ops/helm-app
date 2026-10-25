@@ -437,7 +437,7 @@ export default function HelmApp() {
       </div>;
     }
     switch (active) {
-      case "dashboard": return <DashboardView setActive={navigateTo} />;
+      case "dashboard": return <DashboardView setActive={navigateTo} showUnits={!isExternal && (!allowedModules || (allowedModules.mode === "allow" ? allowedModules.allowed.includes("erp") : !allowedModules.blocked.includes("erp")))} />;
       case "projects": return <ProjectsView pendingTaskId={pendingTaskId} clearPendingTask={() => setPendingTaskId(null)} pendingProjectId={pendingProjectId} clearPendingProject={() => setPendingProjectId(null)} />;
       case "okrs": return <OKRsView />;
       case "scorecard": return <ScorecardView />;
