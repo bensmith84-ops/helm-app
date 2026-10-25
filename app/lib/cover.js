@@ -26,7 +26,7 @@ const roundUp = (q) => (q <= 0 ? 0 : q < 1000 ? Math.ceil(q / 50) * 50 : q < 200
 
 export function planItem({ stock, demand, arrivals, today, leadDays = 45, safetyDays = 14, targetDays = 60, soonDays = 14, excessDays = 365 }) {
   const H = demand.length;
-  const s0 = Math.max(0, stock || 0);
+  const s0 = Number(stock) || 0; // can be negative: orders already waiting on stock
   const avg30 = demand.slice(0, 30).reduce((s, x) => s + x, 0) / Math.min(30, Math.max(1, H));
   const safety = safetyDays * avg30;
   const proj = new Array(H);

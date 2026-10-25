@@ -17,7 +17,8 @@ const CHART_DAYS = 180;
 const REGIONS = ["US", "UK", "CA", "AU"];
 const LS_KEY = "helm.dp.cover.v1";
 
-const today = () => new Date().toISOString().slice(0, 10);
+// Local calendar date (the stock snapshots are dated in US time, sales by order date).
+const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
 const sum = (a) => a.reduce((s, x) => s + (x || 0), 0);
 const fmtN = (n) => {
   if (n == null || !isFinite(n)) return "-";
@@ -178,7 +179,7 @@ export default function InventoryCoverView({ isMobile }) {
   const [countStale, setCountStale] = useState(prefs0.countStale ?? false);
   const [locOverride, setLocOverride] = useState(prefs0.locOverride || {});
   const [region, setRegion] = useState(prefs0.region || "all");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("active");
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState({ key: "status", dir: 1 });
   const [open, setOpen] = useState(null);
@@ -190,6 +191,7 @@ export default function InventoryCoverView({ isMobile }) {
   const [items, setItems] = useState([]);
   const [unmapped, setUnmapped] = useState([]);
   const [maps, setMaps] = useState([]);
+  const [aliases, setAliases] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [range] = useState(() => { const t = today(); return { from: addDays(t, -HISTORY_DAYS), to: addDays(t, -1), today: t }; });
@@ -205,16 +207,17 @@ export default function InventoryCoverView({ isMobile }) {
   }, [range, includeAmazon]);
 
   const loadRest = useCallback(async () => {
-    const [st, po, it, um, mp] = await Promise.all([
-      supabase.from("v_dp_stock").select("source,location,sku,snapshot_date,on_hand,available,region,default_on").range(0, 9999),
-      supabase.from("v_dp_open_po").select("po_id,order_number,supplier,location,status,sku,name,qty_open,required_by,order_date,region").range(0, 9999),
+    const [st, po, it, um, mp, al] = await Promise.all([
+      supabase.from("v_dp_stock").select("source,location,sku,snapshot_date,on_hand,available,region,default_on,plan_sku,plan_qty").range(0, 9999),
+      supabase.from("v_dp_open_po").select("po_id,order_number,supplier,location,status,sku,name,qty_open,required_by,order_date,region,plan_sku,plan_qty").range(0, 9999),
       supabase.from("dp_items").select("sku,name,family").range(0, 9999),
       supabase.rpc("dp_unmapped_skus", { p_from: addDays(range.today, -90), p_to: range.today }),
       supabase.from("dp_sku_map").select("sales_sku,item_sku,qty,note,updated_at").order("updated_at", { ascending: false }),
+      supabase.from("dp_item_alias").select("alias_sku,item_sku,qty,note,updated_at").order("updated_at", { ascending: false }),
     ]);
-    const err = [st, po, it, um, mp].find((r) => r.error);
+    const err = [st, po, it, um, mp, al].find((r) => r.error);
     if (err) setError(err.error.message);
-    setStock(st.data || []); setPos(po.data || []); setItems(it.data || []); setUnmapped(um.data || []); setMaps(mp.data || []);
+    setStock(st.data || []); setPos(po.data || []); setItems(it.data || []); setUnmapped(um.data || []); setMaps(mp.data || []); setAliases(al.data || []);
   }, [range]);
 
   useEffect(() => { setLoading(true); Promise.all([loadDemand(), loadRest()]).finally(() => setLoading(false)); }, [loadDemand, loadRest]);
@@ -239,32 +242,37 @@ export default function InventoryCoverView({ isMobile }) {
     const t = range.today;
     const on = new Set(locations.filter((l) => l.on).map((l) => l.key));
     const stockBy = new Map(), locBy = new Map();
+    // Available can be negative at a location (orders waiting on stock); that
+    // backlog is real demand on the stock, so it is summed, not floored.
     stock.forEach((r) => {
-      const k = `${r.sku}|${r.region}`;
+      const k = `${r.plan_sku || r.sku}|${r.region}`;
       if (!locBy.has(k)) locBy.set(k, []);
       locBy.get(k).push(r);
       if (!on.has(`${r.source}|${r.location}`)) return;
-      stockBy.set(k, (stockBy.get(k) || 0) + Math.max(0, Number(r.available ?? r.on_hand ?? 0)));
+      stockBy.set(k, (stockBy.get(k) || 0) + Number(r.available ?? r.on_hand ?? 0) * Number(r.plan_qty || 1));
     });
     const poBy = new Map();
     pos.forEach((p) => {
-      const k = `${p.sku}|${p.region}`;
+      const k = `${p.plan_sku || p.sku}|${p.region}`;
       const a = poArrival(p, { today: t, leadDays, countStale });
       const idx = Math.round((Date.parse(a.arrive) - Date.parse(t)) / 864e5);
       if (!poBy.has(k)) poBy.set(k, []);
-      poBy.get(k).push({ ...p, ...a, idx, qty_open: Number(p.qty_open) });
+      poBy.get(k).push({ ...p, ...a, idx, qty_open: Number(p.qty_open) * Number(p.plan_qty || 1) });
     });
     // Series end on the last day with any sales (the day before today, unless
     // today's sync hasn't run yet).
-    const len = demand[0]?.v?.length || 0;
     let last = -1;
-    demand.forEach((r) => { for (let i = len - 1; i > last; i--) if (Number(r.v[i]) > 0) { last = i; break; } });
+    demand.forEach((r) => { const i = r.idx[r.idx.length - 1]; if (i > last) last = i; });
     if (last < 0) return [];
     const dates = Array.from({ length: last + 1 }, (_, i) => addDays(range.from, i));
     const gap = Math.max(0, Math.round((Date.parse(t) - Date.parse(dates[last])) / 864e5) - 1); // forecast days before today
     const keys = new Map();
-    demand.forEach((r) => keys.set(`${r.item_sku}|${r.region}`, { sku: r.item_sku, region: r.region, values: r.v.slice(0, last + 1).map(Number) }));
-    stockBy.forEach((q, k) => { if (q > 0 && !keys.has(k)) { const [sku, reg] = k.split("|"); keys.set(k, { sku, region: reg, values: new Array(last + 1).fill(0) }); } });
+    demand.forEach((r) => {
+      const values = new Array(last + 1).fill(0);
+      r.idx.forEach((i, j) => { if (i <= last) values[i] = Number(r.u[j]); });
+      keys.set(`${r.item_sku}|${r.region}`, { sku: r.item_sku, region: r.region, values });
+    });
+    stockBy.forEach((q, k) => { if (q !== 0 && !keys.has(k)) { const [sku, reg] = k.split("|"); keys.set(k, { sku, region: reg, values: new Array(last + 1).fill(0) }); } });
     const out = [];
     keys.forEach((s, k) => {
       const recent = sum(s.values.slice(-90));
@@ -291,7 +299,7 @@ export default function InventoryCoverView({ isMobile }) {
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();
     let r = rows.filter((x) => (region === "all" || x.region === region)
-      && (statusFilter === "all" || (statusFilter === "action" ? ["stockout", "late", "now", "soon"].includes(x.plan.status) : x.plan.status === statusFilter))
+      && (statusFilter === "all" || (statusFilter === "active" ? x.plan.status !== "idle" : statusFilter === "action" ? ["stockout", "late", "now", "soon"].includes(x.plan.status) : x.plan.status === statusFilter))
       && (!q || x.sku.toLowerCase().includes(q) || x.name.toLowerCase().includes(q) || x.family.toLowerCase().includes(q)));
     const big = 1e9;
     const val = {
@@ -394,7 +402,7 @@ export default function InventoryCoverView({ isMobile }) {
 
       {/* Filters */}
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
-        <Seg options={[["all", "All"], ["action", "Needs action"], ["ok", "OK"], ["excess", "Excess"], ["idle", "No demand"]]} value={statusFilter} onChange={setStatusFilter} />
+        <Seg options={[["active", "With demand"], ["action", "Needs action"], ["ok", "OK"], ["excess", "Excess"], ["idle", "No demand"], ["all", "All"]]} value={statusFilter} onChange={setStatusFilter} />
         <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search SKU, product or family"
           style={{ width: isMobile ? "100%" : 260, padding: "6px 10px", fontSize: 12, borderRadius: 7, border: `1px solid ${T.border}`, background: T.surface2, color: T.text }} />
         <span style={{ fontSize: 11.5, color: T.text3 }}>{visible.length} rows · click a row for the projection</span>
@@ -446,7 +454,7 @@ export default function InventoryCoverView({ isMobile }) {
                           <div style={{ fontWeight: 700, color: T.text, marginBottom: 4 }}>Stock by location</div>
                           {x.locs.length ? x.locs.map((l, i) => {
                             const counted = locations.find((k) => k.key === `${l.source}|${l.location}`)?.on;
-                            return <div key={i} style={{ display: "flex", justifyContent: "space-between", color: counted ? T.text2 : T.text3, lineHeight: 1.7 }}><span>{l.location}{counted ? "" : " (not counted)"}</span><span style={{ fontVariantNumeric: "tabular-nums" }}>{fmtN(l.available ?? l.on_hand)}</span></div>;
+                            return <div key={i} style={{ display: "flex", justifyContent: "space-between", color: counted ? T.text2 : T.text3, lineHeight: 1.7 }}><span>{l.location}{l.sku !== x.sku ? ` · ${l.sku}${Number(l.plan_qty) !== 1 ? ` x${l.plan_qty}` : ""}` : ""}{counted ? "" : " (not counted)"}</span><span style={{ fontVariantNumeric: "tabular-nums" }}>{fmtN(l.available ?? l.on_hand)}</span></div>;
                           }) : <div style={{ color: T.text3 }}>No stock recorded.</div>}
                           <div style={{ fontWeight: 700, color: T.text, margin: "10px 0 4px" }}>Open POs</div>
                           {x.pos.length ? x.pos.map((p, i) => (
@@ -455,6 +463,7 @@ export default function InventoryCoverView({ isMobile }) {
                               <span style={{ fontVariantNumeric: "tabular-nums" }}>{fmtN(p.qty_open)}</span>
                             </div>
                           )) : <div style={{ color: T.text3 }}>None.</div>}
+                          <AliasEditor item={x.sku} items={items} aliases={aliases} onSaved={() => { loadRest(); loadDemand(); }} />
                         </div>
                       </div>
                     </td>
@@ -471,7 +480,42 @@ export default function InventoryCoverView({ isMobile }) {
         PO dates are Cin7's required-by date; POs without one are assumed to land one lead time after ordering. Stock is available (on hand less reserved) at the counted locations.
       </div>
 
-      <SkuMapping unmapped={unmapped} maps={maps} items={items} onSaved={() => { loadRest(); loadDemand(); }} />
+      <SkuMapping unmapped={unmapped} maps={maps} aliases={aliases} items={items} onSaved={() => { loadRest(); loadDemand(); }} />
+    </div>
+  );
+}
+
+// ── Stock that counts as this item (older generation, relabelled stock) ─────
+function AliasEditor({ item, items, aliases, onSaved }) {
+  const [sku, setSku] = useState("");
+  const [qty, setQty] = useState(1);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const mine = aliases.filter((a) => a.item_sku === item);
+  const taken = new Set([item, ...aliases.map((a) => a.alias_sku), ...aliases.map((a) => a.item_sku)]);
+  const options = items.filter((i) => !taken.has(i.sku) && !/^RM-|^ENV-/.test(i.sku)).sort((a, b) => a.sku.localeCompare(b.sku));
+  const run = async (fn) => { setBusy(true); setErr(""); const { error } = await fn(); setBusy(false); if (error) setErr(error.message); else { setSku(""); onSaved(); } };
+  const inp = { padding: "4px 6px", fontSize: 12, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text };
+  return (
+    <div style={{ marginTop: 10 }}>
+      <div style={{ fontWeight: 700, color: T.text, marginBottom: 4 }}>Also count stock of</div>
+      {mine.map((a) => (
+        <div key={a.alias_sku} style={{ display: "flex", justifyContent: "space-between", gap: 8, color: T.text2, lineHeight: 1.7 }}>
+          <span>{a.alias_sku}{Number(a.qty) !== 1 ? ` x${a.qty}` : ""}</span>
+          <button disabled={busy} onClick={() => run(() => supabase.from("dp_item_alias").delete().eq("alias_sku", a.alias_sku))} style={{ fontSize: 11, color: T.red, background: "none", border: "none", cursor: "pointer" }}>Remove</button>
+        </div>
+      ))}
+      <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }} onClick={(e) => e.stopPropagation()}>
+        <select value={sku} onChange={(e) => setSku(e.target.value)} style={{ ...inp, maxWidth: 210 }}>
+          <option value="">Another SKU that ships as this…</option>
+          {options.map((i) => <option key={i.sku} value={i.sku}>{i.sku}{i.name ? ` · ${i.name}` : ""}</option>)}
+        </select>
+        <input type="number" min={0.01} step="any" value={qty} onChange={(e) => setQty(e.target.value)} title="Units of this item per unit of that SKU" style={{ ...inp, width: 50 }} />
+        <button disabled={!sku || !(Number(qty) > 0) || busy} onClick={() => run(() => supabase.from("dp_item_alias").upsert({ alias_sku: sku, item_sku: item, qty: Number(qty), updated_at: new Date().toISOString() }, { onConflict: "org_id,alias_sku" }))}
+          style={{ padding: "4px 10px", fontSize: 11.5, fontWeight: 700, borderRadius: 6, border: "none", background: sku ? T.accent : T.surface2, color: sku ? "#fff" : T.text3, cursor: sku ? "pointer" : "default" }}>Add</button>
+      </div>
+      <div style={{ fontSize: 10.5, color: T.text3, marginTop: 3 }}>Its stock, open POs and sales are then planned under {item}.</div>
+      {err && <div style={{ color: T.red, fontSize: 11.5 }}>{err}</div>}
     </div>
   );
 }
@@ -490,7 +534,7 @@ function suggest(name, items) {
   return bestScore >= 0.35 ? best : null;
 }
 
-function SkuMapping({ unmapped, maps, items, onSaved }) {
+function SkuMapping({ unmapped, maps, aliases, items, onSaved }) {
   const [draft, setDraft] = useState({});
   const [busy, setBusy] = useState("");
   const [err, setErr] = useState("");
@@ -557,6 +601,14 @@ function SkuMapping({ unmapped, maps, items, onSaved }) {
             </tbody>
           </table>
           {unmapped.length > 12 && <button onClick={() => setShowAll((v) => !v)} style={{ margin: 8, fontSize: 11.5, color: T.accent, background: "none", border: "none", cursor: "pointer" }}>{showAll ? "Show fewer" : `Show all ${unmapped.length}`}</button>}
+        </div>
+      )}
+      {aliases.length > 0 && (
+        <div style={{ marginTop: 14 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 6 }}>Stock planned under another item ({aliases.length})</div>
+          {aliases.map((a) => (
+            <div key={a.alias_sku} style={{ fontSize: 12, color: T.text2, lineHeight: 1.7 }}><b style={{ color: T.text }}>{a.alias_sku}</b> counts as {Number(a.qty) !== 1 ? `${a.qty} × ` : ""}{a.item_sku}</div>
+          ))}
         </div>
       )}
       {maps.length > 0 && (
