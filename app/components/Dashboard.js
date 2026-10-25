@@ -6,6 +6,7 @@ import { useResponsive } from "../lib/responsive";
 import SearchableMultiSelect from "./SearchableSelect";
 import { useAuth } from "../lib/auth";
 import { notifySlack } from "../lib/slack";
+import YesterdayUnits from "./YesterdayUnits";
 
 const AVATAR_COLORS = ["#3b82f6","#a855f7","#ec4899","#06b6d4","#f97316","#22c55e","#84cc16","#ef4444"];
 const acol = (uid) => uid ? AVATAR_COLORS[uid.charCodeAt(uid.length-1)%AVATAR_COLORS.length] : T.text3;
@@ -927,7 +928,7 @@ function TaskQuickView({ taskId, onClose, setActive, profiles, projects, T, isMo
   );
 }
 
-export default function DashboardView({ setActive }) {
+export default function DashboardView({ setActive, showUnits = false }) {
   const { profile, orgId } = useAuth();
   const { isMobile, isTablet } = useResponsive();
   const [data, setData] = useState(null);
@@ -1336,6 +1337,9 @@ export default function DashboardView({ setActive }) {
             sub={`${inDev} in development · ${launchReady} launch ready`}
             color={T.accent} onClick={() => setActive("plm")} />
         </div>
+
+        {/* ── Units ordered yesterday (ERP access only) ── */}
+        {showUnits && <YesterdayUnits setActive={setActive} />}
 
         {/* ── My Tasks + Inbox - TOP POSITION ── */}
         <div style={{ display:"grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap:20, marginBottom:20 }}>
