@@ -196,6 +196,18 @@ export default function HelmApp() {
   useEffect(() => {
     try { if (active && active !== "spend_request") localStorage.setItem("helm_active", active); } catch (e) {}
   }, [active]);
+  // Projects mirrors the open project/task into the URL (#projects/p/<id>) so
+  // it can be shared. Once you move to another module that link is stale, and
+  // a refresh would treat it as a deep link and drop you back in Projects.
+  // Clear it on leaving Projects (only after the page's own deep link has been
+  // handled, so a real shared link still opens).
+  useEffect(() => {
+    if (!deepLinkDone.current || active === "projects") return;
+    if ((window.location.hash || "").startsWith("#projects/")) {
+      window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    }
+    try { sessionStorage.removeItem("helm_deeplink"); } catch (_) {}
+  }, [active, user]);
 
   // Load user module permissions from org_memberships
   useEffect(() => {
