@@ -5250,7 +5250,10 @@ function LaunchPlannerView({ isMobile, orgId }) {
 // MAIN DEMAND PLANNING VIEW
 // ═══════════════════════════════════════════════════════════════════════════════
 export default function DemandPlanningView({ isMobile, orgId }) {
-  const [tab, setTab] = useState("units");
+  const [tab, setTabState] = useState("units");
+  // Remember the tab across refreshes.
+  useEffect(() => { try { const t = localStorage.getItem("helm_dp_tab"); if (t) setTabState(t); } catch (e) {} }, []);
+  const setTab = (t) => { setTabState(t); try { localStorage.setItem("helm_dp_tab", t); } catch (e) {} };
   const [showMetabaseSync, setShowMetabaseSync] = useState(false);
   const tabs = [
     { id: "units", label: "Daily Units", icon: "📈" },
