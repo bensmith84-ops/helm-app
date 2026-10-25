@@ -22,6 +22,7 @@
 // Needs helm-api --timeout and the Scheduler job's attempt deadline to exceed
 // the job's run time.
 
+const { longFetch } = require('../lib/long-fetch');
 const SELF_URL = process.env.SELF_URL || 'http://localhost:8080';
 const CRON_WAIT_MS = parseInt(process.env.CRON_WAIT_MS || '840000', 10); // 14 min, under the 15 min Cloud Run timeout
 
@@ -40,7 +41,7 @@ function findErrors(body) {
 }
 
 // Call a target and classify the outcome. fetchImpl is injectable for tests.
-async function runTarget(url, body, { waitMs = CRON_WAIT_MS, fetchImpl = fetch } = {}) {
+async function runTarget(url, body, { waitMs = CRON_WAIT_MS, fetchImpl = longFetch } = {}) {
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), waitMs);
   try {

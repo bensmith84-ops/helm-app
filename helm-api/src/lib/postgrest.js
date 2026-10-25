@@ -36,7 +36,11 @@ async function identityToken(audience, { fetchImpl = fetch, now = Date.now } = {
 const PASS_REQ = ['accept', 'prefer', 'range', 'range-unit', 'content-profile', 'accept-profile', 'content-type'];
 const PASS_RES = ['content-type', 'content-range', 'preference-applied', 'location', 'range-unit'];
 
-function makeProxy({ baseUrl, fetchImpl = fetch, idTokenFn = identityToken, secretFn = jwtSecret }) {
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let RETRY_WAITS = [400, 800, 1500, 2500, 3500];
+
+function makeProxy({ baseUrl, fetchImpl = fetch, idTokenFn = identityToken, secretFn = jwtSecret, retryWaits }) {
+  if (retryWaits) RETRY_WAITS = retryWaits;
   const base = baseUrl.replace(/\/+$/, '');
   return async function proxy(req, res) {
     const headers = {};
@@ -56,12 +60,20 @@ function makeProxy({ baseUrl, fetchImpl = fetch, idTokenFn = identityToken, secr
       body = Buffer.isBuffer(req.body) ? req.body : (req.body === undefined ? undefined : JSON.stringify(req.body));
       if (body !== undefined && !headers['content-type']) headers['content-type'] = 'application/json';
     }
+    // A cold PostgREST answers 503 (PGRST002, schema cache still loading)
+    // without running the request, so it is safe to retry any method. One of
+    // these on a profile lookup once made the app treat an admin as a new user.
     let r;
-    try {
-      r = await fetchImpl(`${base}${path}${qs}`, { method: req.method, headers, body });
-    } catch (e) {
-      console.error('[postgrest] upstream error:', e.message);
-      return res.status(502).json({ code: 'PGRST000', message: 'database service unavailable' });
+    for (let attempt = 0; ; attempt++) {
+      try {
+        r = await fetchImpl(`${base}${path}${qs}`, { method: req.method, headers, body });
+      } catch (e) {
+        if (attempt < RETRY_WAITS.length) { await sleep(RETRY_WAITS[attempt]); continue; }
+        console.error('[postgrest] upstream error:', e.message);
+        return res.status(502).json({ code: 'PGRST000', message: 'database service unavailable' });
+      }
+      if (r.status === 503 && attempt < RETRY_WAITS.length) { await sleep(RETRY_WAITS[attempt]); continue; }
+      break;
     }
     res.status(r.status);
     for (const h of PASS_RES) { const v = r.headers.get(h); if (v) res.setHeader(h, v); }

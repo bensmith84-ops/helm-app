@@ -228,15 +228,16 @@ async function resolveDateTagNames(questionId) {
   const start = findFirst(startCandidates) || names[0];
   let end = findFirst(endCandidates) || (names.length > 1 ? names[1] : names[0]);
   if (start === end && names.length > 1) end = names.find((n) => n !== start) || end;
-  return put({ start, end });
+  // Newer Metabase rejects a parameter without an id ("missing required key").
+  return put({ start, end, startId: tags[start]?.id || start, endId: tags[end]?.id || end });
 }
 
 async function dateRangeParams(questionId, startDate, endDate) {
   const tags = await resolveDateTagNames(questionId);
   if (!tags) return [];
   return [
-    { type: 'category', value: startDate, target: ['variable', ['template-tag', tags.start]] },
-    { type: 'category', value: endDate, target: ['variable', ['template-tag', tags.end]] },
+    { id: tags.startId, type: 'category', value: startDate, target: ['variable', ['template-tag', tags.start]] },
+    { id: tags.endId, type: 'category', value: endDate, target: ['variable', ['template-tag', tags.end]] },
   ];
 }
 

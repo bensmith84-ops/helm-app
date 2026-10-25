@@ -9,6 +9,8 @@ const RESOURCES = [
   'pl', 'pl_monthly', 'balance_sheet', 'attachments',
 ];
 
+const { longFetch } = require('../lib/long-fetch');
+
 module.exports = function(app) {
   app.post('/qbo-auto-sync', async (req, res) => {
     const selfUrl = process.env.SELF_URL || 'http://localhost:8080';
@@ -30,7 +32,7 @@ module.exports = function(app) {
 
       if (sequential) {
         try {
-          const r = await fetch(syncUrl, {
+          const r = await longFetch(syncUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ what: resource }),

@@ -1022,6 +1022,9 @@ async function enter(t){
 }
 
 async function renderSite(content){
+  // Stored RFP content may still link files at the old Vercel / Cloud Run
+  // addresses; point those at this site so downloads don't bounce through a redirect.
+  try { content = JSON.parse(JSON.stringify(content).replace(/https:\/\/(helm-app-six\.vercel\.app|helm-app-qp7o2dcl5a-uc\.a\.run\.app)\//g, '/')); } catch (e) {}
   const c = content, p = c.packet || {};
   $('c-eyebrow').innerHTML = esc(c.eyebrow);
   $('c-title').innerHTML = c.title_html || '';
