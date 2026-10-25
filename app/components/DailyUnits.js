@@ -18,7 +18,9 @@ const OTHER_COLOR = { light: "#9a9993", dark: "#77766f" };
 
 const GROUPS = [["total", "Total"], ["family", "Product family"], ["sku", "Top SKUs"], ["channel", "Channel"], ["country", "Country"]];
 const MEASURES = [["units", "Units"], ["packs", "Packs"], ["orders", "Orders"], ["revenue", "Revenue"]];
-const RANGES = [["90", "90 days"], ["182", "6 months"], ["365", "1 year"], ["all", "All"]];
+const RANGES = [["90", "90 days"], ["182", "6 months"], ["365", "1 year"], ["all", "All"], ["custom", "Custom"]];
+// Review period for the table: totals over the period vs the period before and the same dates last year.
+const PERIODS = [["1", "Yesterday"], ["7", "Last 7 days"], ["28", "Last 28 days"], ["mtd", "Month to date"], ["chart", "Chart range"]];
 const VIEWS = [["daily", "Daily"], ["ma7", "7-day avg"], ["weekly", "Weekly"]];
 const HORIZONS = [["0", "Off"], ["30", "30 days"], ["60", "60 days"], ["90", "90 days"], ["180", "180 days"]];
 const MODELS = [["auto", "Seasonal blend"], ["yoy", "Last-year shape"], ["trend", "Recent trend"]];
@@ -41,6 +43,53 @@ function Seg({ options, value, onChange }) {
         <button key={k} onClick={() => onChange(k)}
           style={{ padding: "5px 10px", fontSize: 11.5, fontWeight: 600, border: "none", cursor: "pointer", background: value === k ? T.accent : "transparent", color: value === k ? "#fff" : T.text2 }}>{l}</button>
       ))}
+    </div>
+  );
+}
+
+const dateInp = { padding: "4px 6px", fontSize: 11.5, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text };
+
+// Searchable multi-select of SKUs by code or description.
+function SkuPicker({ list, value, onChange }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [open]);
+  const sel = new Set(value);
+  const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const shown = list.filter((r) => { const hay = `${r.sku} ${r.name || ""} ${r.family || ""}`.toLowerCase(); return words.every((w) => hay.includes(w)); }).slice(0, 200);
+  const toggle = (sku) => onChange(sel.has(sku) ? value.filter((x) => x !== sku) : [...value, sku]);
+  const label = value.length === 0 ? "All SKUs" : value.length === 1 ? value[0] : `${value.length} SKUs`;
+  return (
+    <div ref={ref} style={{ position: "relative", display: "inline-block" }}>
+      <button onClick={() => setOpen((o) => !o)} style={{ padding: "3px 10px", fontSize: 11, borderRadius: 20, cursor: "pointer", border: `1px solid ${value.length ? T.accent : T.border}`, background: value.length ? T.accentDim : "transparent", color: value.length ? T.accent : T.text2, fontWeight: value.length ? 600 : 500 }}>{label} ▾</button>
+      {open && (
+        <div style={{ position: "absolute", zIndex: 20, top: "calc(100% + 4px)", left: 0, width: 460, maxWidth: "90vw", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, boxShadow: "0 10px 28px rgba(0,0,0,0.16)", padding: 8 }}>
+          <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search SKU or description (e.g. lavender 30s)"
+            style={{ width: "100%", boxSizing: "border-box", padding: "6px 8px", fontSize: 12, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, marginBottom: 6 }} />
+          <div style={{ display: "flex", gap: 10, fontSize: 11, marginBottom: 4 }}>
+            <button onClick={() => onChange([...new Set([...value, ...shown.map((r) => r.sku)])])} disabled={!words.length} style={{ background: "none", border: "none", color: words.length ? T.accent : T.text3, cursor: "pointer", padding: 0 }}>Select all {words.length ? shown.length : ""} shown</button>
+            {value.length > 0 && <button onClick={() => onChange([])} style={{ background: "none", border: "none", color: T.accent, cursor: "pointer", padding: 0 }}>Clear ({value.length})</button>}
+            <span style={{ color: T.text3, marginLeft: "auto" }}>units, last 12 months</span>
+          </div>
+          <div style={{ maxHeight: 320, overflow: "auto" }}>
+            {[...shown].sort((a, b) => sel.has(b.sku) - sel.has(a.sku)).map((r) => (
+              <label key={r.sku} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 4px", fontSize: 12, cursor: "pointer", borderRadius: 5, background: sel.has(r.sku) ? T.accentDim : "transparent" }}>
+                <input type="checkbox" checked={sel.has(r.sku)} onChange={() => toggle(r.sku)} />
+                <span style={{ fontWeight: 600, color: T.text, whiteSpace: "nowrap" }}>{r.sku}</span>
+                <span style={{ flex: 1, color: T.text2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.name}>{r.name}</span>
+                <span style={{ color: T.text3, fontVariantNumeric: "tabular-nums" }}>{fmtN(r.units, "units")}</span>
+              </label>
+            ))}
+            {!shown.length && <div style={{ padding: 10, fontSize: 12, color: T.text3 }}>No SKUs match.</div>}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -168,6 +217,11 @@ export default function DailyUnitsView({ isMobile }) {
   const [compareLY, setCompareLY] = useState(true);
   const [includeFree, setIncludeFree] = useState(false);
   const [families, setFamilies] = useState([]);
+  const [skus, setSkus] = useState([]);
+  const [skuList, setSkuList] = useState([]);
+  const [period, setPeriod] = useState("7");
+  const [customFrom, setCustomFrom] = useState(() => addDays(new Date().toISOString().slice(0, 10), -60));
+  const [customTo, setCustomTo] = useState(() => addDays(new Date().toISOString().slice(0, 10), -1));
   const [channels, setChannels] = useState([]);
   const [countries, setCountries] = useState([]);
   const [dims, setDims] = useState({ family: [], channel: [], country: [] });
@@ -186,18 +240,24 @@ export default function DailyUnitsView({ isMobile }) {
     });
   }, []);
 
+  useEffect(() => {
+    const to = new Date().toISOString().slice(0, 10);
+    supabase.rpc("dp_units_skus", { p_from: addDays(to, -365), p_to: to }).then(({ data }) => setSkuList(data || []));
+  }, []);
+
   const load = useCallback(async () => {
     const req = ++lastReq.current;
     setLoading(true); setError("");
     const { data, error: e } = await supabase.rpc("dp_units_daily", {
       p_from: HISTORY_START, p_to: new Date().toISOString().slice(0, 10), p_group: group,
       p_families: families.length ? families : null, p_channels: channels.length ? channels : null,
-      p_countries: countries.length ? countries : null, p_include_free: includeFree, p_measure: measure, p_top: 8,
+      p_countries: countries.length ? countries : null, p_include_free: includeFree, p_measure: measure, p_top: skus.length ? Math.max(8, skus.length) : 8,
+      p_skus: skus.length ? skus : null,
     });
     if (req !== lastReq.current) return;
     if (e) { setError(e.message); setRows([]); } else setRows(data || []);
     setLoading(false);
-  }, [group, measure, families, channels, countries, includeFree]);
+  }, [group, measure, families, channels, countries, includeFree, skus]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => { setHidden(new Set()); }, [group]);
 
@@ -247,9 +307,12 @@ export default function DailyUnitsView({ isMobile }) {
     if (!model_) return null;
     const H = Number(horizon) || 0;
     const end = model_.lastDate;
-    const start = range === "all" ? model_.firstDate : addDays(end, -Number(range) + 1);
+    let start = range === "all" ? model_.firstDate : range === "custom" ? (customFrom < model_.firstDate ? model_.firstDate : customFrom) : addDays(end, -Number(range) + 1);
+    // A custom range that ends before the last day with data shows no forecast.
+    const stop = range === "custom" && customTo < end ? customTo : addDays(end, H);
+    if (start > stop) start = stop;
     const allDates = [];
-    for (let d = start; d <= addDays(end, H); d = addDays(d, 1)) allDates.push(d);
+    for (let d = start; d <= stop; d = addDays(d, 1)) allDates.push(d);
     const base = dayIndex(model_.firstDate);
     const idxOf = (s, d) => { const i = dayIndex(d) - base; return i >= 0 && i < s.values.length ? i : -1; };
     const transform = (vals) => {
@@ -261,7 +324,7 @@ export default function DailyUnitsView({ isMobile }) {
     visibleKeys.forEach((s) => {
       // Pull extra history so a 7-day average is defined at the left edge.
       const pre = 6;
-      const ext = []; for (let d = addDays(start, -pre); d <= addDays(end, H); d = addDays(d, 1)) ext.push(d);
+      const ext = []; for (let d = addDays(start, -pre); d <= stop; d = addDays(d, 1)) ext.push(d);
       const actual = ext.map((d) => { const i = idxOf(s, d); return i >= 0 ? s.values[i] : null; });
       series.push({ key: s.key, label: s.label, color: s.color, kind: "actual", values: transform(actual).slice(pre) });
       if (compareLY && single) {
@@ -285,7 +348,7 @@ export default function DailyUnitsView({ isMobile }) {
     if (view !== "weekly") return { dates: allDates, series };
     // Weekly totals (weeks starting Monday); partial edge weeks are dropped.
     const wkStart = (d) => { const dt = new Date(d + "T00:00:00Z"); const off = (dt.getUTCDay() + 6) % 7; return addDays(d, -off); };
-    const weeks = [...new Set(allDates.map(wkStart))].filter((w) => w >= start && addDays(w, 6) <= addDays(end, H));
+    const weeks = [...new Set(allDates.map(wkStart))].filter((w) => w >= start && addDays(w, 6) <= stop);
     const agg = (vals) => weeks.map((w) => { let t = 0, any = false; for (let k = 0; k < 7; k++) { const i = allDates.indexOf(addDays(w, k)); const v = i >= 0 ? vals[i] : null; if (v != null) { t += v; any = true; } } return any ? t : null; });
     return {
       dates: weeks,
@@ -301,7 +364,7 @@ export default function DailyUnitsView({ isMobile }) {
         return { ...s, values: agg(s.values) };
       }),
     };
-  }, [model_, visibleKeys, forecasts, range, view, horizon, compareLY]);
+  }, [model_, visibleKeys, forecasts, range, view, horizon, compareLY, customFrom, customTo]);
 
   // KPI tiles over the visible series combined.
   const kpi = useMemo(() => {
@@ -317,22 +380,47 @@ export default function DailyUnitsView({ isMobile }) {
     return { last, wkAgo, l7, p7, l28, ly28, fc30, fl, trend };
   }, [model_, visibleKeys, forecasts]);
 
-  // Table rows per series.
+  // Review period for the table (index range into each series).
+  const periodRange = useMemo(() => {
+    if (!model_) return null;
+    const end = model_.lastDate, base = dayIndex(model_.firstDate);
+    let from;
+    if (period === "mtd") from = end.slice(0, 8) + "01";
+    else if (period === "chart") from = chart?.dates?.[0] || model_.firstDate;
+    else from = addDays(end, -Number(period) + 1);
+    let to = end;
+    if (period === "chart" && range === "custom" && customTo < end) to = customTo;
+    if (from < model_.firstDate) from = model_.firstDate;
+    if (from > to) from = to;
+    const i0 = dayIndex(from) - base, i1 = dayIndex(to) - base; // inclusive
+    return { from, to, i0, i1, days: i1 - i0 + 1 };
+  }, [model_, period, chart, range, customTo]);
+
+  // Table rows per series over the review period.
   const table = useMemo(() => {
-    if (!model_) return [];
-    return model_.keys.map((s) => {
-      const n = s.values.length;
-      const l7 = sum(s.values.slice(n - 7)), l28 = sum(s.values.slice(n - 28));
-      const ly28 = n > 392 ? sum(s.values.slice(n - 28 - 364, n - 364)) : null;
+    if (!model_ || !periodRange) return [];
+    const { i0, i1, days } = periodRange;
+    const tot = (v, a, b) => (a < 0 ? null : sum(v.slice(a, b + 1)));
+    const rows = model_.keys.map((s) => {
+      const cur = tot(s.values, i0, i1), prev = tot(s.values, i0 - days, i1 - days), ly = tot(s.values, i0 - 364, i1 - 364);
       const f = forecasts[s.key];
       return {
-        key: s.key, label: s.label, color: s.color, l7, l28, yoy: ly28 ? l28 / ly28 - 1 : null, trend: trendPerMonth(s.values.slice(-90)),
+        key: s.key, label: s.label, color: s.color, cur, perDay: cur / days,
+        vsPrev: prev ? cur / prev - 1 : null, yoy: ly ? cur / ly - 1 : null, trend: trendPerMonth(s.values.slice(-90)),
         f30: f ? sum(f.points.slice(0, 30).map((p) => p.value)) : null,
         f90: f && f.points.length >= 90 ? sum(f.points.slice(0, 90).map((p) => p.value)) : null,
         model: f ? MODEL_LABELS[f.model] : null, wape: f ? f.wape : null,
       };
     });
-  }, [model_, forecasts]);
+    if (rows.length > 1) {
+      const comb = model_.keys[0].values.map((_, i) => sum(model_.keys.map((k) => k.values[i])));
+      const cur = tot(comb, i0, i1), prev = tot(comb, i0 - days, i1 - days), ly = tot(comb, i0 - 364, i1 - 364);
+      const fs = rows.filter((r) => r.f30 != null);
+      rows.push({ key: "__total", label: "Total", total: true, cur, perDay: cur / days, vsPrev: prev ? cur / prev - 1 : null, yoy: ly ? cur / ly - 1 : null,
+        trend: trendPerMonth(comb.slice(-90)), f30: fs.length ? sum(fs.map((r) => r.f30)) : null, f90: fs.length && fs.every((r) => r.f90 != null) ? sum(fs.map((r) => r.f90)) : null });
+    }
+    return rows;
+  }, [model_, forecasts, periodRange]);
 
   const exportCsv = () => {
     if (!model_) return;
@@ -364,7 +452,18 @@ export default function DailyUnitsView({ isMobile }) {
       <div style={{ display: "flex", flexWrap: "wrap", gap: 14, alignItems: "flex-end" }}>
         <Field label="Show"><Seg options={MEASURES} value={measure} onChange={setMeasure} /></Field>
         <Field label="Split by"><Seg options={GROUPS} value={group} onChange={setGroup} /></Field>
-        <Field label="Range"><Seg options={RANGES} value={range} onChange={setRange} /></Field>
+        <Field label="Range">
+          <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+            <Seg options={RANGES} value={range} onChange={setRange} />
+            {range === "custom" && (
+              <span style={{ display: "inline-flex", gap: 4, alignItems: "center", fontSize: 11.5, color: T.text3 }}>
+                <input type="date" value={customFrom} min={HISTORY_START} max={customTo} onChange={(e) => e.target.value && setCustomFrom(e.target.value)} style={dateInp} />
+                to
+                <input type="date" value={customTo} min={customFrom} onChange={(e) => e.target.value && setCustomTo(e.target.value)} style={dateInp} />
+              </span>
+            )}
+          </div>
+        </Field>
         <Field label="View"><Seg options={VIEWS} value={view} onChange={setView} /></Field>
         <Field label="Forecast"><Seg options={HORIZONS} value={horizon} onChange={setHorizon} /></Field>
         {horizon !== "0" && <Field label="Model"><Seg options={MODELS} value={model} onChange={setModel} /></Field>}
@@ -374,6 +473,8 @@ export default function DailyUnitsView({ isMobile }) {
         {dims.channel.map((c) => <Chip key={c.k} on={channels.includes(c.k)} onClick={() => toggle(channels, setChannels, c.k)}>{c.k === "shopify" ? "Shopify" : c.k === "amazon" ? "Amazon" : c.k}</Chip>)}
         <span style={{ fontSize: 11, color: T.text3, fontWeight: 600, margin: "0 2px 0 10px" }}>Country</span>
         {dims.country.slice(0, 5).map((c) => <Chip key={c.k} on={countries.includes(c.k)} onClick={() => toggle(countries, setCountries, c.k)}>{c.k}</Chip>)}
+        <span style={{ fontSize: 11, color: T.text3, fontWeight: 600, margin: "0 2px 0 10px" }}>SKU</span>
+        <SkuPicker list={skuList} value={skus} onChange={(v) => { if (!skus.length && v.length && group === "total") setGroup("sku"); setSkus(v); }} />
         <span style={{ fontSize: 11, color: T.text3, fontWeight: 600, margin: "0 2px 0 10px" }}>Product</span>
         {dims.family.slice(0, 10).map((c) => <Chip key={c.k} on={families.includes(c.k)} onClick={() => toggle(families, setFamilies, c.k)}>{c.k}</Chip>)}
         <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11.5, color: T.text2, marginLeft: 10, cursor: "pointer" }}>
@@ -382,7 +483,7 @@ export default function DailyUnitsView({ isMobile }) {
         <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11.5, color: T.text2, cursor: "pointer" }}>
           <input type="checkbox" checked={compareLY} onChange={(e) => setCompareLY(e.target.checked)} /> Last year
         </label>
-        {(channels.length || countries.length || families.length) ? <button onClick={() => { setChannels([]); setCountries([]); setFamilies([]); }} style={{ fontSize: 11, color: T.accent, background: "none", border: "none", cursor: "pointer" }}>Clear filters</button> : null}
+        {(channels.length || countries.length || families.length || skus.length) ? <button onClick={() => { setChannels([]); setCountries([]); setFamilies([]); setSkus([]); }} style={{ fontSize: 11, color: T.accent, background: "none", border: "none", cursor: "pointer" }}>Clear filters</button> : null}
       </div>
 
       {error && <div style={{ padding: 12, borderRadius: 8, background: T.redDim, color: T.red, fontSize: 12.5 }}>Couldn't load daily units: {error}</div>}
@@ -426,22 +527,31 @@ export default function DailyUnitsView({ isMobile }) {
 
       {/* Table */}
       {table.length > 0 && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>Review</span>
+          <Seg options={PERIODS} value={period} onChange={setPeriod} />
+          {periodRange && <span style={{ fontSize: 11.5, color: T.text3 }}>{periodRange.days === 1 ? fmtDateY(periodRange.from) : `${fmtDateY(periodRange.from)} - ${fmtDateY(periodRange.to)} (${periodRange.days} days)`}, compared with the {periodRange.days === 1 ? "day" : `${periodRange.days} days`} before and the same days last year</span>}
+        </div>
+      )}
+      {table.length > 0 && (
         <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
             <thead>
               <tr style={{ textAlign: "right", color: T.text3, fontSize: 10.5, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                {["", "Last 7 days", "Last 28 days", "vs last year", "Trend / month", "Forecast 30d", "Forecast 90d", "Model", "Backtest error"].map((h, i) => <th key={i} style={{ padding: "9px 12px", textAlign: i === 0 || i === 7 ? "left" : "right", fontWeight: 700, borderBottom: `1px solid ${T.border}` }}>{h}</th>)}
+                {[...(group === "sku" ? ["SKU", "Description"] : [""]), periodRange?.days === 1 ? fmtDate(periodRange.from) : "Period total", "Per day", "vs prior period", "vs last year", "Trend / month", "Forecast 30d", "Forecast 90d", "Model", "Backtest error"].map((h, i, arr) => <th key={i} style={{ padding: "9px 12px", textAlign: i < (group === "sku" ? 2 : 1) || i === arr.length - 2 ? "left" : "right", fontWeight: 700, borderBottom: `1px solid ${T.border}`, whiteSpace: "nowrap" }}>{h}</th>)}
               </tr>
             </thead>
             <tbody>
               {table.map((r) => (
-                <tr key={r.key} style={{ borderBottom: `1px solid ${T.border}`, opacity: hidden.has(r.key) ? 0.45 : 1 }}>
-                  <td style={{ padding: "8px 12px", color: T.text, fontWeight: 600, maxWidth: 320 }}>
-                    <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: r.color, marginRight: 8, verticalAlign: "-1px" }} />
-                    {r.label}{group === "sku" && r.key !== r.label && r.key !== "Other" ? <span style={{ color: T.text3, fontWeight: 400 }}> · {r.key}</span> : null}
+                <tr key={r.key} style={{ borderBottom: `1px solid ${T.border}`, opacity: hidden.has(r.key) ? 0.45 : 1, background: r.total ? T.surface2 : "transparent", fontWeight: r.total ? 700 : 400 }}>
+                  <td style={{ padding: "8px 12px", color: T.text, fontWeight: 600, whiteSpace: "nowrap" }}>
+                    {!r.total && <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: r.color, marginRight: 8, verticalAlign: "-1px" }} />}
+                    {group === "sku" ? (r.total ? "Total" : r.key) : r.label}
                   </td>
-                  <td style={{ padding: "8px 12px", textAlign: "right", fontVariantNumeric: "tabular-nums", color: T.text }}>{fmtN(r.l7, measure)}</td>
-                  <td style={{ padding: "8px 12px", textAlign: "right", fontVariantNumeric: "tabular-nums", color: T.text }}>{fmtN(r.l28, measure)}</td>
+                  {group === "sku" && <td style={{ padding: "8px 12px", color: T.text2, maxWidth: 360, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.label}>{r.total || r.key === "Other" ? "" : r.label}</td>}
+                  <td style={{ padding: "8px 12px", textAlign: "right", fontVariantNumeric: "tabular-nums", color: T.text }}>{fmtN(r.cur, measure)}</td>
+                  <td style={{ padding: "8px 12px", textAlign: "right", fontVariantNumeric: "tabular-nums", color: T.text2 }}>{fmtN(r.perDay, measure)}</td>
+                  <td style={{ padding: "8px 12px", textAlign: "right", fontVariantNumeric: "tabular-nums", color: r.vsPrev == null ? T.text3 : r.vsPrev >= 0 ? T.green : T.red }}>{fmtPct(r.vsPrev)}</td>
                   <td style={{ padding: "8px 12px", textAlign: "right", fontVariantNumeric: "tabular-nums", color: r.yoy == null ? T.text3 : r.yoy >= 0 ? T.green : T.red }}>{fmtPct(r.yoy)}</td>
                   <td style={{ padding: "8px 12px", textAlign: "right", fontVariantNumeric: "tabular-nums", color: T.text2 }}>{fmtPct(r.trend)}</td>
                   <td style={{ padding: "8px 12px", textAlign: "right", fontVariantNumeric: "tabular-nums", color: T.text }}>{fmtN(r.f30, measure)}</td>
