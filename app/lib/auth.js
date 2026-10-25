@@ -43,12 +43,20 @@ export function AuthProvider({ children }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  const loadProfile = async (authUser) => {
+  const loadProfile = async (authUser, attempt = 0) => {
     const userId = authUser.id;
     const email = authUser.email;
     const displayName = authUser.user_metadata?.full_name || authUser.user_metadata?.name || email?.split("@")[0] || "User";
 
-    let { data: existingProfile } = await supabase.from("profiles").select("*").eq("id", userId).maybeSingle();
+    let { data: existingProfile, error: profileErr } = await supabase.from("profiles").select("*").eq("id", userId).maybeSingle();
+    // A failed lookup is not "no profile": retry rather than treating an
+    // existing user as new (which used to overwrite their role/permissions).
+    if (profileErr) {
+      if (attempt < 4) { setTimeout(() => loadProfile(authUser, attempt + 1), 1500 * (attempt + 1)); return; }
+      console.error("[auth] profile lookup failed", profileErr.message);
+      setLoading(false);
+      return;
+    }
 
     if (existingProfile) {
       setProfile(existingProfile);
@@ -80,7 +88,13 @@ export function AuthProvider({ children }) {
       return;
     }
 
-    let { data: emailProfile } = await supabase.from("profiles").select("*").eq("email", email).maybeSingle();
+    let { data: emailProfile, error: emailErr } = await supabase.from("profiles").select("*").eq("email", email).maybeSingle();
+    if (emailErr) {
+      if (attempt < 4) { setTimeout(() => loadProfile(authUser, attempt + 1), 1500 * (attempt + 1)); return; }
+      console.error("[auth] profile lookup failed", emailErr.message);
+      setLoading(false);
+      return;
+    }
 
     if (emailProfile) {
       const { data: updated } = await supabase.from("profiles").update({ id: userId }).eq("id", emailProfile.id).select().single();
@@ -108,9 +122,12 @@ export function AuthProvider({ children }) {
       return;
     }
 
-    const { data: newProfile } = await supabase.from("profiles").upsert({
+    // Looks like a brand-new user. Create rows only if they don't exist: an
+    // empty lookup can also mean the request went out before sign-in was ready,
+    // and an overwrite here once demoted an admin to "member, no modules".
+    await supabase.from("profiles").upsert({
       id: userId, display_name: displayName, email, org_id: DEFAULT_ORG_ID,
-    }, { onConflict: "id" }).select().single();
+    }, { onConflict: "id", ignoreDuplicates: true });
 
     // Auto-created users (no invite flow) get DEFAULT DENY: no modules visible
     // until an admin grants access in People → Permissions. Dashboard + Settings
@@ -118,15 +135,17 @@ export function AuthProvider({ children }) {
     await supabase.from("org_memberships").upsert({
       org_id: DEFAULT_ORG_ID, user_id: userId, role: "member", is_active: true,
       module_permissions: { _default_deny: true },
-    }, { onConflict: "org_id,user_id" }).select();
+    }, { onConflict: "org_id,user_id", ignoreDuplicates: true });
 
     await supabase.from("user_module_permissions").upsert({
       user_id: userId,
       allowed_modules: [],
       is_admin: false,
-    }, { onConflict: "user_id" });
+    }, { onConflict: "user_id", ignoreDuplicates: true });
 
-    setProfile(newProfile);
+    // Load whatever is actually stored now (new rows, or the existing ones).
+    if (attempt < 4) { loadProfile(authUser, 4); return; }
+    setProfile({ id: userId, display_name: displayName, email, org_id: DEFAULT_ORG_ID });
     setOrgs([{ id: DEFAULT_ORG_ID, name: "Earth Breeze", role: "member" }]);
     setOrgId(DEFAULT_ORG_ID);
     setLoading(false);
