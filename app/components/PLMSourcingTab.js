@@ -214,7 +214,7 @@ export default function PLMSourcingTab({ program }) {
                     <span style={{ fontSize: 10.5, fontWeight: 700, padding: "1px 7px", borderRadius: 99, background: p.status === "active" ? "#22c55e18" : "#64748b18", color: p.status === "active" ? "#22c55e" : "#64748b" }}>{p.status}</span>
                     <button onClick={() => setManagePortal(p)} style={{ fontSize: 11.5, fontWeight: 600, padding: "4px 10px", borderRadius: 6, border: "none", cursor: "pointer", background: "#3b82f6", color: "#fff" }}>Manage</button>
                     <CopyInviteButton rfpCode={p.rfp_code} rfpType={p.rfp_type} style={{ fontSize: 11.5, fontWeight: 600, padding: "4px 10px", borderRadius: 6, cursor: "pointer", background: "transparent", color: T.text2, border: "1px solid " + T.border }} />
-                    <a href={"https://helm-app-six.vercel.app/rfp/index.html?rfp=" + encodeURIComponent(p.rfp_code)} target="_blank" rel="noreferrer" style={{ fontSize: 11.5, fontWeight: 600, padding: "4px 10px", borderRadius: 6, border: "1px solid " + T.border, background: T.surface2, color: T.text2, textDecoration: "none" }}>Open ↗</a>
+                    <a href={"https://helm.earthbreeze.com/rfp/index.html?rfp=" + encodeURIComponent(p.rfp_code)} target="_blank" rel="noreferrer" style={{ fontSize: 11.5, fontWeight: 600, padding: "4px 10px", borderRadius: 6, border: "1px solid " + T.border, background: T.surface2, color: T.text2, textDecoration: "none" }}>Open ↗</a>
                   </div>
                 );
               })}

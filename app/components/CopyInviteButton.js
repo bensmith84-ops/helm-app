@@ -3,7 +3,7 @@ import React, { useState } from "react";
 
 // Public, NDA-gated supplier link for an RFP portal. Recipients land on the
 // public summary, request access, and only see full content after approval + NDA.
-export const PORTAL_BASE = "https://helm-app-six.vercel.app/rfp/index.html";
+export const PORTAL_BASE = "https://helm.earthbreeze.com/rfp/index.html";
 export const inviteLinkFor = (rfpCode) => `${PORTAL_BASE}?rfp=${encodeURIComponent(rfpCode)}`;
 
 async function copyText(text) {
