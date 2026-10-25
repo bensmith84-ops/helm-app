@@ -20,13 +20,14 @@ export const STATUS = {
   ok:       { label: "OK", tone: "good", icon: "✓", rank: 4 },
   excess:   { label: "Excess", tone: "info", icon: "○", rank: 5 },
   idle:     { label: "No demand", tone: "muted", icon: "-", rank: 6 },
+  nodata:   { label: "No stock data", tone: "muted", icon: "?", rank: 7 },
 };
 
 const roundUp = (q) => (q <= 0 ? 0 : q < 1000 ? Math.ceil(q / 50) * 50 : q < 20000 ? Math.ceil(q / 500) * 500 : Math.ceil(q / 1000) * 1000);
 
 export function planItem({ stock, demand, arrivals, today, leadDays = 45, safetyDays = 14, targetDays = 60, soonDays = 14, excessDays = 365 }) {
   const H = demand.length;
-  const s0 = Number(stock) || 0; // can be negative: orders already waiting on stock
+  const s0 = Math.max(0, Number(stock) || 0);
   const avg30 = demand.slice(0, 30).reduce((s, x) => s + x, 0) / Math.min(30, Math.max(1, H));
   const safety = safetyDays * avg30;
   const proj = new Array(H);
@@ -51,7 +52,7 @@ export function planItem({ stock, demand, arrivals, today, leadDays = 45, safety
     need = dSum + safety - (s0 + aSum);
   }
   let status;
-  if (avg30 < 0.5) status = "idle";
+  if (avg30 < 1) status = "idle";
   else if (s0 <= 0) status = "stockout";
   else if (stockoutIdx != null && stockoutIdx < leadDays) status = "late";
   else if (reorderIdx != null && reorderIdx <= 0) status = "now";
