@@ -341,13 +341,13 @@ function TodaysCalendar({ profile, collapsed, setCollapsed }) {
   }, []);
 
   // Server-side iCal sync
-  const syncIcalFeeds = async (cals) => {
+  const syncIcalFeeds = async (cals, force = false) => {
     const icalCals = (cals || calendars).filter(c => c.calendar_type === "ical" && c.external_calendar_id);
     if (!icalCals.length) return;
     setSyncing(true); setSyncError("");
     for (const cal of icalCals) {
       try {
-        const res = await fetch(`${EDGE_BASE}/ical-proxy?mode=sync&url=${encodeURIComponent(cal.external_calendar_id)}&calendar_id=${cal.id}&org_id=${profile?.org_id}&user_id=${profile?.id}`, {
+        const res = await fetch(`${EDGE_BASE}/ical-proxy?mode=sync&url=${encodeURIComponent(cal.external_calendar_id)}&calendar_id=${cal.id}&org_id=${profile?.org_id}&user_id=${profile?.id}${force ? "&force=1" : ""}`, {
           headers: { "Authorization": `Bearer ${ANON_KEY}` }
         });
         const json = await res.json();
@@ -680,7 +680,7 @@ function TodaysCalendar({ profile, collapsed, setCollapsed }) {
                           </div>
                           <span onClick={() => toggleCalendar(cal.id)} style={{ flex:1, fontSize:10, cursor:"pointer", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{cal.name}</span>
                           {cal.calendar_type === "ical" && (
-                            <button onClick={() => { const url = prompt("iCal URL:", cal.external_calendar_id || ""); if (url && url !== cal.external_calendar_id) { supabase.from("calendars").update({ external_calendar_id: url }).eq("org_id", orgId).eq("id", cal.id).then(() => { setCalendars(prev => prev.map(c => c.id === cal.id ? {...c, external_calendar_id: url} : c)); syncIcalFeeds([{...cal, external_calendar_id: url}]); }); }}} style={{ background:"none", border:"none", color:T.text3, cursor:"pointer", fontSize:9, opacity:0.4 }} onMouseEnter={e=>e.currentTarget.style.opacity=1} onMouseLeave={e=>e.currentTarget.style.opacity=0.4} title="Edit iCal URL">✎</button>
+                            <button onClick={() => { const url = prompt("iCal URL:", cal.external_calendar_id || ""); if (url && url !== cal.external_calendar_id) { supabase.from("calendars").update({ external_calendar_id: url }).eq("org_id", orgId).eq("id", cal.id).then(() => { setCalendars(prev => prev.map(c => c.id === cal.id ? {...c, external_calendar_id: url} : c)); syncIcalFeeds([{...cal, external_calendar_id: url}], true); }); }}} style={{ background:"none", border:"none", color:T.text3, cursor:"pointer", fontSize:9, opacity:0.4 }} onMouseEnter={e=>e.currentTarget.style.opacity=1} onMouseLeave={e=>e.currentTarget.style.opacity=0.4} title="Edit iCal URL">✎</button>
                           )}
                           <button onClick={() => removeCalendar(cal.id)} style={{ background:"none", border:"none", color:T.text3, cursor:"pointer", fontSize:10, opacity:0.3 }} onMouseEnter={e=>e.currentTarget.style.opacity=1} onMouseLeave={e=>e.currentTarget.style.opacity=0.3}>×</button>
                         </div>
@@ -986,7 +986,9 @@ export default function DashboardView({ setActive }) {
       ] = await Promise.all([
         supabase.from("projects").select("*").eq("org_id", orgId).is("deleted_at", null).order("name"),
         supabase.from("sections").select("*").order("sort_order"),
-        supabase.from("tasks").select("id,project_id,section_id,parent_task_id,title,status,priority,assignee_id,due_date,completed_at,sort_order,created_at").is("deleted_at", null),
+        // Home only uses top-level tasks (project health) and open tasks (counts,
+        // my tasks, focus): skip finished subtasks, about half of all rows.
+        supabase.from("tasks").select("id,project_id,section_id,parent_task_id,title,status,priority,assignee_id,due_date,completed_at,sort_order,created_at").is("deleted_at", null).or("parent_task_id.is.null,status.not.in.(done,cancelled)"),
         supabase.from("profiles").select("id,display_name,avatar_url"),
         supabase.from("objectives").select("*").eq("org_id", orgId).is("deleted_at", null).order("sort_order"),
         supabase.from("key_results").select("*").eq("org_id", orgId).is("deleted_at", null),

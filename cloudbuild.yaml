@@ -64,6 +64,7 @@ steps:
       - '--memory=1Gi'
       - '--cpu=1'
       - '--min-instances=0'
+      - '--cpu-boost'
       - '--max-instances=10'
       - '--concurrency=80'
       - '--timeout=60s'
@@ -99,7 +100,8 @@ steps:
       - '--port=8080'
       - '--memory=512Mi'
       - '--cpu=1'
-      - '--min-instances=0'
+      - '--min-instances=1'  # keep the API warm: no cold start on the first click
+      - '--cpu-boost'
       - '--max-instances=10'
       - '--concurrency=80'
       - '--timeout=900s'

@@ -62,6 +62,15 @@ module.exports = function(app, { pool, requireAuth }) {
         return res.status(400).json({ error: 'Only HTTP/HTTPS URLs' });
       }
 
+      // Home re-syncs every iCal feed on each load; a sync deletes and
+      // re-inserts every event (7-8s for ~1,100 events). Skip if this calendar
+      // synced in the last 10 minutes unless the caller forces it.
+      if (mode === 'sync' && calendarId && !['1', 'true', true].includes(src.force)) {
+        const { rows: cal } = await pool.query(
+          `SELECT last_synced_at FROM calendars WHERE id = $1 AND last_synced_at > now() - interval '10 minutes'`, [calendarId]);
+        if (cal.length) return res.json({ success: true, skipped: 'synced_recently', last_synced_at: cal[0].last_synced_at });
+      }
+
       const upstream = await fetch(icalUrl, {
         headers: { 'User-Agent': 'Helm Calendar Sync/1.0', 'Accept': 'text/calendar, text/plain, */*' },
         redirect: 'follow',

@@ -328,9 +328,20 @@ export default function HelmApp() {
     return () => { document.removeEventListener("keydown", fn); clearTimeout(gTimer); };
   }, []);
 
-  // Load sidebar badge counts
+  // Load sidebar badge counts. Counts are cached for a minute: this used to
+  // re-run ~10 queries (one per message channel, in sequence) on every click.
+  const badgeCache = useRef({ at: 0, userId: null, raw: null });
   useEffect(() => {
     if (!user) return;
+    const applyBadges = ({ overdue, unreadMsgs, staleKRs, pendingNotifs }) => setBadges({
+      projects: active === "projects" ? null : overdue > 0 ? overdue : null,
+      messages: active === "messages" ? null : unreadMsgs > 0 ? unreadMsgs : null,
+      okrs: active === "okrs" ? null : staleKRs > 0 ? staleKRs : null,
+      inbox: active === "inbox" ? null : pendingNotifs > 0 ? pendingNotifs : null,
+      activity: active === "activity" ? null : pendingNotifs > 0 ? pendingNotifs : null,
+    });
+    const c = badgeCache.current;
+    if (c.raw && c.userId === user.id && Date.now() - c.at < 60000) { applyBadges(c.raw); return; }
     (async () => {
       try {
         const now = new Date().toISOString().split("T")[0];
@@ -355,14 +366,16 @@ export default function HelmApp() {
         (myReads || []).forEach(r => { readMap[r.channel_id] = r; });
         const { data: channels } = await supabase.from("channels").select("id").eq("is_archived", false);
         if (channels?.length) {
-          for (const ch of channels) {
-            const r = readMap[ch.id];
-            const since = r?.last_read_at || "2000-01-01T00:00:00Z";
-            const isManualUnread = r?.is_unread_override;
-            const { count } = await supabase.from("messages").select("id", { count: "exact", head: true })
+          const counts = await Promise.all(channels.map(ch => {
+            const since = readMap[ch.id]?.last_read_at || "2000-01-01T00:00:00Z";
+            return supabase.from("messages").select("id", { count: "exact", head: true })
               .eq("channel_id", ch.id).neq("author_id", user.id).gt("created_at", since).is("deleted_at", null);
+          }));
+          channels.forEach((ch, i) => {
+            const count = counts[i].count;
+            const isManualUnread = readMap[ch.id]?.is_unread_override;
             if (isManualUnread || count > 0) unreadMsgs += (count || 0) + (isManualUnread && count === 0 ? 1 : 0);
-          }
+          });
         }
 
         // Count stale KRs (no check-in in 7+ days)
@@ -374,13 +387,9 @@ export default function HelmApp() {
           staleKRs = myKRs.filter(k => !checkedIds.has(k.id)).length;
         }
 
-        setBadges({
-          projects: active === "projects" ? null : overdue > 0 ? overdue : null,
-          messages: active === "messages" ? null : unreadMsgs > 0 ? unreadMsgs : null,
-          okrs: active === "okrs" ? null : staleKRs > 0 ? staleKRs : null,
-          inbox: active === "inbox" ? null : pendingNotifs > 0 ? pendingNotifs : null,
-          activity: active === "activity" ? null : pendingNotifs > 0 ? pendingNotifs : null,
-        });
+        const raw = { overdue, unreadMsgs, staleKRs, pendingNotifs };
+        badgeCache.current = { at: Date.now(), userId: user.id, raw };
+        applyBadges(raw);
       } catch (e) { console.warn("Badge count fetch failed:", e); }
     })();
   }, [user?.id, active]);
