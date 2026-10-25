@@ -22,6 +22,7 @@ export default function YesterdayUnits({ setActive }) {
   const [open, setOpen] = useState(null);      // line expanded to SKUs
   const [skuRows, setSkuRows] = useState([]);
   const [error, setError] = useState("");
+  const [showAll, setShowAll] = useState(false);
 
   useEffect(() => {
     const to = addDays(localToday(), -1);
@@ -109,7 +110,7 @@ export default function YesterdayUnits({ setActive }) {
               </tr>
             </thead>
             <tbody>
-              {data.lines.map((k) => {
+              {(showAll ? data.lines : data.lines.filter((k, i) => i < 8 || picked.includes(k))).map((k) => {
                 const on = picked.includes(k), d = delta(data.cur[k] || 0, data.wk[k]);
                 return [
                   <tr key={k} style={{ borderTop: `1px solid ${T.border}`, background: open === k ? T.surface2 : "transparent" }}>
@@ -143,6 +144,7 @@ export default function YesterdayUnits({ setActive }) {
               })}
             </tbody>
           </table>
+          {data.lines.length > 8 && <button onClick={() => setShowAll((v) => !v)} style={{ marginTop: 6, fontSize: 11.5, color: T.accent, background: "none", border: "none", cursor: "pointer", padding: 0 }}>{showAll ? "Show fewer" : `Show all ${data.lines.length} lines`}</button>}
           <div style={{ fontSize: 11, color: T.text3, marginTop: 8 }}>Product units: bundles and multi-packs counted as the products inside them (a 3-pack = 3). Paid orders only, Shopify + Amazon, by order date.</div>
         </>
       )}
