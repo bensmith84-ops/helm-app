@@ -93,6 +93,12 @@ function fit(dates, values, horizon, model) {
   const out = [];
   if (model === "yoy" || model === "blend") {
     if (n < YEAR + 60) return null;
+    // Last year's shape only means something if the series really sold then:
+    // a product that launched or ramped a year ago (e.g. 10x growth) would
+    // copy its launch curve forward. Require last year's 91 days to be at
+    // least a quarter of the recent 91 days.
+    const recent91 = sumRange(values, n - 91, n), ly91 = sumRange(values, n - 91 - YEAR, n - YEAR);
+    if (!(ly91 > 0) || ly91 < 0.25 * recent91) return null;
     const S = movingAverage(d, 28, true);
     const level = sumRange(d, n - 14, n) / 14;
     const ref = S[n - 1 - YEAR - 7] ?? S[n - 1 - YEAR];
