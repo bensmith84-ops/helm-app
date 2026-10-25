@@ -651,7 +651,9 @@ export default function ERPView({ modulePerms = {}, pendingSubView, clearPending
           supabase.from("qbo_accounts").select("*").eq("org_id", orgId).order("account_type").order("name"),
           supabase.from("qbo_vendors").select("*").eq("org_id", orgId).order("display_name"),
           supabase.from("qbo_bills").select("*").eq("org_id", orgId).order("txn_date", { ascending: false }).limit(1000),
-          supabase.from("qbo_customers").select("*").eq("org_id", orgId).order("display_name"),
+          // qbo_customers is no longer loaded: it now holds every DTC customer synced from QuickBooks
+          // (hundreds of thousands of rows) and nothing in ERP displays it.
+          Promise.resolve({ data: [] }),
           supabase.from("qbo_invoices").select("*").eq("org_id", orgId).order("txn_date", { ascending: false }),
           // qbo_pl_ytd: live YTD aggregate of qbo_pl_monthly. The legacy
           // qbo_pl table was no longer being kept current by the QBO sync.

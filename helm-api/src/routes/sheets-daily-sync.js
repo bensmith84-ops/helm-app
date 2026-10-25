@@ -321,10 +321,14 @@ module.exports = function(app, { pool }) {
         }
       }
 
+      // Metrics the warehouse scorecard now provides (Ben, 25 Oct 2026) are written by
+      // /warehouse-sync; the Sheet only fills the ones the warehouse doesn't have.
+      const { WAREHOUSE_SCOREBOARD_KEYS } = require('../lib/scoreboard-map');
+      const sheetRows = upsertRows.filter((r) => !WAREHOUSE_SCOREBOARD_KEYS.has(r.metric_key));
       let upserted = 0;
       let rpcError = null;
-      for (let i = 0; i < upsertRows.length; i += 500) {
-        const chunk = upsertRows.slice(i, i + 500);
+      for (let i = 0; i < sheetRows.length; i += 500) {
+        const chunk = sheetRows.slice(i, i + 500);
         try {
           const { rows: rpcResult } = await pool.query(
             `SELECT upsert_scoreboard_daily($1::jsonb) AS count`,
