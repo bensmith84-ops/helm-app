@@ -1,7 +1,8 @@
 // POST /warehouse-sync - copies curated warehouse tables into Helm.
 //   body.tasks: any of scorecard, inventory, orders, sku_sales, ad_spend, erp (default all; erp runs after inventory); body.since: 'YYYY-MM-DD' (scorecard)
-// Runs nightly from /cron (job 'warehouse-sync'); admins can also call it.
-const { mbSqlAll, day } = require('../lib/warehouse');
+// Runs daily from /cron (jobs 'warehouse-sync', 'warehouse-sync-midday'); admins can also call it.
+// POST /scoreboard-refresh - members: scorecard + scoreboard only (the Scoreboard Sync button).
+const { mbSql, mbSqlAll, day } = require('../lib/warehouse');
 const { MAP: SB_MAP, valueFor: sbValue } = require('../lib/scoreboard-map');
 
 const BQ = 'eb-testing-01';
@@ -29,7 +30,23 @@ async function syncScorecard(pool, { since, fetchImpl }) {
       [JSON.stringify(batch)]);
     saved += batch.length;
   }
-  return { from, saved };
+  const through = rows.reduce((m, r) => (day(r.date) > m ? day(r.date) : m), '') || null;
+  return { from, saved, through, ...(await sourceBuild(fetchImpl)) };
+}
+
+// When the data team last rebuilt scorecard_v2_main, and whether that rebuild
+// came after yesterday ended (midnight Pacific, the table's day boundary).
+// A rebuild before that point means yesterday's row was still partial.
+async function sourceBuild(fetchImpl) {
+  try {
+    const { rows: [r] } = await mbSql(
+      `SELECT TIMESTAMP_MILLIS(last_modified_time) AS built_at,
+              TIMESTAMP_MILLIS(last_modified_time) >= TIMESTAMP(CURRENT_DATE('America/Los_Angeles'), 'America/Los_Angeles') AS complete
+         FROM \`${BQ}.data_team_earth_breeze.__TABLES__\` WHERE table_id = 'scorecard_v2_main'`, { fetchImpl });
+    return r ? { source_built_at: r.built_at, complete: r.complete === true } : {};
+  } catch (e) {
+    return { source_built_error: e.message.slice(0, 200) };
+  }
 }
 
 async function syncInventory(pool, { fetchImpl }) {
@@ -285,23 +302,37 @@ async function syncScoreboard(pool, { since }) {
 
 const TASKS = { scorecard: syncScorecard, inventory: syncInventory, orders: syncOrders, sku_sales: syncSkuSales, ad_spend: syncAdSpend, erp: syncErp, scoreboard: syncScoreboard };
 
+async function runTasks(pool, tasks, { since, fetchImpl }) {
+  const results = {}; const errors = [];
+  for (const t of tasks) {
+    if (!TASKS[t]) { errors.push(`${t}: unknown task`); continue; }
+    const { rows: [log] } = await pool.query('INSERT INTO wh_sync_log (task) VALUES ($1) RETURNING id', [t]);
+    try {
+      const r = results[t] = await TASKS[t](pool, { since, fetchImpl });
+      await pool.query(
+        `UPDATE wh_sync_log SET finished_at = now(), rows_saved = $2, through_date = $3, source_built_at = $4, complete = $5 WHERE id = $1`,
+        [log.id, r.saved, r.through || null, r.source_built_at || null, r.complete ?? null]);
+    } catch (e) {
+      errors.push(`${t}: ${e.message}`);
+      await pool.query('UPDATE wh_sync_log SET finished_at = now(), error = $2 WHERE id = $1', [log.id, e.message.slice(0, 1000)]);
+    }
+  }
+  return { ok: !errors.length, results, errors: errors.length ? errors : undefined };
+}
+
 module.exports = function (app, { pool }, { fetchImpl = fetch } = {}) {
+  // Admin / cron: any tasks, optional backfill.
   app.post('/warehouse-sync', async (req, res) => {
     const body = req.body || {};
     const tasks = Array.isArray(body.tasks) && body.tasks.length ? body.tasks : Object.keys(TASKS);
-    const results = {}; const errors = [];
-    for (const t of tasks) {
-      if (!TASKS[t]) { errors.push(`${t}: unknown task`); continue; }
-      const { rows: [log] } = await pool.query('INSERT INTO wh_sync_log (task) VALUES ($1) RETURNING id', [t]);
-      try {
-        results[t] = await TASKS[t](pool, { since: body.since, fetchImpl });
-        await pool.query('UPDATE wh_sync_log SET finished_at = now(), rows_saved = $2 WHERE id = $1', [log.id, results[t].saved]);
-      } catch (e) {
-        errors.push(`${t}: ${e.message}`);
-        await pool.query('UPDATE wh_sync_log SET finished_at = now(), error = $2 WHERE id = $1', [log.id, e.message.slice(0, 1000)]);
-      }
-    }
-    res.status(errors.length ? 500 : 200).json({ ok: !errors.length, results, errors: errors.length ? errors : undefined });
+    const out = await runTasks(pool, tasks, { since: body.since, fetchImpl });
+    res.status(out.ok ? 200 : 500).json(out);
+  });
+  // Any member (Scoreboard "Sync" button): refresh the scorecard copy and the
+  // Scoreboard metrics built from it. Fixed tasks, no backfill.
+  app.post('/scoreboard-refresh', async (req, res) => {
+    const out = await runTasks(pool, ['scorecard', 'scoreboard'], { fetchImpl });
+    res.status(out.ok ? 200 : 500).json(out);
   });
 };
-module.exports._internal = { syncScorecard, syncInventory, syncOrders, syncSkuSales, syncAdSpend, syncErp, syncScoreboard, windowFor };
+module.exports._internal = { syncScorecard, syncInventory, syncOrders, syncSkuSales, syncAdSpend, syncErp, syncScoreboard, windowFor, runTasks };

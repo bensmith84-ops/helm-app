@@ -999,10 +999,32 @@ export default function ScoreboardView() {
     await loadHealth();
   };
 
+  // Latest warehouse (Metabase) copy behind the Scoreboard: when the data
+  // team's table was rebuilt, when Helm copied it, and whether that rebuild
+  // came after the last day ended (otherwise yesterday may still be partial).
+  const [whStatus, setWhStatus] = useState(null);
+  const loadWhStatus = useCallback(async () => {
+    const { data } = await supabase.from("wh_sync_status").select("*").eq("task", "scorecard").maybeSingle();
+    setWhStatus(data || null);
+  }, []);
+  useEffect(() => { loadWhStatus(); }, [loadWhStatus]);
+
   const syncSheet = async () => {
     setSyncing(true);
     setActiveTab("chat");
     try {
+      const { data: w, error: we } = await invokeFunction("scoreboard-refresh", { body: {} });
+      if (we || !w?.ok) {
+        setMessages(p => [...p, { role:"assistant", content:`⚠️ Metabase sync error: ${we?.message || (w?.errors||[]).join("; ") || "unknown"}` }]);
+      } else {
+        const sc = w.results?.scorecard || {}, sb = w.results?.scoreboard || {};
+        const built = sc.source_built_at ? new Date(sc.source_built_at).toLocaleString([], { month:"short", day:"numeric", hour:"numeric", minute:"2-digit" }) : "unknown";
+        const verdict = sc.complete === true ? `✅ Complete: the data team rebuilt it after ${sc.through} ended.`
+          : sc.complete === false ? `⚠️ The data team hasn't rebuilt since ${sc.through} ended, so that day may be partial. Their rebuilds run around 7:45am and 11:45am ET.`
+          : "Couldn't read when the warehouse was last rebuilt.";
+        setMessages(p => [...p, { role:"assistant", content:`📊 Metabase sync: ${sb.metrics||0} metrics, ${sb.days||0} days refreshed (through ${sc.through||"?"}).\nWarehouse built ${built}.\n${verdict}` }]);
+      }
+      await loadWhStatus();
       const { data: d1Raw, error: e1 } = await invokeFunction("sheets-daily-sync", { body: {} });
       const d1 = e1 ? { error: e1.message } : (d1Raw || {});
       const { data: d2Raw, error: e2 } = await invokeFunction("sheets-sync", { body: {} });
@@ -1108,7 +1130,7 @@ export default function ScoreboardView() {
             ))}
           </div>
           <button onClick={syncSheet} disabled={syncing} style={{ padding:"6px 14px", fontSize:12, fontWeight:600, background:syncing?T.surface2:T.accentDim, color:T.accent, border:`1px solid ${T.accent}40`, borderRadius:6, cursor:syncing?"wait":"pointer", opacity:syncing?0.6:1 }}>
-            {syncing?"Syncing…":"↻ Sync Sheet"}
+            {syncing?"Syncing…":"↻ Sync"}
           </button>
           {Math.max(health.length - resolvedCount, 0) > 0 && (
             <button onClick={() => (remapOpen ? setRemapOpen(false) : loadSuggestions())}
@@ -1204,7 +1226,7 @@ export default function ScoreboardView() {
           <div style={{ textAlign:"center", padding:"60px 0", color:T.text3 }}>
             <div style={{ fontSize:40, marginBottom:12 }}>📊</div>
             <div style={{ fontSize:16, fontWeight:600, marginBottom:8 }}>No scoreboard data yet</div>
-            <div style={{ fontSize:13, marginBottom:24 }}>Click "↻ Sync Sheet" to pull data from the Google Sheet</div>
+            <div style={{ fontSize:13, marginBottom:24 }}>Click "↻ Sync" to pull data from the Google Sheet</div>
             <button onClick={syncSheet} disabled={syncing} style={{ padding:"10px 24px", fontSize:13, fontWeight:700, background:T.accent, color:"#fff", border:"none", borderRadius:8, cursor:"pointer" }}>
               {syncing?"Syncing…":"↻ Sync Now"}
             </button>
@@ -1274,7 +1296,7 @@ export default function ScoreboardView() {
                   <div style={{ textAlign:"center", padding:"60px 0", color:T.text3 }}>
                     <div style={{ fontSize:40, marginBottom:12 }}>📊</div>
                     <div style={{ fontSize:16, fontWeight:600, marginBottom:8 }}>No daily data yet</div>
-                    <div style={{ fontSize:13, marginBottom:24 }}>Click "↻ Sync Sheet" to import data from the Google Sheet</div>
+                    <div style={{ fontSize:13, marginBottom:24 }}>Click "↻ Sync" to import data from the Google Sheet</div>
                     <button onClick={syncSheet} disabled={syncing} style={{ padding:"10px 24px", fontSize:13, fontWeight:700, background:T.accent, color:"#fff", border:"none", borderRadius:8, cursor:"pointer" }}>{syncing?"Syncing…":"↻ Sync Now"}</button>
                   </div>
                 )}
@@ -1284,6 +1306,19 @@ export default function ScoreboardView() {
                     {/* Date badge */}
                     <div style={{ fontSize:12, color:T.text3, marginBottom:16, display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
                       <span style={{ background:T.accentDim, color:T.accent, padding:"2px 10px", borderRadius:20, fontSize:11, fontWeight:700 }}>Latest: {latestDate}</span>
+                      {whStatus && (() => {
+                        const fmt = (t) => t ? new Date(t).toLocaleString([], { month:"short", day:"numeric", hour:"numeric", minute:"2-digit" }) : "?";
+                        const ok = whStatus.complete === true && !whStatus.failed;
+                        const tip = whStatus.failed ? "The last Metabase sync failed."
+                          : whStatus.complete === false ? `The data team's table was last rebuilt ${fmt(whStatus.source_built_at)}, before ${whStatus.through_date} ended, so that day may be partial.`
+                          : whStatus.complete === true ? `Rebuilt by the data team ${fmt(whStatus.source_built_at)}, after ${whStatus.through_date} ended.` : "Rebuild time unknown.";
+                        return (
+                          <span title={tip} style={{ marginLeft:8, padding:"2px 10px", borderRadius:20, fontSize:11, fontWeight:600,
+                            background: ok ? "rgba(34,197,94,0.12)" : "rgba(251,188,5,0.14)", color: ok ? "#16a34a" : "#b8860b" }}>
+                            {ok ? "✓" : "⚠"} Metabase · synced {fmt(whStatus.finished_at)}{whStatus.failed ? " · failed" : whStatus.complete === false ? ` · ${whStatus.through_date} may be partial` : whStatus.complete === true ? " · complete" : ""}
+                          </span>
+                        );
+                      })()}
                       <span>·</span>
                       <span>{(daily["revenue"]||[]).length} days of data</span>
                       <span>·</span>
@@ -1547,7 +1582,7 @@ export default function ScoreboardView() {
 
           if (!hasDailyData) return (
             <div style={{ textAlign:"center", padding:"60px 0", color:T.text3 }}>
-              <div style={{ fontSize:13 }}>No data yet - click ↻ Sync Sheet</div>
+              <div style={{ fontSize:13 }}>No data yet - click ↻ Sync</div>
             </div>
           );
 
@@ -1646,7 +1681,7 @@ export default function ScoreboardView() {
               <div style={{ textAlign:"center", padding:"40px 0", color:T.text3 }}>
                 <div style={{ fontSize:32, marginBottom:8 }}>📅</div>
                 <div style={{ fontSize:14, fontWeight:600, marginBottom:4 }}>No daily data yet</div>
-                <div style={{ fontSize:12, marginBottom:16 }}>Click "↻ Sync Sheet" to import daily data from the Google Sheet</div>
+                <div style={{ fontSize:12, marginBottom:16 }}>Click "↻ Sync" to import daily data from the Google Sheet</div>
                 <button onClick={syncSheet} style={{ padding:"8px 20px", fontSize:12, fontWeight:600, background:T.accent, color:"#fff", border:"none", borderRadius:7, cursor:"pointer" }}>Sync Now</button>
               </div>
             ) : (
@@ -1796,7 +1831,7 @@ export default function ScoreboardView() {
                   <div style={{ fontSize:22, fontWeight:700, marginBottom:8 }}>Ask me anything about your data 🤖</div>
                   <div style={{ fontSize:13, color:T.text3, marginBottom:24, lineHeight:1.7 }}>
                     I have access to your Google Sheets scoreboard data. I can analyze trends, calculate metrics, compare periods, and generate charts.
-                    {!hasData && <span style={{ color:"#f97316" }}> No data synced yet - click "↻ Sync Sheet" first.</span>}
+                    {!hasData && <span style={{ color:"#f97316" }}> No data synced yet - click "↻ Sync" first.</span>}
                   </div>
                   <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
                     {PROMPTS.map(p => (

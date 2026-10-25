@@ -110,6 +110,8 @@ const JOBS = {
   // seven parallel calls). Now sequential; verify runs ~45 min later.
   'dp-daily-sync':            { path: '/metabase-daily-sync',     body: { source: 'cron' } },
   'warehouse-sync':           { path: '/warehouse-sync',          body: {} },
+  // After the data team's ~11:45 ET rebuild: refresh the Scoreboard numbers only.
+  'warehouse-sync-midday':    { path: '/warehouse-sync',          body: { tasks: ['scorecard', 'scoreboard'] } },
   'dp-daily-sync-verify':     { sql: 'SELECT public.dp_daily_sync_verify_and_log()' },
   // dp-daily-sync was a Postgres fn (dp_daily_sync_fire_all) that internally
   // http_posted to multiple Supabase fns. After cutover, this becomes a
