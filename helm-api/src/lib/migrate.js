@@ -44,6 +44,7 @@ async function runMigrations(pool, migrationsDir) {
     const { rows } = await client.query('SELECT filename, sha256 FROM _helm_migrations');
     const applied = new Map(rows.map((r) => [r.filename, r.sha256]));
 
+    let appliedNow = 0;
     for (const file of files) {
       const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf8');
       const hash = crypto.createHash('sha256').update(sql).digest('hex');
@@ -62,11 +63,18 @@ async function runMigrations(pool, migrationsDir) {
         await client.query('INSERT INTO _helm_migrations (filename, sha256) VALUES ($1, $2)', [file, hash]);
         await client.query('COMMIT');
         console.log(`[migrate] applied ${file}`);
+        appliedNow++;
       } catch (err) {
         try { await client.query('ROLLBACK'); } catch {}
         console.error(`[migrate] FAILED ${file}: ${err?.message}. Server continues; fix forward with a new migration.`);
         break; // don't run later files on top of a failed earlier one
       }
+    }
+    // PostgREST caches the schema; a warm instance won't see new tables or
+    // functions until told. It listens on channel 'pgrst' (PGRST_DB_CHANNEL_ENABLED).
+    if (appliedNow) {
+      try { await client.query(`NOTIFY pgrst, 'reload schema'`); console.log('[migrate] asked PostgREST to reload its schema'); }
+      catch (e) { console.warn('[migrate] schema reload notify failed:', e?.message); }
     }
   } catch (err) {
     console.error('[migrate] runner error:', err?.message);
