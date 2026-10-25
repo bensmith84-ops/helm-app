@@ -3330,13 +3330,19 @@ function CFODashboard({ isMobile }) {
         // were showing only ~\$5K when the real YTD is \$29M revenue.
         supabase.from("qbo_pl_ytd").select("*").eq("org_id", orgId),
         supabase.from("qbo_pl_monthly").select("*").eq("org_id", orgId).order("period_month"),
-        supabase.from("qbo_balance_sheet").select("*"),
-        supabase.from("qbo_bills").select("vendor_name,total_amount,balance,payment_status,txn_date,gl_accounts").eq("org_id", orgId),
-        supabase.from("qbo_purchases").select("vendor_name,total_amount,txn_date,gl_accounts,payment_type").eq("org_id", orgId).limit(5000),
-        supabase.from("qbo_deposits").select("*"),
-        supabase.from("qbo_payments").select("*").eq("org_id", orgId),
-        supabase.from("qbo_transfers").select("*"),
-        supabase.from("qbo_journal_entries").select("qbo_id,txn_date,total_amount,memo"),
+        // Only the latest balance-sheet snapshot is shown (was every snapshot, ~17k rows).
+        (async () => {
+          const { data: last } = await supabase.from("qbo_balance_sheet").select("report_date").eq("org_id", orgId).order("report_date", { ascending: false }).limit(1);
+          if (!last?.[0]) return { data: [] };
+          return supabase.from("qbo_balance_sheet").select("*").eq("org_id", orgId).eq("report_date", last[0].report_date);
+        })(),
+        // Only the columns this dashboard reads (gl_accounts JSON made bills ~11 MB).
+        supabase.from("qbo_bills").select("vendor_name,total_amount,balance,payment_status").eq("org_id", orgId),
+        supabase.from("qbo_purchases").select("vendor_name,total_amount").eq("org_id", orgId).limit(5000),
+        supabase.from("qbo_deposits").select("total_amount").eq("org_id", orgId),
+        supabase.from("qbo_payments").select("payment_type,total_amount").eq("org_id", orgId),
+        Promise.resolve({ data: [] }), // transfers: not shown on this dashboard
+        Promise.resolve({ data: [] }), // journal entries: not shown on this dashboard
         supabase.from("qbo_category_mappings").select("*").eq("org_id", orgId),
         supabase.from("qbo_connection_status").select("*").eq("org_id", orgId).order("connected_at", { ascending: false }).limit(1),
         supabase.from("qbo_accounts").select("*").eq("org_id", orgId).eq("account_type", "Bank"),

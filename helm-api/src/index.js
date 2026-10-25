@@ -41,6 +41,9 @@ async function withAuthedClient(claims, fn) {
 }
 
 const app = express();
+// Compress JSON (Cloud Run doesn't); large PostgREST results such as the
+// QuickBooks tables and warehouse copies shrink roughly 10x.
+app.use(require('compression')({ threshold: 1024 }));
 app.use(cors({
   origin: true,
   credentials: true,
@@ -49,6 +52,9 @@ app.use(cors({
   // supabase-js reads row counts ({ count: 'exact' }) from Content-Range; a
   // cross-origin page can only see it if it is exposed (as Supabase does).
   exposedHeaders: ['Content-Range','Range-Unit','Preference-Applied','Location','X-Helm-Rest'],
+  // Let the browser reuse a preflight for 2h instead of re-asking (default 5s)
+  // before nearly every request.
+  maxAge: 7200,
 }));
 // public-form takes up to six 5 MB files as base64 in JSON; parse it first with
 // a larger limit (express.json skips bodies already parsed).
