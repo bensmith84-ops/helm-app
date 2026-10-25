@@ -23,24 +23,26 @@ export default function YesterdayUnits({ setActive }) {
   const [skuRows, setSkuRows] = useState([]);
   const [error, setError] = useState("");
   const [showAll, setShowAll] = useState(false);
+  const [channel, setChannel] = useState("all");          // all | shopify | amazon
+  const [includeFree, setIncludeFree] = useState(false);  // free gifts (GWP) shipped with orders
 
   useEffect(() => {
     const to = addDays(localToday(), -1);
-    supabase.rpc("dp_units_daily", { p_from: addDays(to, -45), p_to: to, p_group: "line", p_measure: "items", p_include_free: false, p_top: 8 })
+    supabase.rpc("dp_units_daily", { p_from: addDays(to, -45), p_to: to, p_group: "line", p_measure: "items", p_include_free: includeFree, p_top: 8, p_channels: channel === "all" ? null : [channel] })
       .then(({ data, error: e }) => {
         if (e) { setError(e.message); setRows([]); return; }
         setRows(data || []);
         const last = (data || []).reduce((m, r) => (r.d > m ? r.d : m), "");
-        setDay(last || to);
+        setDay((d) => d || last || to);
       });
-  }, []);
+  }, [channel, includeFree]);
   useEffect(() => { try { localStorage.setItem(LS_KEY, JSON.stringify(picked)); } catch { /* ignore */ } }, [picked]);
 
   useEffect(() => {
     if (!open || !day) { setSkuRows([]); return; }
-    supabase.rpc("dp_units_daily", { p_from: day, p_to: day, p_group: "sku", p_measure: "items", p_include_free: false, p_top: 12, p_lines: [open] })
+    supabase.rpc("dp_units_daily", { p_from: day, p_to: day, p_group: "sku", p_measure: "items", p_include_free: includeFree, p_top: 12, p_lines: [open], p_channels: channel === "all" ? null : [channel] })
       .then(({ data }) => setSkuRows((data || []).sort((a, b) => b.v - a.v)));
-  }, [open, day]);
+  }, [open, day, channel, includeFree]);
 
   const data = useMemo(() => {
     if (!rows || !day) return null;
@@ -72,6 +74,14 @@ export default function YesterdayUnits({ setActive }) {
             <button aria-label="Next day" disabled={!data || day >= data.last} onClick={() => setDay(addDays(day, 1))} style={arrow(!data || day >= data.last)}>›</button>
           </div>
         )}
+        <div style={{ display: "inline-flex", border: `1px solid ${T.border}`, borderRadius: 7, overflow: "hidden" }}>
+          {[["all", "All channels"], ["shopify", "Shopify"], ["amazon", "Amazon"]].map(([k, l]) => (
+            <button key={k} onClick={() => setChannel(k)} style={{ padding: "4px 9px", fontSize: 11.5, fontWeight: 600, border: "none", cursor: "pointer", background: channel === k ? T.accent : T.surface2, color: channel === k ? "#fff" : T.text2 }}>{l}</button>
+          ))}
+        </div>
+        <label style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11.5, color: T.text2, cursor: "pointer" }}>
+          <input type="checkbox" checked={includeFree} onChange={(e) => setIncludeFree(e.target.checked)} /> Include free gifts
+        </label>
         <div style={{ flex: 1 }} />
         <button onClick={() => { try { localStorage.setItem("helm_dp_tab", "units"); } catch { /* ignore */ } setActive("erp", "demand_planning"); }}
           style={{ background: "none", border: "none", color: T.accent, fontSize: 12, cursor: "pointer", fontWeight: 500 }}>Daily Units →</button>
@@ -145,7 +155,7 @@ export default function YesterdayUnits({ setActive }) {
             </tbody>
           </table>
           {data.lines.length > 8 && <button onClick={() => setShowAll((v) => !v)} style={{ marginTop: 6, fontSize: 11.5, color: T.accent, background: "none", border: "none", cursor: "pointer", padding: 0 }}>{showAll ? "Show fewer" : `Show all ${data.lines.length} lines`}</button>}
-          <div style={{ fontSize: 11, color: T.text3, marginTop: 8 }}>Product units: bundles and multi-packs counted as the products inside them (a 3-pack = 3). Paid orders only, Shopify + Amazon, by order date.</div>
+          <div style={{ fontSize: 11, color: T.text3, marginTop: 8 }}>Product units: bundles and multi-packs counted as the products inside them (a 3-pack = 3). {includeFree ? "Paid units plus free gifts" : "Paid units only (free gifts excluded)"}, {channel === "all" ? "Shopify + Amazon" : channel === "shopify" ? "Shopify only" : "Amazon only"}, by order date. Shipping and protection lines are never counted.</div>
         </>
       )}
     </div>

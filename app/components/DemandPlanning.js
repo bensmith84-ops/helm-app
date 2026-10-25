@@ -398,7 +398,13 @@ function SupplyChainView({ isMobile, orgId }) {
     rangeLabel = latestWeek ? `Week of ${latestWeek}` : "No data";
   }
 
+  // Shipping charges, shipping insurance (SI_LEVEL_*), shipping protection and
+  // gift cards come through the Metabase card as "units"; they aren't products.
+  // Same rule as Daily Units / the Home units card (dp_family 'Non-product').
+  const _NONPRODUCT_SKU = /^(FREESHIPPING|NO_SKU|SHIPPING_CHARGE|UNKNOWN?|EARTHBREEZEPRIORITY)$|^SI_LEVEL/i;
+  const _NONPRODUCT_NAME = /(free shipping|shipping charge|skip the line|shipping protection|gift card|route package)/i;
   const rangeSales = weeklySales.filter(r => {
+    if (_NONPRODUCT_SKU.test(r.sku || "NO_SKU") || _NONPRODUCT_NAME.test(r.product_title || "")) return false;
     if (!rangeFrom || !rangeTo) return false;
     const v = r[filterField];
     if (!v) return false;
@@ -628,7 +634,7 @@ function SupplyChainView({ isMobile, orgId }) {
               <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} style={{ fontSize: 10, padding: "3px 6px", border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface, color: T.text }} />
             </>
           )}
-          <span style={{ fontSize: 10, color: T.text3, marginLeft: 4 }}>· {fmt(rangeSales.length)} records · {rangeMode === "days" ? `${rangeDays} ${rangeDays === 1 ? "day" : "days"}` : `${weeksInRange} ${weeksInRange === 1 ? "week" : "weeks"}`}</span>
+          <span style={{ fontSize: 10, color: T.text3, marginLeft: 4 }} title="Metabase 'Daily Unit Sales' card: Shopify orders only, free gifts included, shipping lines excluded. Daily Units and the Home card add Amazon and count paid units only.">· Shopify only, incl. free gifts · {fmt(rangeSales.length)} records · {rangeMode === "days" ? `${rangeDays} ${rangeDays === 1 ? "day" : "days"}` : `${weeksInRange} ${weeksInRange === 1 ? "week" : "weeks"}`}</span>
           <button onClick={() => setShowOverrideManager(true)}
             style={{ padding: "4px 10px", fontSize: 10, fontWeight: 600, border: `1px solid ${T.border}`, background: skuOverrides.length > 0 ? "#f59e0b" : "transparent", color: skuOverrides.length > 0 ? "white" : T.text2, borderRadius: 4, cursor: "pointer", marginLeft: 8 }}>
             🛠 SKU Mappings{skuOverrides.length > 0 ? ` (${skuOverrides.length})` : ""}
