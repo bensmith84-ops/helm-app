@@ -214,6 +214,18 @@ export default function DailyUnitsView({ isMobile }) {
     let keys = [...byKey.values()].map((s) => ({ ...s, ...densify(s.map, firstDate, lastDate) }));
     keys.forEach((s) => { s.total = sum(s.values.slice(-91)); });
     keys.sort((a, b) => (a.key === "Other") - (b.key === "Other") || b.total - a.total);
+    // Eight colour slots: keep the 7 biggest (last 91 days) and fold the rest,
+    // including anything with no recent sales, into "Other".
+    const named = keys.filter((s) => s.key !== "Other" && s.total > 0);
+    if (keys.length > 8 || named.length < keys.filter((s) => s.key !== "Other").length) {
+      const keep = named.slice(0, 7);
+      const fold = keys.filter((s) => !keep.includes(s));
+      if (fold.length) {
+        const other = { key: "Other", label: "Other", dates: fold[0].dates, values: fold[0].values.map((_, i) => sum(fold.map((f) => f.values[i]))) };
+        other.total = sum(other.values.slice(-91));
+        keys = other.total > 0 ? [...keep, other] : keep;
+      }
+    }
     const slots = PALETTE[mode];
     keys = keys.map((s, i) => ({ ...s, color: s.key === "Other" ? OTHER_COLOR[mode] : slots[i % slots.length] }));
     return { lastDate, firstDate, keys };
