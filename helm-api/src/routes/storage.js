@@ -49,7 +49,22 @@ const target = (bucket) => (GCS_PUBLIC && PUBLIC_BUCKETS.has(bucket) ? GCS_PUBLI
 const cleanPath = (p) => String(p || '').replace(/^\/+/, '');
 const bad = (res, code, message) => res.status(code).json({ statusCode: String(code), error: code === 404 ? 'not_found' : code === 409 ? 'Duplicate' : 'Error', message });
 
-function mount(app, { gcs = gcsClient() } = {}) {
+// Vendors on the public RFP portal (no Helm sign-in) may upload into
+// rfp-submissions, only under <RFP code>/<their access token>/..., and only
+// when that token is an approved access request for that RFP. They can't
+// overwrite, read, copy or delete. (Supabase allowed any anonymous upload to
+// this bucket; this is narrower.)
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+async function rfpVendorMayUpload(pool, bucket, path) {
+  if (!pool || bucket !== 'rfp-submissions') return false;
+  const [code, token, file] = path.split('/');
+  if (!code || !file || !UUID_RE.test(token || '') || !/^[A-Z0-9-]{3,60}$/.test(code)) return false;
+  const { rows } = await pool.query(
+    `SELECT 1 FROM rfp_access_requests WHERE id = $1 AND rfp_code = $2 AND status = 'approved'`, [token, code]);
+  return rows.length > 0;
+}
+
+function mount(app, { gcs = gcsClient(), pool = null } = {}) {
   const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_BYTES } }).any();
   const raw = express.raw({ type: () => true, limit: MAX_BYTES });
 
@@ -65,13 +80,17 @@ function mount(app, { gcs = gcsClient() } = {}) {
   const doUpload = async (req, res) => {
     const bucket = req.params.bucket; const path = cleanPath(req.params[0]);
     if (!path) return bad(res, 400, 'missing object path');
-    if (!canWrite(req, bucket)) return bad(res, req.anon ? 401 : 403, 'not allowed to write to this bucket');
+    let vendor = false;
+    if (req.anon) {
+      try { vendor = await rfpVendorMayUpload(pool, bucket, path); } catch (e) { console.error('[storage] rfp vendor check', e.message); }
+    }
+    if (!vendor && !canWrite(req, bucket)) return bad(res, req.anon ? 401 : 403, 'not allowed to write to this bucket');
     let body = req.body; let contentType = req.headers['content-type'];
     if (req.files && req.files.length) { body = req.files[0].buffer; contentType = req.files[0].mimetype; }
     // The app-wide express.json() may already have parsed a JSON file upload.
     if (!Buffer.isBuffer(body) && body && typeof body === 'object' && /json/i.test(contentType || '')) body = Buffer.from(JSON.stringify(body));
     if (!Buffer.isBuffer(body) || !body.length) return bad(res, 400, 'empty body');
-    const upsert = req.method === 'PUT' || String(req.headers['x-upsert'] || '') === 'true';
+    const upsert = !vendor && (req.method === 'PUT' || String(req.headers['x-upsert'] || '') === 'true');
     const r = await gcs.upload(target(bucket), `${bucket}/${path}`, body, contentType, { ifNotExists: !upsert });
     if (r.status === 412) return bad(res, 409, 'The resource already exists');
     if (!r.ok) { console.error('[storage] upload', r.status, JSON.stringify(r.data).slice(0, 200)); return bad(res, 502, 'upload failed'); }
@@ -147,4 +166,4 @@ function mount(app, { gcs = gcsClient() } = {}) {
   app.put('/storage/v1/object/:bucket/*', bodyParser, doUpload);
 }
 
-module.exports = Object.assign((app) => mount(app), { mount, _internal: { signToken, verifyToken, target, PUBLIC_BUCKETS, GCS_PRIVATE } });
+module.exports = Object.assign((app, helpers) => mount(app, { pool: helpers && helpers.pool }), { mount, _internal: { signToken, verifyToken, target, PUBLIC_BUCKETS, GCS_PRIVATE, rfpVendorMayUpload } });

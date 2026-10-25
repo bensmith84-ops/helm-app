@@ -1,5 +1,5 @@
 /** @type {import('next').NextConfig} */
-const CLOUD_RUN_APP = 'https://helm-app-qp7o2dcl5a-uc.a.run.app';
+const LIVE_APP = 'https://helm.earthbreeze.com';
 
 const nextConfig = {
   reactStrictMode: true,
@@ -10,7 +10,13 @@ const nextConfig = {
   // callbacks) is sent on to the live app, keeping its path and query.
   async redirects() {
     if (!process.env.VERCEL) return [];
-    return [{ source: '/:path*', destination: `${CLOUD_RUN_APP}/:path*`, permanent: false }];
+    // The RFP portal page is the exception: vendors' access tokens are saved in
+    // this site's browser storage, so the page itself hands them to the new
+    // address (public/rfp/index.html) rather than losing them in a redirect.
+    return [
+      { source: '/', destination: `${LIVE_APP}/`, permanent: false },
+      { source: '/:path((?!rfp(?:/index\\.html)?/?$).+)', destination: `${LIVE_APP}/:path`, permanent: false },
+    ];
   },
 };
 module.exports = nextConfig;

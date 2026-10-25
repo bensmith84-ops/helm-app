@@ -276,15 +276,31 @@ footer{border-top:1px solid var(--line);padding:26px 0;font-size:12.5px;color:va
 
 <script>
 const RFP_CODE = new URL(location.href).searchParams.get('rfp') || 'EB-2026-PARCEL-01';
+// Old addresses (the Vercel site, the raw Cloud Run URL): send the vendor to
+// helm.earthbreeze.com, carrying the access token saved on this site so they
+// don't have to request access again.
+(function moveToLiveSite(){
+  var OLD = ['helm-app-six.vercel.app', 'helm-app-qp7o2dcl5a-uc.a.run.app'];
+  if (OLD.indexOf(location.hostname) < 0) return;
+  var u = new URL(location.href), to = new URL('https://helm.earthbreeze.com' + u.pathname + u.search + u.hash);
+  if (!to.searchParams.get('token')) {
+    var t = null;
+    try { t = localStorage.getItem('eb_rfp_token:' + RFP_CODE) || (RFP_CODE === 'EB-2026-PARCEL-01' ? localStorage.getItem('eb_rfp_token') : null); } catch (e) {}
+    if (t) to.searchParams.set('token', t);
+  }
+  location.replace(to.toString());
+  throw new Error('moving to helm.earthbreeze.com');
+})();
 const TOK_KEY = 'eb_rfp_token:' + RFP_CODE;
 const getTok = () => localStorage.getItem(TOK_KEY);
 const setTok = (t) => localStorage.setItem(TOK_KEY, t);
 if (RFP_CODE === 'EB-2026-PARCEL-01' && !localStorage.getItem(TOK_KEY) && localStorage.getItem('eb_rfp_token')) {
   localStorage.setItem(TOK_KEY, localStorage.getItem('eb_rfp_token'));
 }
-const SB_URL = "https://upbjdmnykheubxkuknuj.supabase.co";
+// Helm's API on Google Cloud (Helm moved off Supabase in October 2026).
+const SB_URL = "https://helm-api-qp7o2dcl5a-uc.a.run.app";
 const SB_KEY = "sb_publishable_CvYsgH8si7ucRsiB-VktIA_Nh9H2qeT";
-const HDRS = {'Content-Type':'application/json','apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY};
+const HDRS = {'Content-Type':'application/json','apikey':SB_KEY};
 const rpc = async (fn, args) => {
   const r = await fetch(SB_URL+'/rest/v1/rpc/'+fn, {method:'POST', headers:HDRS, body:JSON.stringify(args)});
   if(!r.ok) throw new Error('HTTP '+r.status);
@@ -350,7 +366,7 @@ async function tryPreview(){
     return true;
   }
   try{
-    const headers={'Content-Type':'application/json','apikey':SB_KEY,'Authorization':'Bearer '+(key?SB_KEY:(jwt||SB_KEY))};
+    const headers={'Content-Type':'application/json','apikey':SB_KEY}; if(!key && jwt) headers.Authorization='Bearer '+jwt;
     const r=await fetch(SB_URL+'/rest/v1/rpc/rfp_preview_content',{
       method:'POST', headers:headers,
       body:JSON.stringify({p_code:RFP_CODE, p_key:key})
@@ -1376,7 +1392,7 @@ async function uploadFiles(){
     const safe=f.name.replace(/[^A-Za-z0-9._-]/g,'_').slice(-120);
     const path=RFP_CODE+'/'+tok+'/'+Date.now()+'_'+safe;
     const r=await fetch(SB_URL+'/storage/v1/object/rfp-submissions/'+encodeURI(path),{
-      method:'POST', headers:{'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY,'x-upsert':'true','Content-Type':f.type||'application/octet-stream'}, body:f});
+      method:'POST', headers:{'apikey':SB_KEY,'Content-Type':f.type||'application/octet-stream'}, body:f});
     if(!r.ok){ const t=await r.text(); throw new Error('Upload failed for "'+f.name+'" ('+r.status+'). '+(t||'').slice(0,120)); }
     out.push({name:f.name, path:path, size:f.size, type:f.type||null});
   }

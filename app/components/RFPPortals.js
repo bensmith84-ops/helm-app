@@ -5,7 +5,7 @@ import { supabase } from "../lib/supabase";
 import { useTheme } from "../lib/theme";
 import PortalAdmin from "./ThreePLParcelRFP";
 
-const PORTAL_BASE = "https://helm-app-six.vercel.app/rfp/index.html";
+const PORTAL_BASE = "https://helm.earthbreeze.com/rfp/index.html";
 const CM_TEMPLATE_CODE = "EB-2026-CM-POWDER-01";
 // Internal preview capability key (matches rfp_preview_content). Required since
 // the Firebase cutover removed Supabase browser sessions the RPC used to accept.
