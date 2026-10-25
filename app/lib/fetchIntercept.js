@@ -89,7 +89,7 @@ function getAuthReady() {
   authReadyPromise = new Promise((resolve) => {
     let resolved = false;
     const finish = () => { if (!resolved) { resolved = true; resolve(); } };
-    setTimeout(finish, 8000);
+    setTimeout(finish, 20000); // normally resolves on the first Firebase auth callback
     try {
       import("./firebase").then(({ getFirebaseAuth }) => {
         const auth = getFirebaseAuth();

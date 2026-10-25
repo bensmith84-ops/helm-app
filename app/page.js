@@ -201,7 +201,12 @@ export default function HelmApp() {
   useEffect(() => {
     if (!user) return;
     (async () => {
-      const { data: membership } = await supabase.from("org_memberships").select("role, module_permissions").eq("user_id", user.id).maybeSingle();
+      let membership = null, mErr = null;
+      for (let i = 0; i < 3; i++) {
+        ({ data: membership, error: mErr } = await supabase.from("org_memberships").select("role, module_permissions").eq("user_id", user.id).maybeSingle());
+        if (!mErr && membership) break;
+        await new Promise(r => setTimeout(r, 1200 * (i + 1)));
+      }
       if (membership) {
         const isOwnerOrAdmin = membership.role === "owner" || membership.role === "admin";
         setIsAdmin(isOwnerOrAdmin);
