@@ -24,7 +24,7 @@ export default function YesterdayUnits({ setActive }) {
   const [error, setError] = useState("");
   const [showAll, setShowAll] = useState(false);
   const [channel, setChannel] = useState("all");          // all | shopify | amazon
-  const [includeFree, setIncludeFree] = useState(false);  // free gifts (GWP) shipped with orders
+  const [includeFree, setIncludeFree] = useState(true);   // free gifts (GWP) shipped with orders; on by default
 
   useEffect(() => {
     const to = addDays(localToday(), -1);
