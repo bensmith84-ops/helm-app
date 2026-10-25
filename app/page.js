@@ -301,7 +301,7 @@ export default function HelmApp() {
   useEffect(() => {
     let gPressed = false; let gTimer = null;
     const fn = (e) => {
-      const isInput = e.target.matches("input,textarea,select,[contenteditable]");
+      const isInput = typeof e.target?.matches === "function" && e.target.matches("input,textarea,select,[contenteditable]");
       if ((e.metaKey || e.ctrlKey) && e.key === "k") { e.preventDefault(); setCmdOpen(p => !p); return; }
       if (isInput) return;
       if (e.key === "?") { e.preventDefault(); setShowShortcuts(p => !p); return; }

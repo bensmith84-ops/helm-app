@@ -46,6 +46,9 @@ app.use(cors({
   credentials: true,
   methods: ['GET','POST','PUT','DELETE','PATCH','OPTIONS'],
   allowedHeaders: ['Authorization','Content-Type','x-client-info','apikey','X-Requested-With','Prefer','Accept-Profile','Content-Profile','Range','Range-Unit','X-Helm-Rest'],
+  // supabase-js reads row counts ({ count: 'exact' }) from Content-Range; a
+  // cross-origin page can only see it if it is exposed (as Supabase does).
+  exposedHeaders: ['Content-Range','Range-Unit','Preference-Applied','Location','X-Helm-Rest'],
 }));
 // public-form takes up to six 5 MB files as base64 in JSON; parse it first with
 // a larger limit (express.json skips bodies already parsed).

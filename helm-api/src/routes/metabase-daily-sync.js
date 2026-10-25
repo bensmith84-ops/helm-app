@@ -11,6 +11,7 @@
 //           /cron dispatcher reports the run as failed (it reads `failed`).
 // 500 { ok:false, error, summary } on an unexpected error.
 
+const { longFetch } = require('../lib/long-fetch');
 const SELF = process.env.SELF_URL || 'http://localhost:8080';
 
 // Earth Breeze org. Single-tenant deployment.
@@ -42,7 +43,7 @@ async function callMetabaseSync(payload, attempt = 1) {
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), CALL_TIMEOUT_MS);
   try {
-    const res = await fetch(`${SELF}/metabase-sync`, {
+    const res = await longFetch(`${SELF}/metabase-sync`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
