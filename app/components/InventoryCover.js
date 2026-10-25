@@ -380,7 +380,7 @@ export default function InventoryCoverView({ isMobile }) {
       {showLocs && (
         <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 12, marginBottom: 14 }}>
           <div style={{ fontSize: 11.5, color: T.text2, marginBottom: 8 }}>
-            Stock counted at each location (latest snapshot: Stord {fmtDate(snapshotDates.stord)}, Cin7 {fmtDate(snapshotDates.cin7)}). Stord is read directly, so Cin7's "US-Stord" copy is off by default. Amazon FBA stock isn't in the warehouse data.
+            Stock counted at each location (latest snapshot: Stord {fmtDate(snapshotDates.stord)}, Cin7 {fmtDate(snapshotDates.cin7)}). Stord is read directly, so Cin7's mirrors of it ("US-Stord", "White City / Medford") are off by default. Amazon FBA stock isn't in the warehouse data.
           </div>
           <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill, minmax(300px, 1fr))", gap: 6 }}>
             {locations.map((l) => (
