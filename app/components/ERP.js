@@ -645,6 +645,11 @@ export default function ERPView({ modulePerms = {}, pendingSubView, clearPending
       setMovements(mvmts || []);
       setCarriers(cars || []); setCarrierServices(carSvcs || []); setFulfillmentIntegrations(fIntg || []); setRmas(rmaData || []); setRmaItems(rmaItemsData || []); setApInvoices(apInv || []); setArInvoices(arInv || []); setPayments(pmts || []); setGlAccounts(glAccts || []); setJournalEntries(jeData || []); setBinLocations(bins || []); setShippingRules(shipRules || []); setLandedCosts(lcData || []); setJournalLines(jlData || []); setCreditMemos(cmData || []);
 
+      // Show ERP as soon as its own tables are in; the QuickBooks tables
+      // (invoices alone are ~7.5k rows) fill in behind for the finance views.
+      setErpLoaded(true);
+      setLoading(false);
+
       // Load QBO synced data (wrapped in try-catch so failures don't block the rest)
       try {
         const [{ data: qa }, { data: qv }, { data: qb }, { data: qc }, { data: qi }, { data: qp }] = await Promise.all([
@@ -661,9 +666,6 @@ export default function ERPView({ modulePerms = {}, pendingSubView, clearPending
         ]);
         setQboAccounts(qa || []); setQboVendors(qv || []); setQboBills(qb || []); setQboCustomers(qc || []); setQboInvoices(qi || []); setQboPL(qp || []);
       } catch (e) { console.error("[ERP] QBO load error:", e); }
-
-      setErpLoaded(true);
-      setLoading(false);
     };
     load();
   }, [user, orgId, view, erpLoaded, isFinanceView]);
