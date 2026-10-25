@@ -143,10 +143,10 @@ steps:
       - '--memory=512Mi'
       - '--cpu=1'
       - '--min-instances=1'  # avoid cold starts (503 while the schema cache loads)
-      - '--max-instances=10'
+      - '--max-instances=4'  # 4 x 16 pooled connections stays well under Cloud SQL's limit
       - '--service-account=helm-app-runtime@$PROJECT_ID.iam.gserviceaccount.com'
       - '--add-cloudsql-instances=$PROJECT_ID:us-central1:helm-db'
-      - '--update-env-vars=PGUSER=helmuser,PGDATABASE=helm_v2,PGHOST=/cloudsql/$PROJECT_ID:us-central1:helm-db'
+      - '--update-env-vars=PGUSER=helmuser,PGDATABASE=helm_v2,PGHOST=/cloudsql/$PROJECT_ID:us-central1:helm-db,PGRST_DB_POOL=16'
       - '--update-secrets=PGPASSWORD=helm-db-password:latest'
   # 7. Build and register the Supabase -> Cloud SQL copy job (run on demand from
   #    the Cloud Run Jobs console; never executed by this build). allowFailure
