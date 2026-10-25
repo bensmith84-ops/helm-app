@@ -64,10 +64,10 @@ module.exports = function(app, { pool, requireAuth }) {
 
       // Home re-syncs every iCal feed on each load; a sync deletes and
       // re-inserts every event (7-8s for ~1,100 events). Skip if this calendar
-      // synced in the last 10 minutes unless the caller forces it.
+      // synced in the last 30 minutes unless the caller forces it.
       if (mode === 'sync' && calendarId && !['1', 'true', true].includes(src.force)) {
         const { rows: cal } = await pool.query(
-          `SELECT last_synced_at FROM calendars WHERE id = $1 AND last_synced_at > now() - interval '10 minutes'`, [calendarId]);
+          `SELECT last_synced_at FROM calendars WHERE id = $1 AND last_synced_at > now() - interval '30 minutes'`, [calendarId]);
         if (cal.length) return res.json({ success: true, skipped: 'synced_recently', last_synced_at: cal[0].last_synced_at });
       }
 

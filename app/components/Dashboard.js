@@ -983,12 +983,13 @@ export default function DashboardView({ setActive }) {
         { data: objectives }, { data: keyResults }, { data: cycles },
         { data: approvals }, { data: spendRequests }, { data: fmData }, { data: plm },
         { data: activity }, { data: focus }, { data: qboPLData }, { data: sbMonthRows },
+        { count: openTaskCount }, { count: overdueTaskCount },
       ] = await Promise.all([
         supabase.from("projects").select("*").eq("org_id", orgId).is("deleted_at", null).order("name"),
         supabase.from("sections").select("*").order("sort_order"),
-        // Home only uses top-level tasks (project health) and open tasks (counts,
-        // my tasks, focus): skip finished subtasks, about half of all rows.
-        supabase.from("tasks").select("id,project_id,section_id,parent_task_id,title,status,priority,assignee_id,due_date,completed_at,sort_order,created_at").is("deleted_at", null).or("parent_task_id.is.null,status.not.in.(done,cancelled)"),
+        // Home lists only top-level tasks (project health, my tasks, focus); the
+        // open/overdue totals, which include subtasks, come from count queries.
+        supabase.from("tasks").select("id,project_id,section_id,parent_task_id,title,status,priority,assignee_id,due_date,completed_at,sort_order,created_at").is("deleted_at", null).is("parent_task_id", null),
         supabase.from("profiles").select("id,display_name,avatar_url"),
         supabase.from("objectives").select("*").eq("org_id", orgId).is("deleted_at", null).order("sort_order"),
         supabase.from("key_results").select("*").eq("org_id", orgId).is("deleted_at", null),
@@ -1001,6 +1002,8 @@ export default function DashboardView({ setActive }) {
         supabase.from("dashboard_focus_items").select("*").eq("focus_date", todayStr).eq("user_id", profile.id).order("sort_order"),
         supabase.rpc("get_qbo_pl_monthly_summary", { p_org: orgId, p_year: String(yr) }),
         supabase.from("scoreboard_daily").select("metric_key,value").eq("org_id", orgId).in("metric_key", ["shopify_revenue", "amazon_revenue"]).gte("date", `${yr}-${String(new Date().getMonth() + 1).padStart(2, "0")}-01`),
+        supabase.from("tasks").select("id", { count: "exact", head: true }).is("deleted_at", null).not("status", "in", "(done,cancelled)"),
+        supabase.from("tasks").select("id", { count: "exact", head: true }).is("deleted_at", null).not("status", "in", "(done,cancelled)").lt("due_date", todayStr),
       ]);
 
       const profMap = {};
@@ -1010,7 +1013,7 @@ export default function DashboardView({ setActive }) {
       const cycleObjs = activeCycle ? (objectives || []).filter(o => o.cycle_id === activeCycle.id) : (objectives || []);
       const cycleKRs = (keyResults || []).filter(k => cycleObjs.some(o => o.id === k.objective_id));
 
-      const _dataObj = { projects: projects||[], sections: sections||[], tasks: tasks||[], profiles: profMap,
+      const _dataObj = { projects: projects||[], sections: sections||[], tasks: tasks||[], profiles: profMap, openTaskCount, overdueTaskCount,
         objectives: cycleObjs, keyResults: cycleKRs, cycles: cycles||[], activeCycle };
       snap.data = _dataObj; setData(_dataObj);
       // Merge spend requests where user is the designated approver (not their own requests)
@@ -1101,7 +1104,9 @@ export default function DashboardView({ setActive }) {
   const daysLeft = activeCycle ? Math.max(0, Math.ceil((new Date(activeCycle.end_date) - now) / 86400000)) : 0;
 
   const openTasks    = tasks.filter(t => t.status !== "done" && t.status !== "cancelled");
-  const overdueTasks = openTasks.filter(t => t.due_date && t.due_date < todayStr);
+  // Totals include subtasks (counted server-side); the list below is top-level only.
+  const openCount    = data.openTaskCount ?? openTasks.length;
+  const overdueCount = data.overdueTaskCount ?? openTasks.filter(t => t.due_date && t.due_date < todayStr).length;
   const myTasks      = openTasks.filter(t => t.assignee_id === profile?.id && !t.parent_task_id)
     .sort((a,b) => { if(!a.due_date&&!b.due_date) return 0; if(!a.due_date) return 1; if(!b.due_date) return -1; return a.due_date.localeCompare(b.due_date); }).slice(0, 6);
 
@@ -1324,9 +1329,9 @@ export default function DashboardView({ setActive }) {
           <KPICard icon="◎" label="OKR Progress" value={`${overallProgress}%`}
             sub={`${onTrackCount} on track · ${atRiskCount} at risk`}
             color={overallProgress>=60?"#22c55e":overallProgress>=30?"#eab308":"#ef4444"} onClick={() => setActive("okrs")} />
-          <KPICard icon="☐" label="Open Tasks" value={openTasks.length}
-            sub={overdueTasks.length>0?`${overdueTasks.length} overdue`:`${myTasks.length} assigned to me`}
-            color={overdueTasks.length>0?"#ef4444":T.text} onClick={() => setActive("projects")} />
+          <KPICard icon="☐" label="Open Tasks" value={openCount}
+            sub={overdueCount>0?`${overdueCount} overdue`:`${myTasks.length} assigned to me`}
+            color={overdueCount>0?"#ef4444":T.text} onClick={() => setActive("projects")} />
           <KPICard icon="⬢" label="PLM Programs" value={plmPrograms.length}
             sub={`${inDev} in development · ${launchReady} launch ready`}
             color={T.accent} onClick={() => setActive("plm")} />
@@ -1366,9 +1371,9 @@ export default function DashboardView({ setActive }) {
                 })}
               </div>
             )}
-            {overdueTasks.length > 0 && (
+            {overdueCount > 0 && (
               <div style={{ marginTop:10, padding:"8px 12px", borderRadius:8, background:"#ef444408", border:"1px solid #ef444430" }}>
-                <span style={{ fontSize:11, color:"#ef4444", fontWeight:600 }}>⚠️ {overdueTasks.length} overdue task{overdueTasks.length!==1?"s":""} across all projects</span>
+                <span style={{ fontSize:11, color:"#ef4444", fontWeight:600 }}>⚠️ {overdueCount} overdue task{overdueCount!==1?"s":""} across all projects</span>
               </div>
             )}
           </Card>
