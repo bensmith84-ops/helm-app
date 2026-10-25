@@ -177,6 +177,7 @@ export default function InventoryCoverView({ isMobile }) {
   const [targetDays, setTargetDays] = useState(prefs0.targetDays ?? 60);
   const [includeAmazon, setIncludeAmazon] = useState(prefs0.includeAmazon ?? true);
   const [countStale, setCountStale] = useState(prefs0.countStale ?? false);
+  const [basis, setBasis] = useState(prefs0.basis || "available");
   const [locOverride, setLocOverride] = useState(prefs0.locOverride || {});
   const [region, setRegion] = useState(prefs0.region || "all");
   const [statusFilter, setStatusFilter] = useState("active");
@@ -197,7 +198,7 @@ export default function InventoryCoverView({ isMobile }) {
   const [range] = useState(() => { const t = today(); return { from: addDays(t, -HISTORY_DAYS), to: addDays(t, -1), today: t }; });
   const lastReq = useRef(0);
 
-  useEffect(() => { savePrefs({ leadDays, safetyDays, targetDays, includeAmazon, countStale, locOverride, region }); }, [leadDays, safetyDays, targetDays, includeAmazon, countStale, locOverride, region]);
+  useEffect(() => { savePrefs({ leadDays, safetyDays, targetDays, includeAmazon, countStale, locOverride, region, basis }); }, [leadDays, safetyDays, targetDays, includeAmazon, countStale, locOverride, region, basis]);
 
   const loadDemand = useCallback(async () => {
     const req = ++lastReq.current;
@@ -242,14 +243,16 @@ export default function InventoryCoverView({ isMobile }) {
     const t = range.today;
     const on = new Set(locations.filter((l) => l.on).map((l) => l.key));
     const stockBy = new Map(), locBy = new Map();
-    // Available can be negative at a location (orders waiting on stock); that
-    // backlog is real demand on the stock, so it is summed, not floored.
+    // Stock basis: "available" (on hand less reserved, floored at zero per
+    // location: Stord reserves can far exceed customer orders, e.g. 770k
+    // reserved against 556k L-04 at Medford) or plain on hand.
     stock.forEach((r) => {
       const k = `${r.plan_sku || r.sku}|${r.region}`;
       if (!locBy.has(k)) locBy.set(k, []);
       locBy.get(k).push(r);
       if (!on.has(`${r.source}|${r.location}`)) return;
-      stockBy.set(k, (stockBy.get(k) || 0) + Number(r.available ?? r.on_hand ?? 0) * Number(r.plan_qty || 1));
+      const q = basis === "on_hand" ? Number(r.on_hand ?? 0) : Number(r.available ?? r.on_hand ?? 0);
+      stockBy.set(k, (stockBy.get(k) || 0) + Math.max(0, q) * Number(r.plan_qty || 1));
     });
     const poBy = new Map();
     pos.forEach((p) => {
@@ -283,6 +286,9 @@ export default function InventoryCoverView({ isMobile }) {
       myPos.forEach((p) => { if (p.counted && p.idx < HORIZON) arrivals[Math.max(0, p.idx)] += p.qty_open; });
       const st = stockBy.get(k) || 0;
       const plan = planItem({ stock: st, demand: dem, arrivals, today: t, leadDays, safetyDays, targetDays });
+      // Sold but never stocked at any location we can see and nothing on order:
+      // most likely held only at Amazon FBA, which isn't in the warehouse data.
+      if (plan.status !== "idle" && !(locBy.get(k) || []).some((l) => Number(l.on_hand) > 0) && !myPos.length) plan.status = "nodata";
       const nextPo = myPos.find((p) => p.counted);
       const info = itemName[s.sku] || {};
       out.push({
@@ -294,12 +300,12 @@ export default function InventoryCoverView({ isMobile }) {
       });
     });
     return out;
-  }, [demand, stock, pos, locations, itemName, range, leadDays, safetyDays, targetDays, countStale]);
+  }, [demand, stock, pos, locations, itemName, range, leadDays, safetyDays, targetDays, countStale, basis]);
 
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();
     let r = rows.filter((x) => (region === "all" || x.region === region)
-      && (statusFilter === "all" || (statusFilter === "active" ? x.plan.status !== "idle" : statusFilter === "action" ? ["stockout", "late", "now", "soon"].includes(x.plan.status) : x.plan.status === statusFilter))
+      && (statusFilter === "all" || (statusFilter === "active" ? !["idle", "nodata"].includes(x.plan.status) : statusFilter === "action" ? ["stockout", "late", "now", "soon"].includes(x.plan.status) : x.plan.status === statusFilter))
       && (!q || x.sku.toLowerCase().includes(q) || x.name.toLowerCase().includes(q) || x.family.toLowerCase().includes(q)));
     const big = 1e9;
     const val = {
@@ -315,7 +321,7 @@ export default function InventoryCoverView({ isMobile }) {
   const kpi = useMemo(() => {
     const inRegion = rows.filter((x) => region === "all" || x.region === region);
     const count = (st) => inRegion.filter((x) => st.includes(x.plan.status)).length;
-    const active = inRegion.filter((x) => x.plan.avgDaily >= 0.5);
+    const active = inRegion.filter((x) => !["idle", "nodata"].includes(x.plan.status));
     const totStock = sum(active.map((x) => x.stock)), totDaily = sum(active.map((x) => x.plan.avgDaily));
     const unmappedUnits = sum(unmapped.map((u) => Number(u.units || 0)));
     return {
@@ -353,6 +359,7 @@ export default function InventoryCoverView({ isMobile }) {
         <Field label="Lead time"><NumIn value={leadDays} onChange={setLeadDays} suffix="days" min={1} /></Field>
         <Field label="Safety stock"><NumIn value={safetyDays} onChange={setSafetyDays} suffix="days" /></Field>
         <Field label="Order covers"><NumIn value={targetDays} onChange={setTargetDays} suffix="days" min={7} /></Field>
+        <Field label="Stock"><Seg options={[["available", "Available"], ["on_hand", "On hand"]]} value={basis} onChange={setBasis} /></Field>
         <Field label="Demand">
           <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: T.text2, padding: "5px 0" }}>
             <input type="checkbox" checked={includeAmazon} onChange={(e) => setIncludeAmazon(e.target.checked)} /> Include Amazon
@@ -402,7 +409,7 @@ export default function InventoryCoverView({ isMobile }) {
 
       {/* Filters */}
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
-        <Seg options={[["active", "With demand"], ["action", "Needs action"], ["ok", "OK"], ["excess", "Excess"], ["idle", "No demand"], ["all", "All"]]} value={statusFilter} onChange={setStatusFilter} />
+        <Seg options={[["active", "With demand"], ["action", "Needs action"], ["ok", "OK"], ["excess", "Excess"], ["nodata", "No stock data"], ["idle", "No demand"], ["all", "All"]]} value={statusFilter} onChange={setStatusFilter} />
         <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search SKU, product or family"
           style={{ width: isMobile ? "100%" : 260, padding: "6px 10px", fontSize: 12, borderRadius: 7, border: `1px solid ${T.border}`, background: T.surface2, color: T.text }} />
         <span style={{ fontSize: 11.5, color: T.text3 }}>{visible.length} rows · click a row for the projection</span>
@@ -413,7 +420,7 @@ export default function InventoryCoverView({ isMobile }) {
         <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1080 }}>
           <thead>
             <tr>
-              {th("sku", "Item", "left")}{th("region", "Region", "left")}{th("stock", "Available")}{th("avg", "Daily fcst")}
+              {th("sku", "Item", "left")}{th("region", "Region", "left")}{th("stock", basis === "on_hand" ? "On hand" : "Available")}{th("avg", "Daily fcst")}
               {th("cover", "Days cover")}{th("stockout", "Stockout (with POs)")}{th("po", "Next PO")}{th("reorder", "Reorder by")}{th("qty", "Suggested order")}{th("status", "Status", "left")}
             </tr>
           </thead>
@@ -430,9 +437,9 @@ export default function InventoryCoverView({ isMobile }) {
                   </td>
                   <td style={{ ...td, textAlign: "left" }}>{x.region}</td>
                   <td style={td}>{fmtN(x.stock)}</td>
-                  <td style={td}>{x.plan.avgDaily >= 0.5 ? fmtN(x.plan.avgDaily) : "-"}</td>
-                  <td style={td}>{x.plan.avgDaily >= 0.5 ? daysLabel(x.plan.coverDays, HORIZON) : "-"}</td>
-                  <td style={td}>{x.plan.stockoutDate ? fmtDateY(x.plan.stockoutDate) : x.plan.avgDaily >= 0.5 ? `>${HORIZON} days` : "-"}</td>
+                  <td style={td}>{x.plan.avgDaily >= 1 ? fmtN(x.plan.avgDaily) : "-"}</td>
+                  <td style={td}>{x.plan.avgDaily >= 1 ? daysLabel(x.plan.coverDays, HORIZON) : "-"}</td>
+                  <td style={td}>{x.plan.stockoutDate ? fmtDateY(x.plan.stockoutDate) : x.plan.avgDaily >= 1 ? `>${HORIZON} days` : "-"}</td>
                   <td style={td}>{x.nextPo ? <span>{fmtDate(x.nextPo.arrive)} <span style={{ color: T.text3 }}>+{fmtN(x.nextPo.qty_open)}</span>{x.nextPo.overdue ? <span title="past its due date" style={{ color: T.orange }}> late</span> : ""}</span> : <span style={{ color: T.text3 }}>{x.staleQty > 0 ? `stale ${fmtN(x.staleQty)}` : "none"}</span>}</td>
                   <td style={{ ...td, fontWeight: 700, color: x.plan.reorderDays != null && x.plan.reorderDays <= 0 ? T.orange : T.text }}>{x.plan.reorderDate ? (x.plan.reorderDays <= 0 ? "Now" : fmtDate(x.plan.reorderDate)) : "-"}</td>
                   <td style={td}>{x.plan.suggestQty > 0 ? fmtN(x.plan.suggestQty) : "-"}</td>
@@ -454,7 +461,7 @@ export default function InventoryCoverView({ isMobile }) {
                           <div style={{ fontWeight: 700, color: T.text, marginBottom: 4 }}>Stock by location</div>
                           {x.locs.length ? x.locs.map((l, i) => {
                             const counted = locations.find((k) => k.key === `${l.source}|${l.location}`)?.on;
-                            return <div key={i} style={{ display: "flex", justifyContent: "space-between", color: counted ? T.text2 : T.text3, lineHeight: 1.7 }}><span>{l.location}{l.sku !== x.sku ? ` · ${l.sku}${Number(l.plan_qty) !== 1 ? ` x${l.plan_qty}` : ""}` : ""}{counted ? "" : " (not counted)"}</span><span style={{ fontVariantNumeric: "tabular-nums" }}>{fmtN(l.available ?? l.on_hand)}</span></div>;
+                            return <div key={i} style={{ display: "flex", justifyContent: "space-between", color: counted ? T.text2 : T.text3, lineHeight: 1.7 }}><span>{l.location}{l.sku !== x.sku ? ` · ${l.sku}${Number(l.plan_qty) !== 1 ? ` x${l.plan_qty}` : ""}` : ""}{counted ? "" : " (not counted)"}</span><span style={{ fontVariantNumeric: "tabular-nums" }} title={`on hand ${fmtN(l.on_hand)}`}>{fmtN(basis === "on_hand" ? l.on_hand : l.available ?? l.on_hand)}</span></div>;
                           }) : <div style={{ color: T.text3 }}>No stock recorded.</div>}
                           <div style={{ fontWeight: 700, color: T.text, margin: "10px 0 4px" }}>Open POs</div>
                           {x.pos.length ? x.pos.map((p, i) => (
@@ -477,7 +484,7 @@ export default function InventoryCoverView({ isMobile }) {
 
       <div style={{ fontSize: 11, color: T.text3, marginTop: 8, lineHeight: 1.6 }}>
         Demand is the Daily Units forecast per stock item, with kits and multi-packs expanded to the units they use, free units included, and sales assigned to a region by ship-to country.
-        PO dates are Cin7's required-by date; POs without one are assumed to land one lead time after ordering. Stock is available (on hand less reserved) at the counted locations.
+        PO dates are Cin7's required-by date; POs without one are assumed to land one lead time after ordering. Stock is available (on hand less reserved, never below zero at a location) or on hand, at the counted locations.
       </div>
 
       <SkuMapping unmapped={unmapped} maps={maps} aliases={aliases} items={items} onSaved={() => { loadRest(); loadDemand(); }} />
