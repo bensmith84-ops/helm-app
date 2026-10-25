@@ -1,5 +1,5 @@
 // POST /warehouse-sync - copies curated warehouse tables into Helm.
-//   body.tasks: any of scorecard, inventory, orders, sku_sales, ad_spend, erp (default all; erp runs after inventory); body.since: 'YYYY-MM-DD' (scorecard)
+//   body.tasks: any of scorecard, inventory, orders, sku_sales, supply, ad_spend, erp (default all; erp runs after inventory); body.since: 'YYYY-MM-DD' (scorecard)
 // Runs daily from /cron (jobs 'warehouse-sync', 'warehouse-sync-midday'); admins can also call it.
 // POST /scoreboard-refresh - members: scorecard + scoreboard only (the Scoreboard Sync button).
 const { mbSql, mbSqlAll, day } = require('../lib/warehouse');
@@ -83,6 +83,69 @@ async function syncInventory(pool, { fetchImpl }) {
   return { stord_rows: stord.length, cin7_rows: cin7.length, saved, snapshot_date: all[0]?.snapshot_date || null };
 }
 
+// Cin7 kits (bills of materials) and open purchase-order lines, then rebuild
+// the sales-SKU -> stock-item resolution used by Demand Planning > Inventory
+// Cover. Both tables are replaced whole: they are small and a PO that closed
+// or a BOM that was removed must disappear.
+async function syncSupply(pool, { fetchImpl }) {
+  const latest = (t) => `(SELECT * FROM \`${BQ}.cin7.${t}\` QUALIFY ROW_NUMBER() OVER (PARTITION BY ID ORDER BY _airbyte_extracted_at DESC) = 1)`;
+  const bom = await mbSqlAll(
+    `SELECT p.SKU AS parent_sku, JSON_VALUE(c, '$.ProductCode') AS component_sku,
+            SUM(SAFE_CAST(JSON_VALUE(c, '$.Quantity') AS NUMERIC)) AS qty, ANY_VALUE(p.Name) AS parent_name
+       FROM ${latest('products')} p, UNNEST(JSON_QUERY_ARRAY(p.BillOfMaterialsProducts)) c
+      WHERE p.BillOfMaterial AND p.SKU IS NOT NULL AND IFNULL(p.Status, 'Active') = 'Active'
+        AND JSON_VALUE(c, '$.ProductCode') IS NOT NULL
+      GROUP BY 1, 2 HAVING qty > 0 ORDER BY 1, 2`, { fetchImpl });
+  const po = await mbSqlAll(
+    `WITH po AS ${latest('purchases')},
+     lines AS (
+       SELECT po.ID AS po_id, JSON_VALUE(l, '$.ProductID') AS pid, JSON_VALUE(l, '$.SKU') AS sku,
+              ANY_VALUE(po.OrderNumber) AS order_number, ANY_VALUE(po.Supplier) AS supplier, ANY_VALUE(po.Location) AS location,
+              ANY_VALUE(po.Status) AS status, ANY_VALUE(po.CombinedReceivingStatus) AS receiving_status,
+              ANY_VALUE(JSON_VALUE(l, '$.Name')) AS name, SUM(SAFE_CAST(JSON_VALUE(l, '$.Quantity') AS NUMERIC)) AS qty_ordered,
+              ANY_VALUE(DATE(po.RequiredBy)) AS required_by, ANY_VALUE(DATE(po.OrderDate)) AS order_date
+         FROM po, UNNEST(JSON_QUERY_ARRAY(po.\`Order\`, '$.Lines')) l
+        WHERE po.Status NOT IN ('RECEIVED', 'INVOICED', 'VOIDED', 'COMPLETED', 'CLOSED', 'CREDITED', 'DRAFT')
+          AND IFNULL(po.CombinedReceivingStatus, '') != 'FULLY RECEIVED' AND JSON_VALUE(l, '$.SKU') IS NOT NULL
+        GROUP BY 1, 2, 3),
+     recv AS (
+       SELECT po.ID AS po_id, JSON_VALUE(rl, '$.ProductID') AS pid, SUM(SAFE_CAST(JSON_VALUE(rl, '$.Quantity') AS NUMERIC)) AS q
+         FROM po, UNNEST(JSON_QUERY_ARRAY(po.StockReceived)) r, UNNEST(JSON_QUERY_ARRAY(r, '$.Lines')) rl
+        GROUP BY 1, 2)
+     SELECT lines.* EXCEPT (pid), IFNULL(recv.q, 0) AS qty_received
+       FROM lines LEFT JOIN recv USING (po_id, pid)
+      WHERE lines.qty_ordered - IFNULL(recv.q, 0) > 0
+      ORDER BY po_id, sku`, { fetchImpl });
+  // One row per PO and SKU (a SKU can appear on two lines of one PO).
+  const poRows = [...po.reduce((m, r) => {
+    const k = `${r.po_id}|${r.sku}`, p = m.get(k);
+    if (p) { p.qty_ordered = Number(p.qty_ordered) + Number(r.qty_ordered); p.qty_received = Number(p.qty_received) + Number(r.qty_received); }
+    else m.set(k, { ...r, required_by: r.required_by ? day(r.required_by) : null, order_date: r.order_date ? day(r.order_date) : null });
+    return m;
+  }, new Map()).values()];
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('DELETE FROM wh_bom');
+    await upsertJson(client,
+      `INSERT INTO wh_bom (parent_sku, component_sku, qty, parent_name, synced_at)
+       SELECT x->>'parent_sku', x->>'component_sku', (x->>'qty')::numeric, x->>'parent_name', now() FROM jsonb_array_elements($1::jsonb) x`, bom);
+    await client.query('DELETE FROM wh_open_po_lines');
+    await upsertJson(client,
+      `INSERT INTO wh_open_po_lines (po_id, sku, order_number, supplier, location, status, receiving_status, name, qty_ordered, qty_received, required_by, order_date, synced_at)
+       SELECT x->>'po_id', x->>'sku', x->>'order_number', x->>'supplier', x->>'location', x->>'status', x->>'receiving_status', x->>'name',
+              (x->>'qty_ordered')::numeric, (x->>'qty_received')::numeric, (x->>'required_by')::date, (x->>'order_date')::date, now()
+         FROM jsonb_array_elements($1::jsonb) x`, poRows);
+    const { rows: [r] } = await client.query('SELECT dp_refresh_sku_resolution() AS n');
+    await client.query('COMMIT');
+    return { bom_rows: bom.length, po_lines: poRows.length, resolved: r.n, saved: bom.length + poRows.length };
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw e;
+  } finally {
+    client.release();
+  }
+}
 
 // Windowed tasks: refresh the last `lookback` days, or backfill from `start`
 // at most `maxDays` per run so a run stays well inside Cloud Run's limit.
@@ -300,7 +363,7 @@ async function syncScoreboard(pool, { since }) {
   return { from, days: byDate.size, metrics: Object.keys(SB_MAP).length, saved };
 }
 
-const TASKS = { scorecard: syncScorecard, inventory: syncInventory, orders: syncOrders, sku_sales: syncSkuSales, ad_spend: syncAdSpend, erp: syncErp, scoreboard: syncScoreboard };
+const TASKS = { scorecard: syncScorecard, inventory: syncInventory, orders: syncOrders, sku_sales: syncSkuSales, supply: syncSupply, ad_spend: syncAdSpend, erp: syncErp, scoreboard: syncScoreboard };
 
 async function runTasks(pool, tasks, { since, fetchImpl }) {
   const results = {}; const errors = [];
@@ -335,4 +398,4 @@ module.exports = function (app, { pool }, { fetchImpl = fetch } = {}) {
     res.status(out.ok ? 200 : 500).json(out);
   });
 };
-module.exports._internal = { syncScorecard, syncInventory, syncOrders, syncSkuSales, syncAdSpend, syncErp, syncScoreboard, windowFor, runTasks };
+module.exports._internal = { syncScorecard, syncInventory, syncSupply, syncOrders, syncSkuSales, syncAdSpend, syncErp, syncScoreboard, windowFor, runTasks };
