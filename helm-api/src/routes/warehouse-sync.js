@@ -2,6 +2,7 @@
 //   body.tasks: any of scorecard, inventory, orders, sku_sales, ad_spend, erp (default all; erp runs after inventory); body.since: 'YYYY-MM-DD' (scorecard)
 // Runs nightly from /cron (job 'warehouse-sync'); admins can also call it.
 const { mbSqlAll, day } = require('../lib/warehouse');
+const { MAP: SB_MAP, valueFor: sbValue } = require('../lib/scoreboard-map');
 
 const BQ = 'eb-testing-01';
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -251,7 +252,38 @@ async function syncErp(pool, { fetchImpl }) {
            snapshot: Object.fromEntries([...new Set(inv.map((r) => r.source))].map((s) => [s, inv.find((r) => r.source === s).snapshot_date])) };
 }
 
-const TASKS = { scorecard: syncScorecard, inventory: syncInventory, orders: syncOrders, sku_sales: syncSkuSales, ad_spend: syncAdSpend, erp: syncErp };
+// Scoreboard: daily metrics in scoreboard_daily from the warehouse scorecard (local copy).
+async function syncScoreboard(pool, { since }) {
+  // Nightly: the last 14 days (the scorecard copy refreshes those). Backfill: pass `since`.
+  const from = since || new Date(Date.now() - 15 * 864e5).toISOString().slice(0, 10);
+  if (!DATE_RE.test(from)) throw new Error('since must be YYYY-MM-DD');
+  const { rows } = await pool.query(
+    `SELECT date::text AS date, country_code, metrics FROM wh_scorecard_daily WHERE org_id = $1 AND date >= $2 ORDER BY date`, [ORG, from]);
+  const byDate = new Map();
+  for (const r of rows) { if (!byDate.has(r.date)) byDate.set(r.date, []); byDate.get(r.date).push(r); }
+  const out = [];
+  for (const [date, dayRows] of byDate) {
+    for (const [key, def] of Object.entries(SB_MAP)) {
+      const v = sbValue(def, dayRows);
+      if (v == null || !Number.isFinite(v)) continue;
+      out.push({ date, metric_key: key, value: Math.round(v * 100) / 100 });
+    }
+  }
+  let saved = 0;
+  for (let i = 0; i < out.length; i += 1000) {
+    const batch = out.slice(i, i + 1000);
+    await pool.query(
+      `INSERT INTO scoreboard_daily (org_id, date, metric_key, metric_label, value, synced_at)
+       SELECT '${ORG}', (x->>'date')::date, x->>'metric_key', x->>'metric_key', (x->>'value')::numeric, now()
+         FROM jsonb_array_elements($1::jsonb) x
+       ON CONFLICT (date, metric_key) DO UPDATE SET value = EXCLUDED.value, synced_at = now()`,
+      [JSON.stringify(batch)]);
+    saved += batch.length;
+  }
+  return { from, days: byDate.size, metrics: Object.keys(SB_MAP).length, saved };
+}
+
+const TASKS = { scorecard: syncScorecard, inventory: syncInventory, orders: syncOrders, sku_sales: syncSkuSales, ad_spend: syncAdSpend, erp: syncErp, scoreboard: syncScoreboard };
 
 module.exports = function (app, { pool }, { fetchImpl = fetch } = {}) {
   app.post('/warehouse-sync', async (req, res) => {
@@ -272,4 +304,4 @@ module.exports = function (app, { pool }, { fetchImpl = fetch } = {}) {
     res.status(errors.length ? 500 : 200).json({ ok: !errors.length, results, errors: errors.length ? errors : undefined });
   });
 };
-module.exports._internal = { syncScorecard, syncInventory, syncOrders, syncSkuSales, syncAdSpend, syncErp, windowFor };
+module.exports._internal = { syncScorecard, syncInventory, syncOrders, syncSkuSales, syncAdSpend, syncErp, syncScoreboard, windowFor };
