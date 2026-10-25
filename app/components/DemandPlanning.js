@@ -4,6 +4,7 @@ import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth";
 import { T } from "../tokens";
 import MetabaseSync from "./MetabaseSync";
+import DailyUnitsView from "./DailyUnits";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // DEMAND PLANNING MODULE
@@ -5248,9 +5249,10 @@ function LaunchPlannerView({ isMobile, orgId }) {
 // MAIN DEMAND PLANNING VIEW
 // ═══════════════════════════════════════════════════════════════════════════════
 export default function DemandPlanningView({ isMobile, orgId }) {
-  const [tab, setTab] = useState("supply");
+  const [tab, setTab] = useState("units");
   const [showMetabaseSync, setShowMetabaseSync] = useState(false);
   const tabs = [
+    { id: "units", label: "Daily Units", icon: "📈" },
     { id: "supply", label: "Supply Chain", icon: "📦" },
     { id: "launches", label: "New Product Launch", icon: "🚀" },
     { id: "growth", label: "Growth Planner", icon: "📈" },
@@ -5283,6 +5285,7 @@ export default function DemandPlanningView({ isMobile, orgId }) {
       </div>
 
       {/* Tab content */}
+      {tab === "units" && <DailyUnitsView isMobile={isMobile} />}
       {tab === "supply" && <SupplyChainView isMobile={isMobile} orgId={orgId} />}
       {tab === "launches" && <LaunchPlannerView isMobile={isMobile} orgId={orgId} />}
       {tab === "growth" && <GrowthPlannerView isMobile={isMobile} orgId={orgId} />}
