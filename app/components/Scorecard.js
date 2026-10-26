@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { supabase } from "../lib/supabase";
 import { invokeFunction } from "../lib/invokeFunction";
 import { T } from "../tokens";
@@ -47,7 +47,26 @@ const weeksBack = (n) => {
   return [...new Set(weeks)];
 };
 
-const WEEKS = weeksBack(13); // 13 weeks = rolling quarter
+const ROLLING_WEEKS = weeksBack(13); // 13 weeks = rolling quarter
+// Weeks (Monday starts) of an OKR cycle up to this week; a cycle that hasn't
+// started yet shows its first 13 weeks. At most the latest 53 weeks.
+const weeksForCycle = (c) => {
+  if (!c?.start_date || !c?.end_date) return ROLLING_WEEKS;
+  const today = getWeekStart(new Date());
+  const first = getWeekStart(new Date(c.start_date + "T12:00:00"));
+  const lastCycle = getWeekStart(new Date(c.end_date + "T12:00:00"));
+  const weeks = [];
+  const d = new Date(first + "T12:00:00");
+  for (let i = 0; i < 400; i++) {
+    const w = getWeekStart(d);
+    if (w > lastCycle) break;
+    if (w > today && weeks.length >= 13) break;
+    weeks.push(w);
+    d.setDate(d.getDate() + 7);
+  }
+  return weeks.slice(-53);
+};
+const PERIOD_KEY = "helm_okr_cycle"; // shared with OKRs so both views follow the same period
 const SHORT_MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
 function InlineEntry({ value, onSave, unit, onComment, hasComment }) {
@@ -125,6 +144,19 @@ function SparkTrend({ values }) {
 export default function ScorecardView() {
   const { isMobile } = useResponsive();
   const { user, profile, orgId } = useAuth();
+  // Period: rolling 13 weeks, or an OKR cycle (same list and same selection as OKRs).
+  const [cycles, setCycles] = useState([]);
+  const [objectives, setObjectives] = useState([]);
+  const [period, setPeriodState] = useState(() => { try { return localStorage.getItem("helm_scorecard_period") || "rolling"; } catch { return "rolling"; } });
+  const [scope, setScope] = useState("all"); // all | okr (metrics linked to this period's key results)
+  const [showFromOkrs, setShowFromOkrs] = useState(false);
+  const setPeriod = (v) => {
+    setPeriodState(v);
+    try { localStorage.setItem("helm_scorecard_period", v); if (v !== "rolling") localStorage.setItem(PERIOD_KEY, v); } catch { /* private mode */ }
+  };
+  const activeCycleObj = cycles.find(c => c.id === period) || null;
+  const WEEKS = useMemo(() => (activeCycleObj ? weeksForCycle(activeCycleObj) : ROLLING_WEEKS), [activeCycleObj?.id, activeCycleObj?.start_date, activeCycleObj?.end_date]); // eslint-disable-line react-hooks/exhaustive-deps
+  const weeksKey = WEEKS.join(",");
   const [metrics, setMetrics] = useState([]);
   const [entries, setEntries] = useState({}); // { metricId: { weekStart: value } }
   const [comments, setComments] = useState({}); // { metricId: { weekStart: { comment, comment_by, comment_at } } }
@@ -158,8 +190,21 @@ export default function ScorecardView() {
         supabase.from("scorecard_metrics").select("*").eq("active", true).order("sort_order").order("created_at"),
         supabase.from("profiles").select("id,display_name"),
         supabase.from("org_memberships").select("org_id").eq("user_id", (await supabase.auth.getUser()).data.user?.id).maybeSingle(),
-        supabase.from("key_results").select("id,title,current_value,target_value,unit,progress").eq("org_id", orgId).is("deleted_at", null).order("sort_order"),
+        supabase.from("key_results").select("id,title,current_value,target_value,unit,progress,objective_id,owner_id,target_direction").eq("org_id", orgId).is("deleted_at", null).order("sort_order"),
       ]);
+      const [{ data: cyc }, { data: objs }] = await Promise.all([
+        supabase.from("okr_cycles").select("id,name,start_date,end_date,status").eq("org_id", orgId).order("start_date", { ascending: false }),
+        supabase.from("objectives").select("id,title,cycle_id,sort_order").eq("org_id", orgId).is("deleted_at", null).order("sort_order"),
+      ]);
+      setCycles(cyc || []);
+      setObjectives(objs || []);
+      // Follow the period picked in OKRs the first time this view opens.
+      try {
+        if (!localStorage.getItem("helm_scorecard_period")) {
+          const okrCycle = localStorage.getItem(PERIOD_KEY);
+          if (okrCycle && (cyc || []).some(c => c.id === okrCycle)) setPeriodState(okrCycle);
+        }
+      } catch { /* ignore */ }
       const profMap = {};
       (prof || []).forEach(u => { profMap[u.id] = u; });
       setProfiles(profMap);
@@ -201,7 +246,7 @@ export default function ScorecardView() {
       }
       setLoading(false);
     })();
-  }, []);
+  }, [weeksKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Get the applicable goal for a given date, checking goal periods first, then falling back to metric.goal
   const getGoalForDate = (metric, dateStr) => {
@@ -349,7 +394,12 @@ export default function ScorecardView() {
   );
 
   // Summary stats
-  const metricSummary = metrics.map(m => {
+  // KRs in the selected period (cycle), and which metrics belong to it.
+  const periodObjIds = new Set(objectives.filter(o => !activeCycleObj || o.cycle_id === activeCycleObj.id).map(o => o.id));
+  const periodKRs = keyResults.filter(k => !activeCycleObj || periodObjIds.has(k.objective_id));
+  const periodKRIds = new Set(periodKRs.map(k => k.id));
+  const shownMetrics = scope === "okr" ? metrics.filter(m => m.linked_kr_id && periodKRIds.has(m.linked_kr_id)) : metrics;
+  const metricSummary = shownMetrics.map(m => {
     const vals = WEEKS.map(w => entries[m.id]?.[w] ?? null);
     const latest = vals.filter(v=>v!=null).slice(-1)[0];
     const latestWeek = WEEKS.filter((w, i) => vals[i] != null).slice(-1)[0];
@@ -377,7 +427,23 @@ export default function ScorecardView() {
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:16 }}>
           <div>
             <h2 style={{ fontSize:20, fontWeight:700, marginBottom:2 }}>Weekly Scorecard</h2>
-            <div style={{ fontSize:12, color:T.text3 }}>Rolling 13-week view · Week of {new Date(thisWeek+"T12:00:00").toLocaleDateString("en-US",{month:"long",day:"numeric"})}</div>
+            <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", marginTop:4 }}>
+              <select value={activeCycleObj ? period : "rolling"} onChange={e => setPeriod(e.target.value)} title="Period: the same OKR cycles as the OKRs page"
+                style={{ background:T.surface2, border:`1px solid ${T.border}`, borderRadius:6, color:T.text, padding:"4px 8px", fontSize:12, cursor:"pointer", outline:"none", fontFamily:"inherit" }}>
+                <option value="rolling">Rolling 13 weeks</option>
+                {cycles.map(c => <option key={c.id} value={c.id}>{c.name}{c.status && c.status !== "active" ? ` (${c.status})` : ""}</option>)}
+              </select>
+              {activeCycleObj && (
+                <select value={scope} onChange={e => setScope(e.target.value)}
+                  style={{ background:T.surface2, border:`1px solid ${T.border}`, borderRadius:6, color:T.text, padding:"4px 8px", fontSize:12, cursor:"pointer", outline:"none", fontFamily:"inherit" }}>
+                  <option value="all">All metrics</option>
+                  <option value="okr">This period's OKR metrics</option>
+                </select>
+              )}
+              <span style={{ fontSize:12, color:T.text3 }}>
+                {activeCycleObj ? `${WEEKS.length} weeks · ${new Date(WEEKS[0]+"T12:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})} to week of ${new Date(thisWeek+"T12:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}` : `Week of ${new Date(thisWeek+"T12:00:00").toLocaleDateString("en-US",{month:"long",day:"numeric"})}`}
+              </span>
+            </div>
           </div>
           <div style={{ display:"flex", alignItems:"center", gap:12 }}>
             {/* Summary pills */}
@@ -410,6 +476,10 @@ export default function ScorecardView() {
                 {autoCalcRunning ? "Calculating…" : "⚡ Auto-calc"}
               </button>
             )}
+            <button onClick={() => setShowFromOkrs(true)} title="Track key results weekly on the scorecard"
+              style={{ padding:"7px 14px", fontSize:12, fontWeight:600, background:T.surface2, color:T.accent, border:`1px solid ${T.accent}40`, borderRadius:7, cursor:"pointer" }}>
+              ◎ Add from OKRs
+            </button>
             <button onClick={() => setShowAddMetric(true)}
               style={{ padding:"7px 14px", fontSize:12, fontWeight:600, background:T.accent, color:"#fff", border:"none", borderRadius:7, cursor:"pointer" }}>
               + Add Metric
@@ -447,7 +517,7 @@ export default function ScorecardView() {
                 <select value={newMetric.linked_kr_id} onChange={e => setNewMetric(p => ({ ...p, linked_kr_id: e.target.value }))}
                   style={{ width:"100%", fontSize:12, background:T.surface, border:`1px solid ${T.border}`, borderRadius:6, padding:"7px 8px", color:T.text, outline:"none" }}>
                   <option value="">Link to KR (optional)</option>
-                  {keyResults.map(kr => <option key={kr.id} value={kr.id}>{kr.title}</option>)}
+                  {periodKRs.map(kr => <option key={kr.id} value={kr.id}>{kr.title}</option>)}
                 </select>
               </div>
               <div style={{ display:"flex", gap:6 }}>
@@ -744,6 +814,25 @@ export default function ScorecardView() {
           </table>
         )}
 
+        {showFromOkrs && (
+          <FromOkrsModal cycles={cycles} objectives={objectives} keyResults={keyResults} metrics={metrics} profiles={profiles}
+            defaultCycle={activeCycleObj?.id || (cycles.find(c => c.status === "active") || cycles[0])?.id}
+            onClose={() => setShowFromOkrs(false)}
+            onAdd={async (krs) => {
+              const rows = krs.map((kr, i) => {
+                const obj = objectives.find(o => o.id === kr.objective_id);
+                return { name: kr.title, unit: "number", goal: null, frequency: "weekly", description: obj ? `OKR: ${obj.title}` : "From OKRs",
+                  linked_kr_id: kr.id, target_direction: kr.target_direction === "below" ? "below" : "above", metric_type: "quantitative",
+                  org_id: orgId, owner_id: kr.owner_id || user.id, sort_order: metrics.length + i };
+              });
+              const { data, error } = await supabase.from("scorecard_metrics").insert(rows).select();
+              if (error) { alert("Couldn't add: " + error.message); return; }
+              setMetrics(p => [...p, ...(data || [])]);
+              setEntries(p => { const n = { ...p }; (data || []).forEach(d => { n[d.id] = {}; }); return n; });
+              setShowFromOkrs(false);
+            }} />
+        )}
+
         {/* Goal Periods Editor */}
         {editingGoals && (() => {
           const m = metrics.find(x => x.id === editingGoals);
@@ -982,6 +1071,72 @@ export default function ScorecardView() {
             </div>
           );
         })()}
+      </div>
+    </div>
+  );
+}
+
+
+// Pick key results (by OKR cycle and objective) to track weekly on the scorecard.
+function FromOkrsModal({ cycles, objectives, keyResults, metrics, profiles, defaultCycle, onClose, onAdd }) {
+  const [cycleId, setCycleId] = useState(defaultCycle || "");
+  const [picked, setPicked] = useState(new Set());
+  const [busy, setBusy] = useState(false);
+  const linked = new Set(metrics.filter(m => m.linked_kr_id).map(m => m.linked_kr_id));
+  const objs = objectives.filter(o => o.cycle_id === cycleId);
+  const toggle = (id) => setPicked(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const available = keyResults.filter(k => objs.some(o => o.id === k.objective_id) && !linked.has(k.id));
+  return (
+    <div onClick={onClose} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.45)", zIndex:1000, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:12, width:"100%", maxWidth:620, maxHeight:"85vh", display:"flex", flexDirection:"column", boxShadow:"0 20px 60px rgba(0,0,0,0.3)" }}>
+        <div style={{ padding:"16px 20px", borderBottom:`1px solid ${T.border}` }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+            <div style={{ fontSize:16, fontWeight:700, color:T.text }}>Add key results to the scorecard</div>
+            <button onClick={onClose} style={{ background:"none", border:"none", color:T.text3, fontSize:20, cursor:"pointer" }}>×</button>
+          </div>
+          <div style={{ fontSize:12, color:T.text3, marginTop:4 }}>Each one becomes a weekly metric linked to its key result, owned by the KR owner. Set the goal and unit on the scorecard after adding.</div>
+          <select value={cycleId} onChange={e => { setCycleId(e.target.value); setPicked(new Set()); }}
+            style={{ marginTop:10, background:T.surface2, border:`1px solid ${T.border}`, borderRadius:6, color:T.text, padding:"5px 8px", fontSize:12, outline:"none", fontFamily:"inherit" }}>
+            {cycles.map(c => <option key={c.id} value={c.id}>{c.name}{c.status && c.status !== "active" ? ` (${c.status})` : ""}</option>)}
+          </select>
+        </div>
+        <div style={{ overflow:"auto", padding:"8px 20px", flex:1 }}>
+          {!objs.length && <div style={{ color:T.text3, fontSize:12, padding:"16px 0" }}>No objectives in this cycle.</div>}
+          {objs.map(o => {
+            const krs = keyResults.filter(k => k.objective_id === o.id);
+            if (!krs.length) return null;
+            const open = krs.filter(k => !linked.has(k.id));
+            const allOn = open.length > 0 && open.every(k => picked.has(k.id));
+            return (
+              <div key={o.id} style={{ marginBottom:12 }}>
+                <label style={{ display:"flex", alignItems:"center", gap:8, fontSize:12.5, fontWeight:700, color:T.text, padding:"6px 0" }}>
+                  <input type="checkbox" disabled={!open.length} checked={allOn} onChange={() => setPicked(p => { const n = new Set(p); open.forEach(k => allOn ? n.delete(k.id) : n.add(k.id)); return n; })} />
+                  {o.title}
+                </label>
+                {krs.map(k => {
+                  const on = linked.has(k.id);
+                  return (
+                    <label key={k.id} style={{ display:"flex", alignItems:"center", gap:8, fontSize:12.5, color: on ? T.text3 : T.text2, padding:"4px 0 4px 22px", cursor: on ? "default" : "pointer" }}>
+                      <input type="checkbox" disabled={on} checked={on || picked.has(k.id)} onChange={() => toggle(k.id)} />
+                      <span style={{ flex:1 }}>{k.title}</span>
+                      {k.owner_id && profiles[k.owner_id] && <span style={{ fontSize:11, color:T.text3 }}>{profiles[k.owner_id].display_name}</span>}
+                      {on && <span style={{ fontSize:10.5, color:T.green, fontWeight:600 }}>On scorecard</span>}
+                    </label>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
+        <div style={{ padding:"12px 20px", borderTop:`1px solid ${T.border}`, display:"flex", alignItems:"center", gap:10 }}>
+          <button onClick={() => setPicked(new Set(available.map(k => k.id)))} disabled={!available.length} style={{ fontSize:12, color:T.accent, background:"none", border:"none", cursor:"pointer" }}>Select all ({available.length})</button>
+          <div style={{ flex:1 }} />
+          <button onClick={onClose} style={{ padding:"7px 14px", fontSize:12, background:T.surface2, border:`1px solid ${T.border}`, borderRadius:7, cursor:"pointer", color:T.text2 }}>Cancel</button>
+          <button disabled={!picked.size || busy} onClick={async () => { setBusy(true); await onAdd(keyResults.filter(k => picked.has(k.id))); setBusy(false); }}
+            style={{ padding:"7px 14px", fontSize:12, fontWeight:700, background:T.accent, color:"#fff", border:"none", borderRadius:7, cursor:"pointer", opacity: picked.size && !busy ? 1 : 0.5 }}>
+            {busy ? "Adding…" : `Add ${picked.size || ""} to scorecard`}
+          </button>
+        </div>
       </div>
     </div>
   );
