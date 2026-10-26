@@ -93,6 +93,10 @@ const JOBS = {
   'cx-fulfillment-crawler':   { path: '/cx-fulfillment-crawler',   body: {} },
   'cx-kb-gap-weekly':         { path: '/cx-kb-gap-report',         body: { org_id: 'a0000000-0000-0000-0000-000000000001', days: 7 } },
   'cx-appreciation-weekly':   { path: '/cx-appreciation-drafter',  body: { org_id: 'a0000000-0000-0000-0000-000000000001' } },
+  // Asana -> Helm project mirror (was Supabase pg_cron asana-sync-mirror).
+  // Each run syncs projects whose min interval (120 min) has passed and resumes
+  // partial ones from their cursor, inside a 50 s budget.
+  'asana-sync-mirror':        { path: '/asana-sync',              body: { action: 'sync_due', max_projects: 10, max_seconds: 50 } },
   'sheets-daily-sync':        { path: '/sheets-daily-sync',        body: {} },
   'sheets-monthly-sync':      { path: '/sheets-sync',              body: {} },
   // Supabase pg_cron jobs that are pure SQL (inventoried by helm-resync into

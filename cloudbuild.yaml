@@ -248,6 +248,7 @@ steps:
         upsert warehouse-sync '30 9 * * *' America/New_York
         upsert warehouse-sync-midday '30 12 * * *' America/New_York
         upsert sheets-daily-sync '5 4 * * *' America/New_York
+        upsert asana-sync-mirror '*/15 * * * *'
 
   # Custom domain (helm.earthbreeze.com): Firebase Hosting forwards every request
   # to the helm-app service. Needs Firebase Hosting Admin on the build account.
