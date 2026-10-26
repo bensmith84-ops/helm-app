@@ -493,6 +493,16 @@ export default function ERPView({ modulePerms = {}, pendingSubView, clearPending
   const [view, setView] = useState(pendingSubView || "dashboard");
   useEffect(() => { if (pendingSubView) return; try { const v = localStorage.getItem("helm_erp_view"); if (v) setView(v); } catch (e) {} }, []);
   useEffect(() => { try { if (view) localStorage.setItem("helm_erp_view", view); } catch (e) {} }, [view]);
+  // Address bar: helm.earthbreeze.com/erp/<view> (e.g. /erp/demand-planning).
+  useEffect(() => {
+    if (!view || typeof window === "undefined") return;
+    const want = "/erp/" + view.replace(/_/g, "-");
+    if (window.location.pathname === want) return;
+    // Coming from another module: a new history entry (Back returns there);
+    // switching views inside ERP: replace, so Back doesn't step through each view.
+    const inErp = /^\/erp(\/|$)/.test(window.location.pathname);
+    window.history[inErp ? "replaceState" : "pushState"](null, "", want + window.location.search);
+  }, [view]);
   const isFinanceView = FINANCE_EMBED_VIEWS.has(view);
   // Handle pending sub-view navigation from other modules (e.g. Dashboard approval badge)
   useEffect(() => {

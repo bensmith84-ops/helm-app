@@ -908,19 +908,22 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
     }
   }, [pendingProjectId, projects]);
 
-  // Reflect the open task/project in the URL hash so the address bar is always shareable
+  // Reflect the open task/project in the URL (/projects/t/<id>, /projects/p/<id>)
+  // so the address bar is always shareable. Older #projects/... links still open.
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const base = window.location.pathname + window.location.search;
-    if (selectedTask?.id) window.history.replaceState(null, "", base + "#projects/t/" + selectedTask.id);
-    else if (activeProject) window.history.replaceState(null, "", base + "#projects/p/" + activeProject);
-    // Don't strip the hash while a deep link is still waiting to be resolved, or the
+    // Don't rewrite while a deep link is still waiting to be resolved, or the
     // target is lost if the projects list hasn't loaded yet.
-    else if ((window.location.hash || "").startsWith("#projects/") && !pendingProjectId && !pendingTaskId) window.history.replaceState(null, "", base);
+    if (pendingProjectId || pendingTaskId) return;
+    const q = window.location.search;
+    const want = selectedTask?.id ? "/projects/t/" + selectedTask.id : activeProject ? "/projects/p/" + activeProject : "/projects";
+    if (window.location.pathname === want && !window.location.hash) return;
+    const inProjects = /^\/projects(\/|$)/.test(window.location.pathname) || (window.location.hash || "").startsWith("#projects/");
+    window.history[inProjects ? "replaceState" : "pushState"](null, "", want + q);
   }, [selectedTask?.id, activeProject, pendingProjectId, pendingTaskId]);
 
   const copyShareLink = (kind, id) => {
-    const url = window.location.origin + window.location.pathname + "#projects/" + kind + "/" + id;
+    const url = window.location.origin + "/projects/" + kind + "/" + id;
     navigator.clipboard?.writeText(url)
       .then(() => showToast(kind === "t" ? "Task link copied" : "Project link copied", "success"))
       .catch(() => window.prompt("Copy link:", url));
