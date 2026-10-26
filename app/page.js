@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback, useRef, Suspense, lazy, Component } f
 import { T } from "./tokens";
 import { supabase } from "./lib/supabase";
 import { useAuth } from "./lib/auth";
+import { parsePath, pathFor } from "./lib/routes";
 import { useTheme, _setTokens } from "./lib/theme";
 import { ModalProvider } from "./lib/modal";
 import AuthPage from "./components/AuthPage";
@@ -156,10 +157,17 @@ export default function HelmApp() {
   // Deep links: #projects/t/<taskId> or #projects/p/<projectId>
   // Captured on first paint - even before sign-in - and stashed, because the auth redirect
   // drops the URL fragment. Consumed once the user is present.
-  useEffect(() => {
+  // Links are /projects/p/<id> (current) or #projects/p/<id> (older shared links).
+  const deepFromUrl = () => {
     const m = (window.location.hash || "").match(/^#projects\/(t|p)\/([0-9a-f-]{36})/i);
-    if (m) { try { sessionStorage.setItem("helm_deeplink", m[1] + ":" + m[2]); } catch (_) {} }
-  }, []);
+    if (m) return m[1] + ":" + m[2];
+    const d = parsePath(window.location.pathname).deep;
+    return d ? d.kind + ":" + d.id : null;
+  };
+  useEffect(() => {
+    const raw = deepFromUrl();
+    if (raw) { try { sessionStorage.setItem("helm_deeplink", raw); } catch (_) {} }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Consume the stashed deep link exactly once per page load. Without this guard the effect
   // re-fires whenever Firebase re-emits `user` (token refresh, ~hourly) and, because Projects
@@ -168,9 +176,7 @@ export default function HelmApp() {
   useEffect(() => {
     if (!user || deepLinkDone.current) return;
     deepLinkDone.current = true;
-    let raw = null;
-    const m = (window.location.hash || "").match(/^#projects\/(t|p)\/([0-9a-f-]{36})/i);
-    if (m) raw = m[1] + ":" + m[2];
+    let raw = deepFromUrl();
     if (!raw) { try { raw = sessionStorage.getItem("helm_deeplink"); } catch (_) {} }
     try { sessionStorage.removeItem("helm_deeplink"); } catch (_) {}
     if (!raw) return;
@@ -190,24 +196,42 @@ export default function HelmApp() {
   }, [isExternal, active]);
 
   // Persist the current module across refreshes so you land back where you were.
+  // The URL path wins (/scoreboard, /erp/demand-planning); otherwise the last module used.
   useEffect(() => {
+    const route = parsePath(window.location.pathname);
+    if (route.module) {
+      setActive(route.module);
+      if (route.sub && (route.module === "erp" || route.module === "finance")) setPendingSubView(route.sub);
+      return;
+    }
     try { const saved = localStorage.getItem("helm_active"); if (saved) setActive(saved); } catch (e) {}
+  }, []);
+  // Keep the address bar on the open module (helm.earthbreeze.com/scoreboard).
+  // Sub-paths (/erp/<view>, /projects/p/<id>) are written by those modules.
+  // The first run is skipped: it sees the initial "dashboard" before the path
+  // above has been applied.
+  const urlSynced = useRef(false);
+  useEffect(() => {
+    if (!urlSynced.current) { urlSynced.current = true; return; }
+    const cur = parsePath(window.location.pathname).module || "dashboard";
+    const legacyHash = (window.location.hash || "").startsWith("#projects/");
+    if (cur === active && !(legacyHash && active !== "projects")) return;
+    if (active === "projects" && legacyHash) return; // Projects rewrites it to a path itself
+    window.history.pushState(null, "", pathFor(active) + window.location.search);
+  }, [active]);
+  // Back / forward buttons move between modules.
+  useEffect(() => {
+    const onPop = () => {
+      const route = parsePath(window.location.pathname);
+      setActive(route.module || "dashboard");
+      if (route.sub && (route.module === "erp" || route.module === "finance")) setPendingSubView(route.sub);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
   }, []);
   useEffect(() => {
     try { if (active && active !== "spend_request") localStorage.setItem("helm_active", active); } catch (e) {}
   }, [active]);
-  // Projects mirrors the open project/task into the URL (#projects/p/<id>) so
-  // it can be shared. Once you move to another module that link is stale, and
-  // a refresh would treat it as a deep link and drop you back in Projects.
-  // Clear it on leaving Projects (only after the page's own deep link has been
-  // handled, so a real shared link still opens).
-  useEffect(() => {
-    if (!deepLinkDone.current || active === "projects") return;
-    if ((window.location.hash || "").startsWith("#projects/")) {
-      window.history.replaceState(null, "", window.location.pathname + window.location.search);
-    }
-    try { sessionStorage.removeItem("helm_deeplink"); } catch (_) {}
-  }, [active, user]);
 
   // Load user module permissions from org_memberships
   useEffect(() => {
