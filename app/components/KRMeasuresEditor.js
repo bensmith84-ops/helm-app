@@ -64,7 +64,7 @@ export default function KRMeasuresEditor({ d, editSet, scMetrics, krDates, isMob
           <div key={m.id || i} style={{ marginBottom: 10, paddingBottom: 10, borderBottom: `1px solid ${T.border}` }}>
             <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1.6fr 1.1fr 1.15fr 1.1fr 52px 1fr auto auto", gap: 6, alignItems: "end" }}>
               <div><label style={lbl}>{i === 0 ? "Value" : "And value"}</label><input value={m.label || ""} onChange={e => setM(i, { label: e.target.value })} placeholder={i === 0 ? "e.g. Ad Spend" : "e.g. CPA"} style={ci} /></div>
-              <div><label style={lbl}>Current</label><NumInput value={m.current_value ?? ""} disabled={!!m.auto_config} onChange={v => setM(i, { current_value: v })} style={{ ...ci, opacity: m.auto_config ? .55 : 1 }} /></div>
+              <div><label style={lbl}>Current</label><NumInput value={m.current_value ?? ""} placeholder="–" disabled={!!m.auto_config} onChange={v => setM(i, { current_value: v })} style={{ ...ci, opacity: m.auto_config ? .55 : 1 }} /></div>
               <div><label style={lbl}>Green when</label>
                 <select value={m.op || ">="} onChange={e => setM(i, { op: e.target.value })} style={sel}>
                   {OPS.map(o => <option key={o.v} value={o.v}>{o.l}</option>)}
@@ -80,6 +80,7 @@ export default function KRMeasuresEditor({ d, editSet, scMetrics, krDates, isMob
               <button type="button" title="Remove" disabled={measures.length === 1} onClick={() => setMeasures(measures.filter((_, j) => j !== i))}
                 style={{ height: 30, padding: "0 8px", borderRadius: 6, border: "none", background: "none", color: T.text3, cursor: measures.length === 1 ? "default" : "pointer", fontSize: 16, opacity: measures.length === 1 ? .3 : 1 }}>×</button>
             </div>
+            {r.noData && <div style={{ fontSize: 11, marginTop: 5, color: T.text3 }}>No current value yet: not counted until one is entered{m.auto_config ? " or calculated" : ""}.</div>}
             {r.pct != null && (
               <div style={{ fontSize: 11, marginTop: 5, color: r.color, display: "flex", gap: 8, flexWrap: "wrap" }}>
                 <span style={{ fontWeight: 700 }}>{r.met ? "✓ Met" : `${Math.min(r.pct, 999)}% of target`}</span>
@@ -99,7 +100,7 @@ export default function KRMeasuresEditor({ d, editSet, scMetrics, krDates, isMob
         );
       })}
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-        <button type="button" onClick={() => setMeasures([...measures, { id: `m${Date.now().toString(36)}`, label: "", current_value: 0, target_value: "", unit: "", op: "<=", kind: "rate" }])}
+        <button type="button" onClick={() => setMeasures([...measures, { id: `m${Date.now().toString(36)}`, label: "", current_value: "", target_value: "", unit: "", op: "<=", kind: "rate" }])}
           style={{ fontSize: 12, fontWeight: 600, padding: "6px 12px", borderRadius: 6, border: `1px dashed ${T.border}`, background: "transparent", color: T.text2, cursor: "pointer" }}>+ Add value</button>
         {measures.length > 1 && (
           <span style={{ fontSize: 11, color: T.text3 }}>

@@ -84,8 +84,10 @@ const RANK = [RED, BLUE, YELLOW, GREEN];
 
 // One value against its target. strict: green only when met (multi-value KRs).
 function evalMeasure(m, { strict = true, fraction = 1, toDate = false } = {}) {
-  const target = num(m.target_value), cur = Number(m.current_value || 0);
-  if (target == null) return { pct: null, met: false, color: "#64748b", value: cur };
+  const target = num(m.target_value), curN = num(m.current_value);
+  // No target, or no current number yet: not scored (shown grey), so an empty CPA doesn't read as "met".
+  if (target == null || curN == null) return { pct: null, met: false, color: "#64748b", value: curN, noData: target != null };
+  const cur = curN;
   const value = toDate && m.kind === "total" && fraction > 0 && fraction < 1 ? cur / fraction : cur;
   const op = m.op || ">=";
   let met, pct;
