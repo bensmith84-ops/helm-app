@@ -65,38 +65,60 @@ async function calcMetabaseMetrics(pool, metrics, weeks, defaultOrg) {
   return out;
 }
 
-// Key results with auto_config: current value over the KR window (KR dates,
-// else the objective's, else the OKR cycle's), capped at today.
+// Key results with auto_config, or with auto-calculated conditions: each value
+// over the KR window (KR dates, else the objective's, else the OKR cycle's),
+// capped at today. Progress = the lowest of the main measure and its conditions.
 async function calcKeyResults(pool, onlyKr) {
   const { rows } = await pool.query(
-    `SELECT kr.id, kr.title, kr.objective_id, kr.auto_config, kr.target_value, kr.target_direction,
+    `SELECT kr.id, kr.title, kr.objective_id, kr.auto_config, kr.conditions, kr.current_value, kr.target_value, kr.target_direction,
             coalesce(kr.start_date, o.start_date, c.start_date)::text AS w_from,
             coalesce(kr.end_date, o.end_date, c.end_date)::text AS w_to
        FROM key_results kr
        LEFT JOIN objectives o ON o.id = kr.objective_id
        LEFT JOIN okr_cycles c ON c.id = o.cycle_id
-      WHERE kr.auto_config IS NOT NULL AND kr.deleted_at IS NULL AND ($1::uuid IS NULL OR kr.id = $1)`, [onlyKr]);
+      WHERE kr.deleted_at IS NULL AND ($1::uuid IS NULL OR kr.id = $1)
+        AND (kr.auto_config IS NOT NULL OR EXISTS (
+              SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(kr.conditions) = 'array' THEN kr.conditions ELSE '[]'::jsonb END) x
+               WHERE jsonb_typeof(x->'auto_config') = 'object'))`, [onlyKr]);
   const out = { processed: rows.length, updated: 0, errors: [] };
   const today = src.ymd(new Date());
   const touched = new Set();
+  const round = (v) => Math.round(v * 100) / 100;
   for (const kr of rows) {
+    let mainErr = null;
+    let value = Number(kr.current_value || 0);
+    const conds = Array.isArray(kr.conditions) ? kr.conditions.map((c) => ({ ...c })) : [];
     try {
       if (!kr.w_from) throw new Error('set a start date on the key result, its objective or its cycle');
       const from = kr.w_from.slice(0, 10), to = kr.w_to && kr.w_to.slice(0, 10) < today ? kr.w_to.slice(0, 10) : today;
       if (from > today) throw new Error(`the key result starts on ${from}`);
-      const r = await src.krValue(pool, kr.auto_config, from, to);
-      if (r.value == null) throw new Error(`no data between ${from} and ${to}`);
-      const value = Math.round(r.value * 100) / 100;
-      const progress = src.calcProgress(value, Number(kr.target_value), kr.target_direction);
-      await pool.query(
-        `UPDATE key_results SET current_value = $2, progress = $3, auto_synced_at = now(), auto_error = NULL, updated_at = now() WHERE id = $1`,
-        [kr.id, value, progress]);
-      out.updated++;
-      if (kr.objective_id) touched.add(kr.objective_id);
-    } catch (e) {
-      out.errors.push(`${kr.title}: ${e.message}`);
-      await pool.query(`UPDATE key_results SET auto_error = $2 WHERE id = $1`, [kr.id, String(e.message).slice(0, 500)]);
-    }
+      if (kr.auto_config) {
+        try {
+          const r = await src.krValue(pool, kr.auto_config, from, to);
+          if (r.value == null) throw new Error(`no data between ${from} and ${to}`);
+          value = round(r.value);
+        } catch (e) { mainErr = e.message; }
+      }
+      for (const c of conds) {
+        if (!c.auto_config || typeof c.auto_config !== 'object') continue;
+        try {
+          const r = await src.krValue(pool, c.auto_config, from, to);
+          if (r.value == null) throw new Error(`no data between ${from} and ${to}`);
+          c.current_value = round(r.value); c.auto_error = null;
+        } catch (e) { c.auto_error = String(e.message).slice(0, 300); out.errors.push(`${kr.title} / ${c.label || 'condition'}: ${e.message}`); }
+      }
+    } catch (e) { mainErr = e.message; }
+    if (mainErr) out.errors.push(`${kr.title}: ${mainErr}`);
+    const parts = [src.calcProgress(value, Number(kr.target_value), kr.target_direction),
+      ...conds.filter((c) => c.target_value !== null && c.target_value !== '' && c.target_value !== undefined)
+        .map((c) => src.calcProgress(Number(c.current_value || 0), Number(c.target_value), c.target_direction))];
+    const progress = Math.min(...parts);
+    await pool.query(
+      `UPDATE key_results SET current_value = $2, progress = $3, conditions = $4::jsonb, auto_error = $5,
+              auto_synced_at = CASE WHEN $5::text IS NULL THEN now() ELSE auto_synced_at END, updated_at = now() WHERE id = $1`,
+      [kr.id, value, progress, conds.length ? JSON.stringify(conds) : null, kr.auto_config ? mainErr : null]);
+    out.updated++;
+    if (kr.objective_id) touched.add(kr.objective_id);
   }
   for (const objId of touched) {
     await pool.query(

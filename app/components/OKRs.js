@@ -33,6 +33,19 @@ const progressColor = (pct, direction, current, target) => {
   }
   return pct >= 70 ? "#22c55e" : pct >= 40 ? "#eab308" : "#3b82f6";
 };
+// Multi-condition KRs ("$X spend at $Y CPA"): the KR's own value is the main
+// measure and kr.conditions holds the rest. Every measure must be met, so the KR's
+// progress is the lowest of them and its colour is the worst.
+const krParts = (kr) => [
+  { label: kr.title, current: Number(kr.current_value || 0), target: Number(kr.target_value), direction: kr.target_direction, unit: kr.unit },
+  ...(Array.isArray(kr.conditions) ? kr.conditions : []).filter(c => c && c.target_value !== "" && c.target_value != null)
+    .map(c => ({ label: c.label, current: Number(c.current_value || 0), target: Number(c.target_value), direction: c.target_direction, unit: c.unit, auto: !!c.auto_config, error: c.auto_error })),
+];
+const COLOR_RANK = ["#ef4444", "#3b82f6", "#eab308", "#22c55e"];
+const partColor = (p) => progressColor(calcProgress(p.current, p.target, p.direction), p.direction, p.current, p.target);
+const krProgress = (kr) => Math.min(...krParts(kr).map(p => calcProgress(p.current, p.target, p.direction)));
+const krColor = (kr) => krParts(kr).map(partColor).sort((a, b) => COLOR_RANK.indexOf(a) - COLOR_RANK.indexOf(b))[0];
+const fmtVal = (v, unit) => { const n = Number(v || 0); const s = Math.abs(n) >= 1000 ? Math.round(n).toLocaleString() : (Math.round(n * 100) / 100).toLocaleString(); return unit === "$" ? `$${s}` : unit === "%" ? `${s}%` : unit ? `${s} ${unit}` : s; };
 const acol = (uid) => uid ? AVATAR_COLORS[uid.charCodeAt(uid.length - 1) % AVATAR_COLORS.length] : T.text3;
 const TIMEFRAME_OPTIONS = [
   { value: "month", label: "Monthly" },
@@ -236,7 +249,7 @@ export default function OKRsView() {
   const updateKRValue = async (krId, value) => {
     const kr = keyResults.find(k => k.id === krId);
     if (!kr) return;
-    const newProgress = calcProgress(value, Number(kr.target_value), kr.target_direction);
+    const newProgress = krProgress({ ...kr, current_value: value });
     setKeyResults(p => p.map(k => k.id === krId ? { ...k, current_value: value, progress: newProgress } : k));
     await supabase.from("key_results").update({ current_value: value, progress: newProgress }).eq("org_id", orgId).eq("id", krId);
     const objId = kr.objective_id;
@@ -454,18 +467,21 @@ export default function OKRsView() {
       const mode = rest.progress_mode || "manual";
       const updates = { title: rest.title, target_value: Number(rest.target_value) || 100, unit: rest.unit || null, owner_id: rest.owner_id || null, start_date: rest.start_date || null, end_date: rest.end_date || null, current_value: Number(rest.current_value) || 0, progress_mode: mode, target_direction: rest.target_direction || "above" };
       if (mode === "manual") {
-        updates.progress = calcProgress(updates.current_value, updates.target_value, updates.target_direction);
+        updates.conditions = (rest.conditions || []).filter(c => c && (c.label || c.target_value !== "")).map(({ _open, ...c }) => ({ ...c, target_value: c.target_value === "" ? null : Number(c.target_value), current_value: Number(c.current_value) || 0 }));
+        if (!updates.conditions.length) updates.conditions = null;
+        updates.progress = krProgress({ ...updates, title: rest.title });
       } else {
         const linked = milestones.filter(m => m.key_result_id === id);
         updates.progress = linked.length > 0 ? Math.round(linked.reduce((s, m) => s + Number(m.progress || 0), 0) / linked.length) : 0;
         updates.current_value = Math.round((updates.progress / 100) * updates.target_value);
       }
       updates.auto_config = mode === "manual" ? (rest.auto_config || null) : null;
+      const anyAuto = updates.auto_config || (updates.conditions || []).some(c => c.auto_config);
       if (!updates.auto_config) updates.auto_error = null;
       setKeyResults(p => p.map(k => k.id === id ? { ...k, ...updates } : k));
       await supabase.from("key_results").update(updates).eq("org_id", orgId).eq("id", id);
       recalcObjectiveProgress(keyResults.find(k => k.id === id)?.objective_id, keyResults.map(k => k.id === id ? { ...k, ...updates } : k));
-      if (updates.auto_config) {
+      if (anyAuto) {
         // Calculate now; the server also refreshes auto KRs after each warehouse sync.
         await invokeFunction("scorecard-auto-calc", { body: { kr_id: id } });
         const { data: fresh } = await supabase.from("key_results").select("*").eq("id", id).single();
@@ -905,8 +921,9 @@ export default function OKRsView() {
                   <span>Key Result</span><span>Progress</span><span>Value</span><span>Confidence</span><span>Owner</span>
                 </div>
                 {objKRs.map(kr => {
-                  const p = calcProgress(Number(kr.current_value || 0), Number(kr.target_value), kr.target_direction); const sel = selectedKR === kr.id;
-                  const pColor = progressColor(p, kr.target_direction, Number(kr.current_value || 0), Number(kr.target_value));
+                  const p = krProgress(kr); const sel = selectedKR === kr.id;
+                  const pColor = krColor(kr);
+                  const conds = krParts(kr).slice(1);
                   const krCIs = checkIns.filter(c => c.key_result_id === kr.id);
                   const lastCI = krCIs[0];
                   const daysSince = lastCI ? Math.floor((Date.now() - new Date(lastCI.created_at).getTime()) / 86400000) : null;
@@ -915,6 +932,12 @@ export default function OKRsView() {
                     <div key={kr.id} onClick={() => editKR(kr)} style={{ display: "grid", gridTemplateColumns: okrGrid, columnGap: 16, padding: "0 20px 0 48px", alignItems: "center", height: 48, cursor: "pointer", borderBottom: `1px solid ${T.border}`, background: sel ? `${T.accent}10` : "transparent", borderLeft: sel ? `3px solid ${T.accent}` : isStale ? "3px solid #eab30840" : "3px solid transparent", transition: "background 0.1s" }}>
                       <span style={{ fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: 12, display: "flex", alignItems: "center", gap: 6 }}>
                         {kr.title}
+                        {conds.map((c, i) => (
+                          <span key={i} title={`All conditions must be met.${c.auto ? " Auto-calculated." : ""}${c.error ? " Last run failed: " + c.error : ""}`}
+                            style={{ fontSize: 9, padding: "1px 6px", borderRadius: 8, border: `1px solid ${partColor(c)}60`, background: `${partColor(c)}12`, color: partColor(c), fontWeight: 700, flexShrink: 0, whiteSpace: "nowrap" }}>
+                            {c.auto ? "⚡ " : ""}{c.label || "Condition"} {fmtVal(c.current, c.unit)} {c.direction === "below" ? "≤" : "≥"} {fmtVal(c.target, c.unit)}
+                          </span>
+                        ))}
                         {kr.progress_mode === "milestones" && <span style={{ fontSize: 8, padding: "1px 5px", borderRadius: 3, background: `${T.accent}20`, color: T.accent, fontWeight: 700, flexShrink: 0 }}>AUTO</span>}
                         {kr.auto_config && kr.progress_mode !== "milestones" && <span title={kr.auto_error ? `Auto-calc failed: ${kr.auto_error}` : `${describeSource(kr.auto_config)}${kr.auto_synced_at ? ` · updated ${new Date(kr.auto_synced_at).toLocaleString()}` : ""}`} style={{ fontSize: 8, padding: "1px 5px", borderRadius: 3, background: kr.auto_error ? "#ef444420" : `${T.accent}20`, color: kr.auto_error ? "#ef4444" : T.accent, fontWeight: 700, flexShrink: 0 }}>⚡ AUTO</span>}
                         <button onClick={e => { e.stopPropagation(); addKrToScorecard(kr); }} title={onScorecard.has(kr.id) ? "Tracked weekly on the Scorecard" : "Add to the weekly Scorecard"}
@@ -987,6 +1010,56 @@ export default function OKRsView() {
             {type === "objective" && <>
               <div style={{ marginBottom: 12 }}><label style={_elbl}>Title</label><input value={d.title || ""} onChange={e => editSet("title", e.target.value)} style={_einp} /></div>
               <div style={{ marginBottom: 12 }}><label style={_elbl}>Description</label><textarea value={d.description || ""} onChange={e => editSet("description", e.target.value)} rows={2} style={{ ..._einp, resize: "vertical" }} /></div>
+              {mode === "manual" && (() => {
+                const conds = Array.isArray(d.conditions) ? d.conditions : [];
+                const setConds = (next) => editSet("conditions", next);
+                const setC = (i, patch) => setConds(conds.map((c, j) => j === i ? { ...c, ...patch } : c));
+                const obj = objectives.find(o => o.id === d.objective_id);
+                const cyc = cycles.find(c => c.id === obj?.cycle_id);
+                const today = new Date().toISOString().slice(0, 10);
+                const wFrom = d.start_date || obj?.start_date || cyc?.start_date || null;
+                const wToRaw = d.end_date || obj?.end_date || cyc?.end_date || null;
+                const win = wFrom ? { from: wFrom, to: wToRaw && wToRaw < today ? wToRaw : today } : null;
+                const ci = { ..._einp, padding: "6px 8px", fontSize: 12 };
+                return (
+                  <div style={{ marginBottom: 12, padding: "10px 14px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface2 }}>
+                    <label style={{ ..._elbl, marginBottom: 4 }}>Also must be true</label>
+                    <div style={{ fontSize: 11, color: T.text3, marginBottom: conds.length ? 10 : 8 }}>
+                      Add conditions for multi-part results, e.g. "$500K spend" at "CPA ≤ $45". The KR is only on track when every one is met, and its progress is the lowest of them.
+                    </div>
+                    {conds.map((c, i) => {
+                      const part = { current: Number(c.current_value || 0), target: Number(c.target_value), direction: c.target_direction };
+                      const pct = c.target_value === "" || c.target_value == null ? null : calcProgress(part.current, part.target, part.direction);
+                      return (
+                        <div key={c.id || i} style={{ marginBottom: 10, paddingBottom: 10, borderBottom: `1px solid ${T.border}` }}>
+                          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "2fr 1fr 70px 1fr 60px auto auto", gap: 6, alignItems: "end" }}>
+                            <div><label style={_elbl}>Measure</label><input value={c.label || ""} onChange={e => setC(i, { label: e.target.value })} placeholder="e.g. CPA" style={ci} /></div>
+                            <div><label style={_elbl}>Current</label><input type="number" value={c.current_value ?? 0} disabled={!!c.auto_config} onChange={e => setC(i, { current_value: e.target.value })} style={{ ...ci, opacity: c.auto_config ? .5 : 1 }} /></div>
+                            <div><label style={_elbl}>Must be</label>
+                              <select value={c.target_direction || "above"} onChange={e => setC(i, { target_direction: e.target.value })} style={{ ...ci, cursor: "pointer" }}>
+                                <option value="above">≥</option><option value="below">≤</option>
+                              </select></div>
+                            <div><label style={_elbl}>Target</label><input type="number" value={c.target_value ?? ""} onChange={e => setC(i, { target_value: e.target.value })} style={ci} /></div>
+                            <div><label style={_elbl}>Unit</label><input value={c.unit || ""} onChange={e => setC(i, { unit: e.target.value })} placeholder="$" style={ci} /></div>
+                            <button type="button" title="Calculate automatically" onClick={() => setC(i, { _open: !c._open })}
+                              style={{ height: 30, padding: "0 10px", borderRadius: 6, border: `1px solid ${c.auto_config ? T.accent + "60" : T.border}`, background: c.auto_config ? `${T.accent}15` : T.surface, color: c.auto_config ? T.accent : T.text3, cursor: "pointer", fontSize: 12 }}>⚡</button>
+                            <button type="button" title="Remove" onClick={() => setConds(conds.filter((_, j) => j !== i))}
+                              style={{ height: 30, padding: "0 8px", borderRadius: 6, border: "none", background: "none", color: T.text3, cursor: "pointer", fontSize: 16 }}>×</button>
+                          </div>
+                          {pct != null && <div style={{ fontSize: 10, marginTop: 4, color: progressColor(pct, part.direction, part.current, part.target) }}>{pct >= 100 ? "Met" : `${pct}% of target`}{c.auto_error ? <span style={{ color: "#ef4444" }}> · Last run failed: {c.auto_error}</span> : null}</div>}
+                          {(c._open || false) && (
+                            <div style={{ marginTop: 8, padding: 10, borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface }}>
+                              <MetricSourcePicker mode="kr" value={c.auto_config || null} onChange={v => setC(i, { auto_config: v })} scorecardMetrics={scMetrics} krWindow={win} />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                    <button type="button" onClick={() => setConds([...conds, { id: `c${Date.now().toString(36)}`, label: "", current_value: 0, target_value: "", unit: "", target_direction: "below" }])}
+                      style={{ fontSize: 12, fontWeight: 600, padding: "6px 12px", borderRadius: 6, border: `1px dashed ${T.border}`, background: "transparent", color: T.text2, cursor: "pointer" }}>+ Add condition</button>
+                  </div>
+                );
+              })()}
               <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12, marginBottom: 12 }}>
                 <div><label style={_elbl}>Owner</label><OwnerPicker profiles={profiles} value={d.owner_id || ""} onChange={v => editSet("owner_id", v)} /></div>
                 <div><label style={_elbl}>Health</label>
@@ -1010,7 +1083,7 @@ export default function OKRsView() {
               const mode = d.progress_mode || "manual";
               const linkedMS = milestones.filter(m => m.key_result_id === d.id);
               const autoProgress = linkedMS.length > 0 ? Math.round(linkedMS.reduce((s, m) => s + Number(m.progress || 0), 0) / linkedMS.length) : 0;
-              const displayPct = mode === "milestones" ? autoProgress : calcProgress(Number(d.current_value || 0), Number(d.target_value), d.target_direction);
+              const displayPct = mode === "milestones" ? autoProgress : krProgress(d);
               return <>
               <div style={{ marginBottom: 12 }}><label style={_elbl}>Title</label><input value={d.title || ""} onChange={e => editSet("title", e.target.value)} style={_einp} /></div>
               {/* Progress mode toggle */}
@@ -1065,7 +1138,7 @@ export default function OKRsView() {
                   <label style={_elbl}>Progress</label>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
                     <div style={{ flex: 1, height: 8, borderRadius: 8, background: T.surface3, overflow: "hidden" }}>
-                      <div style={{ width: `${Math.min(displayPct, 100)}%`, height: "100%", borderRadius: 8, background: progressColor(displayPct, d.target_direction, Number(d.current_value || 0), Number(d.target_value)), transition: "width 0.3s" }} />
+                      <div style={{ width: `${Math.min(displayPct, 100)}%`, height: "100%", borderRadius: 8, background: mode === "milestones" ? progressColor(displayPct, d.target_direction, Number(d.current_value || 0), Number(d.target_value)) : krColor(d), transition: "width 0.3s" }} />
                     </div>
                     <span style={{ fontSize: 13, fontWeight: 700, color: T.accent }}>{displayPct}%</span>
                   </div>
@@ -1604,7 +1677,7 @@ export default function OKRsView() {
     ];
     const confPct = Math.round((form.confidence || 0) * 100);
     const confColor = confPct >= 70 ? "#22c55e" : confPct >= 40 ? "#eab308" : "#ef4444";
-    const currentPct = calcProgress(Number(kr.current_value || 0), Number(kr.target_value), kr.target_direction);
+    const currentPct = krProgress(kr);
 
     return (
       <div onClick={() => setCheckInModal(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }}>
