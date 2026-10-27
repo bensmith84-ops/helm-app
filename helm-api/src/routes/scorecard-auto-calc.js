@@ -65,64 +65,69 @@ async function calcMetabaseMetrics(pool, metrics, weeks, defaultOrg) {
   return out;
 }
 
-// Key results with auto_config, or with auto-calculated conditions: each value
-// over the KR window (KR dates, else the objective's, else the OKR cycle's),
-// capped at today. Progress = the lowest of the main measure and its conditions.
+// Key results with auto-calculated values: each value over the KR's measurement
+// window (latest full week / month / quarter, the period so far, or the whole KR
+// period), then progress and status from all / any of its values.
+const km = require('../lib/kr-measures');
 async function calcKeyResults(pool, onlyKr) {
   const { rows } = await pool.query(
-    `SELECT kr.id, kr.title, kr.objective_id, kr.auto_config, kr.conditions, kr.current_value, kr.target_value, kr.target_direction,
-            coalesce(kr.start_date, o.start_date, c.start_date)::text AS w_from,
-            coalesce(kr.end_date, o.end_date, c.end_date)::text AS w_to
+    `SELECT kr.id, kr.title, kr.objective_id, kr.auto_config, kr.conditions, kr.measures, kr.measure_logic, kr.measure_period, kr.period_eval,
+            kr.current_value, kr.target_value, kr.target_direction, kr.unit,
+            coalesce(kr.start_date, o.start_date, c.start_date)::text AS start_date,
+            coalesce(kr.end_date, o.end_date, c.end_date)::text AS end_date
        FROM key_results kr
        LEFT JOIN objectives o ON o.id = kr.objective_id
        LEFT JOIN okr_cycles c ON c.id = o.cycle_id
       WHERE kr.deleted_at IS NULL AND ($1::uuid IS NULL OR kr.id = $1)
         AND (kr.auto_config IS NOT NULL OR EXISTS (
-              SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(kr.conditions) = 'array' THEN kr.conditions ELSE '[]'::jsonb END) x
+              SELECT 1 FROM jsonb_array_elements(
+                CASE WHEN jsonb_typeof(kr.measures) = 'array' THEN kr.measures
+                     WHEN jsonb_typeof(kr.conditions) = 'array' THEN kr.conditions ELSE '[]'::jsonb END) x
                WHERE jsonb_typeof(x->'auto_config') = 'object'))`, [onlyKr]);
   const out = { processed: rows.length, updated: 0, errors: [] };
   const today = src.ymd(new Date());
   const touched = new Set();
   const round = (v) => Math.round(v * 100) / 100;
   for (const kr of rows) {
-    let mainErr = null;
-    let value = Number(kr.current_value || 0);
-    const conds = Array.isArray(kr.conditions) ? kr.conditions.map((c) => ({ ...c })) : [];
-    try {
-      if (!kr.w_from) throw new Error('set a start date on the key result, its objective or its cycle');
-      const from = kr.w_from.slice(0, 10), to = kr.w_to && kr.w_to.slice(0, 10) < today ? kr.w_to.slice(0, 10) : today;
-      if (from > today) throw new Error(`the key result starts on ${from}`);
-      if (kr.auto_config) {
-        try {
-          const r = await src.krValue(pool, kr.auto_config, from, to);
-          if (r.value == null) throw new Error(`no data between ${from} and ${to}`);
-          value = round(r.value);
-        } catch (e) { mainErr = e.message; }
-      }
-      for (const c of conds) {
-        if (!c.auto_config || typeof c.auto_config !== 'object') continue;
-        try {
-          const r = await src.krValue(pool, c.auto_config, from, to);
-          if (r.value == null) throw new Error(`no data between ${from} and ${to}`);
-          c.current_value = round(r.value); c.auto_error = null;
-        } catch (e) { c.auto_error = String(e.message).slice(0, 300); out.errors.push(`${kr.title} / ${c.label || 'condition'}: ${e.message}`); }
-      }
-    } catch (e) { mainErr = e.message; }
-    if (mainErr) out.errors.push(`${kr.title}: ${mainErr}`);
-    const parts = [src.calcProgress(value, Number(kr.target_value), kr.target_direction),
-      ...conds.filter((c) => c.target_value !== null && c.target_value !== '' && c.target_value !== undefined)
-        .map((c) => src.calcProgress(Number(c.current_value || 0), Number(c.target_value), c.target_direction))];
-    const progress = Math.min(...parts);
-    await pool.query(
-      `UPDATE key_results SET current_value = $2, progress = $3, conditions = $4::jsonb, auto_error = $5,
-              auto_synced_at = CASE WHEN $5::text IS NULL THEN now() ELSE auto_synced_at END, updated_at = now() WHERE id = $1`,
-      [kr.id, value, progress, conds.length ? JSON.stringify(conds) : null, kr.auto_config ? mainErr : null]);
+    const isNew = Array.isArray(kr.measures) && kr.measures.length > 0;
+    const ms = km.getMeasures({ ...kr, start_date: kr.start_date && kr.start_date.slice(0, 10), end_date: kr.end_date && kr.end_date.slice(0, 10) }).map((m) => ({ ...m }));
+    const krFrom = kr.start_date && kr.start_date.slice(0, 10), krTo = kr.end_date && kr.end_date.slice(0, 10);
+    // New-style KRs use their measurement period; legacy ones the whole KR period so far.
+    const win = isNew ? km.periodWindow({ ...kr }, today, krFrom, krTo)
+      : (krFrom ? { from: krFrom, to: krTo && krTo < today ? krTo : today } : null);
+    for (const m of ms) {
+      if (!m.auto_config || typeof m.auto_config !== 'object') continue;
+      try {
+        if (!win) throw new Error('set a start date on the key result, its objective or its cycle');
+        if (win.from > today) throw new Error(`the period starts on ${win.from}`);
+        const cfg = isNew ? { ...m.auto_config, window_agg: km.KIND_TO_WINDOW[m.kind] || 'total' } : m.auto_config;
+        const r = await src.krValue(pool, cfg, win.from, win.to > today ? today : win.to);
+        if (r.value == null) throw new Error(`no data between ${win.from} and ${win.to}`);
+        m.current_value = round(r.value); m.auto_error = null;
+      } catch (e) { m.auto_error = String(e.message).slice(0, 300); out.errors.push(`${kr.title} / ${m.label || 'value'}: ${e.message}`); }
+    }
+    if (isNew) {
+      const ev = km.evalKR({ ...kr, measures: ms, start_date: krFrom, end_date: krTo }, today);
+      const mirror = km.legacyMirror(ms);
+      const err = ms.map((m) => m.auto_error).filter(Boolean)[0] || null;
+      await pool.query(
+        `UPDATE key_results SET measures = $2::jsonb, current_value = $3, target_value = $4, unit = $5, target_direction = $6, progress = $7,
+                auto_error = $8, auto_synced_at = now(), updated_at = now() WHERE id = $1`,
+        [kr.id, JSON.stringify(ms), mirror.current_value, mirror.target_value, mirror.unit, mirror.target_direction, ev.progress, err]);
+    } else {
+      const ev = km.evalKR({ ...kr, measures: null, current_value: ms[0].current_value, auto_error: ms[0].auto_error,
+        conditions: Array.isArray(kr.conditions) ? kr.conditions.map((c, i) => ({ ...c, current_value: ms[i + 1] ? ms[i + 1].current_value : c.current_value })) : null });
+      const conds = Array.isArray(kr.conditions) ? kr.conditions.map((c, i) => ({ ...c, current_value: ms[i + 1].current_value, auto_error: ms[i + 1].auto_error || null })) : null;
+      await pool.query(
+        `UPDATE key_results SET current_value = $2, progress = $3, conditions = $4::jsonb, auto_error = $5, auto_synced_at = now(), updated_at = now() WHERE id = $1`,
+        [kr.id, ms[0].current_value, ev.progress, conds ? JSON.stringify(conds) : null, ms[0].auto_error || null]);
+    }
     out.updated++;
     if (kr.objective_id) touched.add(kr.objective_id);
   }
   for (const objId of touched) {
     await pool.query(
-      `UPDATE objectives SET progress = sub.p FROM (SELECT round(avg(progress))::int AS p FROM key_results WHERE objective_id = $1 AND deleted_at IS NULL) sub WHERE id = $1`,
+      `UPDATE objectives SET progress = sub.p FROM (SELECT round(avg(least(progress, 100)))::int AS p FROM key_results WHERE objective_id = $1 AND deleted_at IS NULL) sub WHERE id = $1`,
       [objId]);
   }
   return out;

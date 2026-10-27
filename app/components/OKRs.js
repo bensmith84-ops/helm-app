@@ -7,7 +7,9 @@ import { useResponsive } from "../lib/responsive";
 import { useResizableColumns } from "../lib/useResizableColumns";
 import { useModal } from "../lib/modal";
 import { invokeFunction } from "../lib/invokeFunction";
-import MetricSourcePicker, { describeSource } from "./MetricSourcePicker";
+import { describeSource } from "./MetricSourcePicker";
+import KRMeasuresEditor from "./KRMeasuresEditor";
+import { evalKR, getMeasures, legacyMirror, OP_SYMBOL } from "../lib/krMeasures";
 
 const HEALTH = {
   on_track:  { label: "On Track",  color: "#22c55e", bg: "#0d3a20" },
@@ -33,18 +35,12 @@ const progressColor = (pct, direction, current, target) => {
   }
   return pct >= 70 ? "#22c55e" : pct >= 40 ? "#eab308" : "#3b82f6";
 };
-// Multi-condition KRs ("$X spend at $Y CPA"): the KR's own value is the main
-// measure and kr.conditions holds the rest. Every measure must be met, so the KR's
-// progress is the lowest of them and its colour is the worst.
-const krParts = (kr) => [
-  { label: kr.title, current: Number(kr.current_value || 0), target: Number(kr.target_value), direction: kr.target_direction, unit: kr.unit },
-  ...(Array.isArray(kr.conditions) ? kr.conditions : []).filter(c => c && c.target_value !== "" && c.target_value != null)
-    .map(c => ({ label: c.label, current: Number(c.current_value || 0), target: Number(c.target_value), direction: c.target_direction, unit: c.unit, auto: !!c.auto_config, error: c.auto_error })),
-];
-const COLOR_RANK = ["#ef4444", "#3b82f6", "#eab308", "#22c55e"];
-const partColor = (p) => progressColor(calcProgress(p.current, p.target, p.direction), p.direction, p.current, p.target);
-const krProgress = (kr) => Math.min(...krParts(kr).map(p => calcProgress(p.current, p.target, p.direction)));
-const krColor = (kr) => krParts(kr).map(partColor).sort((a, b) => COLOR_RANK.indexOf(a) - COLOR_RANK.indexOf(b))[0];
+// Multi-value KRs ("$X spend at $Y CPA"): see lib/krMeasures. Progress is the
+// lowest (all) or best (any) of the values; the colour follows.
+const krProgress = (kr) => evalKR(kr).progress;
+const krColor = (kr) => evalKR(kr).color;
+const krParts = (kr) => evalKR(kr).parts.map(p => ({ label: p.label, current: Number(p.current_value || 0), target: p.target_value === "" || p.target_value == null ? null : Number(p.target_value), unit: p.unit, op: p.op, auto: !!p.auto_config, error: p.auto_error, color: p.color, met: p.met }));
+const partColor = (p) => p.color;
 const fmtVal = (v, unit) => { const n = Number(v || 0); const s = Math.abs(n) >= 1000 ? Math.round(n).toLocaleString() : (Math.round(n * 100) / 100).toLocaleString(); return unit === "$" ? `$${s}` : unit === "%" ? `${s}%` : unit ? `${s} ${unit}` : s; };
 const acol = (uid) => uid ? AVATAR_COLORS[uid.charCodeAt(uid.length - 1) % AVATAR_COLORS.length] : T.text3;
 const TIMEFRAME_OPTIONS = [
@@ -430,7 +426,12 @@ export default function OKRsView() {
 
   // Edit functions
   const editObjective = (obj) => setEditItem({ type: "objective", data: { ...obj } });
-  const editKR = (kr) => { setSelectedKR(null); setEditItem({ type: "kr", data: { ...kr } }); };
+  const editKR = (kr) => {
+    setSelectedKR(null);
+    const measures = getMeasures(kr).map(m => ({ ...m }));
+    if (!(Array.isArray(kr.measures) && kr.measures.length) && measures[0] && !kr.conditions?.length) measures[0].label = ""; // single legacy value: no label yet
+    setEditItem({ type: "kr", data: { ...kr, measures, measure_logic: kr.measure_logic || "all", measure_period: kr.measure_period || "kr", period_eval: kr.period_eval || "to_date" } });
+  };
   const editMilestone = (ms) => setEditItem({ type: "milestone", data: { ...ms } });
 
   const recalcObjectiveProgress = async (objId, krArr) => {
@@ -467,16 +468,24 @@ export default function OKRsView() {
       const mode = rest.progress_mode || "manual";
       const updates = { title: rest.title, target_value: Number(rest.target_value) || 100, unit: rest.unit || null, owner_id: rest.owner_id || null, start_date: rest.start_date || null, end_date: rest.end_date || null, current_value: Number(rest.current_value) || 0, progress_mode: mode, target_direction: rest.target_direction || "above" };
       if (mode === "manual") {
-        updates.conditions = (rest.conditions || []).filter(c => c && (c.label || c.target_value !== "")).map(({ _open, ...c }) => ({ ...c, target_value: c.target_value === "" ? null : Number(c.target_value), current_value: Number(c.current_value) || 0 }));
-        if (!updates.conditions.length) updates.conditions = null;
-        updates.progress = krProgress({ ...updates, title: rest.title });
+        const toNum = (v) => (v === "" || v == null || isNaN(Number(v)) ? null : Number(v));
+        const measures = (rest.measures || []).filter((m, i) => i === 0 || m.label || toNum(m.target_value) != null)
+          .map(({ _open, ...m }, i) => ({ ...m, id: m.id || `m${i}`, label: m.label || (i === 0 ? rest.title : ""), current_value: toNum(m.current_value) ?? 0, target_value: toNum(m.target_value), op: m.op || ">=", kind: m.kind || "total", auto_config: m.auto_config || null }));
+        updates.measures = measures;
+        updates.measure_logic = rest.measure_logic || "all";
+        updates.measure_period = rest.measure_period || "kr";
+        updates.period_eval = updates.measure_period === "kr" ? "to_date" : (rest.period_eval || "last_complete");
+        Object.assign(updates, legacyMirror(measures));
+        if (updates.target_value == null) updates.target_value = 0;
+        updates.conditions = null;
+        updates.progress = krProgress({ ...rest, ...updates });
       } else {
         const linked = milestones.filter(m => m.key_result_id === id);
         updates.progress = linked.length > 0 ? Math.round(linked.reduce((s, m) => s + Number(m.progress || 0), 0) / linked.length) : 0;
         updates.current_value = Math.round((updates.progress / 100) * updates.target_value);
       }
-      updates.auto_config = mode === "manual" ? (rest.auto_config || null) : null;
-      const anyAuto = updates.auto_config || (updates.conditions || []).some(c => c.auto_config);
+      updates.auto_config = null; // per-value auto-calculation lives in measures
+      const anyAuto = mode === "manual" && (updates.measures || []).some(m => m.auto_config);
       if (!updates.auto_config) updates.auto_error = null;
       setKeyResults(p => p.map(k => k.id === id ? { ...k, ...updates } : k));
       await supabase.from("key_results").update(updates).eq("org_id", orgId).eq("id", id);
@@ -923,7 +932,7 @@ export default function OKRsView() {
                 {objKRs.map(kr => {
                   const p = krProgress(kr); const sel = selectedKR === kr.id;
                   const pColor = krColor(kr);
-                  const conds = krParts(kr).slice(1);
+                  const conds = krParts(kr).slice(1).filter(c => c.target != null);
                   const krCIs = checkIns.filter(c => c.key_result_id === kr.id);
                   const lastCI = krCIs[0];
                   const daysSince = lastCI ? Math.floor((Date.now() - new Date(lastCI.created_at).getTime()) / 86400000) : null;
@@ -933,9 +942,9 @@ export default function OKRsView() {
                       <span style={{ fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: 12, display: "flex", alignItems: "center", gap: 6 }}>
                         {kr.title}
                         {conds.map((c, i) => (
-                          <span key={i} title={`All conditions must be met.${c.auto ? " Auto-calculated." : ""}${c.error ? " Last run failed: " + c.error : ""}`}
+                          <span key={i} title={`${kr.measure_logic === "any" ? "Any one value must be met." : "All values must be met."}${c.auto ? " Auto-calculated." : ""}${c.error ? " Last run failed: " + c.error : ""}`}
                             style={{ fontSize: 9, padding: "1px 6px", borderRadius: 8, border: `1px solid ${partColor(c)}60`, background: `${partColor(c)}12`, color: partColor(c), fontWeight: 700, flexShrink: 0, whiteSpace: "nowrap" }}>
-                            {c.auto ? "⚡ " : ""}{c.label || "Condition"} {fmtVal(c.current, c.unit)} {c.direction === "below" ? "≤" : "≥"} {fmtVal(c.target, c.unit)}
+                            {c.auto ? "⚡ " : ""}{c.label || "Value"} {fmtVal(c.current, c.unit)} {OP_SYMBOL[c.op] || "≥"} {fmtVal(c.target, c.unit)}
                           </span>
                         ))}
                         {kr.progress_mode === "milestones" && <span style={{ fontSize: 8, padding: "1px 5px", borderRadius: 3, background: `${T.accent}20`, color: T.accent, fontWeight: 700, flexShrink: 0 }}>AUTO</span>}
@@ -954,8 +963,8 @@ export default function OKRsView() {
                         <span style={{ fontSize: 11, fontWeight: 600, color: pColor, minWidth: 36, textAlign: "right" }}>{Math.round(p)}%</span>
                       </div>
                       {/* Inline value edit */}
-                      {kr.progress_mode === "milestones" || kr.auto_config ? (
-                        <span style={{ fontSize: 12, color: T.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{kr.current_value}/{kr.target_value}{kr.unit ? " "+kr.unit : ""}</span>
+                      {kr.progress_mode === "milestones" || kr.auto_config || (Array.isArray(kr.measures) && kr.measures.length) ? (
+                        <span title={kr.measure_period && kr.measure_period !== "kr" ? `Measured ${kr.measure_period}ly` : undefined} style={{ fontSize: 12, color: T.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fmtVal(kr.current_value, kr.unit)} / {fmtVal(kr.target_value, kr.unit)}</span>
                       ) : (
                         <span onClick={e => e.stopPropagation()} style={{ display: "flex", alignItems: "center", gap: 4 }}>
                           <input
@@ -969,7 +978,7 @@ export default function OKRsView() {
                             onClick={e => { e.stopPropagation(); e.target.select(); }}
                             style={{ width: 52, padding: "2px 5px", borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12, outline: "none", textAlign: "right" }}
                           />
-                          <span style={{ fontSize: 10, color: T.text3 }}>/{kr.target_value}{kr.unit ? " "+kr.unit : ""}</span>
+                          <span style={{ fontSize: 10, color: T.text3 }}>/{Number(kr.target_value || 0).toLocaleString("en-US")}{kr.unit ? " "+kr.unit : ""}</span>
                         </span>
                       )}
                       <ConfidenceDot value={kr.confidence} />
@@ -1000,7 +1009,7 @@ export default function OKRsView() {
     const typeLabel = type === "objective" ? "Objective" : type === "kr" ? "Key Result" : "Milestone";
     return (
       <div onClick={() => setEditItem(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div onClick={e => e.stopPropagation()} style={{ width: type === "milestone" ? 520 : 500, maxHeight: "85vh", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14, boxShadow: "0 20px 60px rgba(0,0,0,0.3)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <div onClick={e => e.stopPropagation()} style={{ width: type === "milestone" ? 520 : type === "kr" ? 780 : 500, maxWidth: "96vw", maxHeight: "85vh", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14, boxShadow: "0 20px 60px rgba(0,0,0,0.3)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
           <div style={{ padding: isMobile ? "10px 12px" : "16px 24px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>Edit {typeLabel}</h3>
             <button onClick={() => setEditItem(null)} style={{ background: T.surface2, border: `1px solid ${T.border}`, color: T.text3, cursor: "pointer", width: 28, height: 28, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>×</button>
@@ -1010,56 +1019,6 @@ export default function OKRsView() {
             {type === "objective" && <>
               <div style={{ marginBottom: 12 }}><label style={_elbl}>Title</label><input value={d.title || ""} onChange={e => editSet("title", e.target.value)} style={_einp} /></div>
               <div style={{ marginBottom: 12 }}><label style={_elbl}>Description</label><textarea value={d.description || ""} onChange={e => editSet("description", e.target.value)} rows={2} style={{ ..._einp, resize: "vertical" }} /></div>
-              {mode === "manual" && (() => {
-                const conds = Array.isArray(d.conditions) ? d.conditions : [];
-                const setConds = (next) => editSet("conditions", next);
-                const setC = (i, patch) => setConds(conds.map((c, j) => j === i ? { ...c, ...patch } : c));
-                const obj = objectives.find(o => o.id === d.objective_id);
-                const cyc = cycles.find(c => c.id === obj?.cycle_id);
-                const today = new Date().toISOString().slice(0, 10);
-                const wFrom = d.start_date || obj?.start_date || cyc?.start_date || null;
-                const wToRaw = d.end_date || obj?.end_date || cyc?.end_date || null;
-                const win = wFrom ? { from: wFrom, to: wToRaw && wToRaw < today ? wToRaw : today } : null;
-                const ci = { ..._einp, padding: "6px 8px", fontSize: 12 };
-                return (
-                  <div style={{ marginBottom: 12, padding: "10px 14px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface2 }}>
-                    <label style={{ ..._elbl, marginBottom: 4 }}>Also must be true</label>
-                    <div style={{ fontSize: 11, color: T.text3, marginBottom: conds.length ? 10 : 8 }}>
-                      Add conditions for multi-part results, e.g. "$500K spend" at "CPA ≤ $45". The KR is only on track when every one is met, and its progress is the lowest of them.
-                    </div>
-                    {conds.map((c, i) => {
-                      const part = { current: Number(c.current_value || 0), target: Number(c.target_value), direction: c.target_direction };
-                      const pct = c.target_value === "" || c.target_value == null ? null : calcProgress(part.current, part.target, part.direction);
-                      return (
-                        <div key={c.id || i} style={{ marginBottom: 10, paddingBottom: 10, borderBottom: `1px solid ${T.border}` }}>
-                          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "2fr 1fr 70px 1fr 60px auto auto", gap: 6, alignItems: "end" }}>
-                            <div><label style={_elbl}>Measure</label><input value={c.label || ""} onChange={e => setC(i, { label: e.target.value })} placeholder="e.g. CPA" style={ci} /></div>
-                            <div><label style={_elbl}>Current</label><input type="number" value={c.current_value ?? 0} disabled={!!c.auto_config} onChange={e => setC(i, { current_value: e.target.value })} style={{ ...ci, opacity: c.auto_config ? .5 : 1 }} /></div>
-                            <div><label style={_elbl}>Must be</label>
-                              <select value={c.target_direction || "above"} onChange={e => setC(i, { target_direction: e.target.value })} style={{ ...ci, cursor: "pointer" }}>
-                                <option value="above">≥</option><option value="below">≤</option>
-                              </select></div>
-                            <div><label style={_elbl}>Target</label><input type="number" value={c.target_value ?? ""} onChange={e => setC(i, { target_value: e.target.value })} style={ci} /></div>
-                            <div><label style={_elbl}>Unit</label><input value={c.unit || ""} onChange={e => setC(i, { unit: e.target.value })} placeholder="$" style={ci} /></div>
-                            <button type="button" title="Calculate automatically" onClick={() => setC(i, { _open: !c._open })}
-                              style={{ height: 30, padding: "0 10px", borderRadius: 6, border: `1px solid ${c.auto_config ? T.accent + "60" : T.border}`, background: c.auto_config ? `${T.accent}15` : T.surface, color: c.auto_config ? T.accent : T.text3, cursor: "pointer", fontSize: 12 }}>⚡</button>
-                            <button type="button" title="Remove" onClick={() => setConds(conds.filter((_, j) => j !== i))}
-                              style={{ height: 30, padding: "0 8px", borderRadius: 6, border: "none", background: "none", color: T.text3, cursor: "pointer", fontSize: 16 }}>×</button>
-                          </div>
-                          {pct != null && <div style={{ fontSize: 10, marginTop: 4, color: progressColor(pct, part.direction, part.current, part.target) }}>{pct >= 100 ? "Met" : `${pct}% of target`}{c.auto_error ? <span style={{ color: "#ef4444" }}> · Last run failed: {c.auto_error}</span> : null}</div>}
-                          {(c._open || false) && (
-                            <div style={{ marginTop: 8, padding: 10, borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface }}>
-                              <MetricSourcePicker mode="kr" value={c.auto_config || null} onChange={v => setC(i, { auto_config: v })} scorecardMetrics={scMetrics} krWindow={win} />
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                    <button type="button" onClick={() => setConds([...conds, { id: `c${Date.now().toString(36)}`, label: "", current_value: 0, target_value: "", unit: "", target_direction: "below" }])}
-                      style={{ fontSize: 12, fontWeight: 600, padding: "6px 12px", borderRadius: 6, border: `1px dashed ${T.border}`, background: "transparent", color: T.text2, cursor: "pointer" }}>+ Add condition</button>
-                  </div>
-                );
-              })()}
               <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12, marginBottom: 12 }}>
                 <div><label style={_elbl}>Owner</label><OwnerPicker profiles={profiles} value={d.owner_id || ""} onChange={v => editSet("owner_id", v)} /></div>
                 <div><label style={_elbl}>Health</label>
@@ -1099,22 +1058,12 @@ export default function OKRsView() {
                   {linkedMS.length > 0 ? `${linkedMS.length} linked milestone${linkedMS.length > 1 ? "s" : ""} → ${autoProgress}% avg` : "No milestones linked yet - edit milestones and link them to this KR"}
                 </div>}
               </div>
-              {mode === "manual" && (() => {
+              {mode === "manual" ? (() => {
                 const obj = objectives.find(o => o.id === d.objective_id);
                 const cyc = cycles.find(c => c.id === obj?.cycle_id);
-                const today = new Date().toISOString().slice(0, 10);
-                const wFrom = d.start_date || obj?.start_date || cyc?.start_date || null;
-                const wToRaw = d.end_date || obj?.end_date || cyc?.end_date || null;
-                const wTo = wToRaw && wToRaw < today ? wToRaw : today;
-                return (
-                  <div style={{ marginBottom: 12, padding: "10px 14px", borderRadius: 8, border: `1px solid ${d.auto_config ? T.accent + "40" : T.border}`, background: d.auto_config ? T.accent + "08" : T.surface2 }}>
-                    <label style={{ ..._elbl, marginBottom: 8, color: d.auto_config ? T.accent : undefined }}>⚡ Calculate the current value automatically</label>
-                    {d.auto_error && <div style={{ fontSize: 11, color: "#ef4444", marginBottom: 8 }}>Last run failed: {d.auto_error}</div>}
-                    <MetricSourcePicker mode="kr" value={d.auto_config || null} onChange={v => editSet("auto_config", v)} scorecardMetrics={scMetrics} krWindow={wFrom ? { from: wFrom, to: wTo } : null} />
-                    {d.auto_config && <div style={{ fontSize: 10, color: T.text3, marginTop: 8 }}>Saved KRs recalculate after each data refresh (10:15 and 13:15 ET){d.auto_synced_at ? `; last ${new Date(d.auto_synced_at).toLocaleString()}` : ""}.</div>}
-                  </div>
-                );
-              })()}
+                const krDates = { from: d.start_date || obj?.start_date || cyc?.start_date || null, to: d.end_date || obj?.end_date || cyc?.end_date || null };
+                return <KRMeasuresEditor d={d} editSet={editSet} scMetrics={scMetrics} krDates={krDates} isMobile={isMobile} lbl={_elbl} inp={_einp} />;
+              })() : <>
               <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
                 <div><label style={_elbl}>Current Value</label><input type="number" value={d.current_value ?? 0} onChange={e => editSet("current_value", e.target.value)} disabled={mode === "milestones" || !!d.auto_config} style={{ ..._einp, opacity: mode === "milestones" || d.auto_config ? 0.5 : 1 }} /></div>
                 <div><label style={_elbl}>Target Value</label><input type="number" value={d.target_value ?? 100} onChange={e => editSet("target_value", e.target.value)} style={_einp} /></div>
@@ -1132,6 +1081,7 @@ export default function OKRsView() {
                   {(d.target_direction || "above") === "above" ? "Green when value meets or exceeds target" : "Green when value is at or below target"}
                 </div>
               </div>
+              </>}
               <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12, marginBottom: 12 }}>
                 <div><label style={_elbl}>Owner</label><OwnerPicker profiles={profiles} value={d.owner_id || ""} onChange={v => editSet("owner_id", v)} /></div>
                 <div>
