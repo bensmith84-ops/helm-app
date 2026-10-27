@@ -60,7 +60,7 @@ export function describeSource(s) {
 const fmtNum = (v) => v == null ? "–" : Math.abs(v) >= 1000 ? Math.round(v).toLocaleString() : (Math.round(v * 100) / 100).toLocaleString();
 const shortDate = (d) => { const x = new Date(d + "T12:00:00"); return x.toLocaleDateString(undefined, { month: "short", day: "numeric" }); };
 
-export default function MetricSourcePicker({ value, onChange, mode = "scorecard", scorecardMetrics = [], krWindow = null }) {
+export default function MetricSourcePicker({ value, onChange, mode = "scorecard", scorecardMetrics = [], krWindow = null, hideWindowAgg = false, windowAgg = null }) {
   const kind = value?.kind || "manual";
   const set = (patch) => onChange({ ...(value || {}), ...patch });
   const setKind = (k) => {
@@ -113,7 +113,7 @@ export default function MetricSourcePicker({ value, onChange, mode = "scorecard"
           </select></div>
       )}
 
-      {kind !== "manual" && mode === "kr" && (
+      {kind !== "manual" && mode === "kr" && !hideWindowAgg && (
         <div><label style={lbl}>Key result value</label>
           <select value={value.window_agg || "total"} onChange={e => set({ window_agg: e.target.value })} style={sel}>
             {WINDOW_AGGS.map(a => <option key={a.v} value={a.v}>{a.l}</option>)}
@@ -123,7 +123,7 @@ export default function MetricSourcePicker({ value, onChange, mode = "scorecard"
           </div></div>
       )}
 
-      {kind !== "manual" && <Preview value={value} mode={mode} krWindow={krWindow} />}
+      {kind !== "manual" && <Preview value={windowAgg ? { ...value, window_agg: windowAgg } : value} mode={mode} krWindow={krWindow} />}
     </div>
   );
 }
