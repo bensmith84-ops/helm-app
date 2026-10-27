@@ -247,6 +247,7 @@ steps:
         upsert shopify-backfill-tick '* * * * *'
         upsert warehouse-sync '30 9 * * *' America/New_York
         upsert warehouse-sync-midday '30 12 * * *' America/New_York
+        upsert scorecard-auto-calc '15 10,13 * * *' America/New_York
         upsert sheets-daily-sync '5 4 * * *' America/New_York
         upsert asana-sync-mirror '*/15 * * * *'
 

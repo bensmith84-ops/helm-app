@@ -5,6 +5,7 @@ import { invokeFunction } from "../lib/invokeFunction";
 import { T } from "../tokens";
 import { useResponsive } from "../lib/responsive";
 import { useAuth } from "../lib/auth";
+import MetricSourcePicker, { sourceFromMetric, metricFieldsFromSource, describeSource } from "./MetricSourcePicker";
 
 const AVATAR_COLORS = ["#3b82f6","#a855f7","#ec4899","#06b6d4","#f97316","#22c55e","#84cc16","#ef4444"];
 const acol = (uid) => uid ? AVATAR_COLORS[uid.charCodeAt(uid.length-1)%AVATAR_COLORS.length] : T.text3;
@@ -167,7 +168,7 @@ export default function ScorecardView() {
   const [keyResults, setKeyResults] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAddMetric, setShowAddMetric] = useState(false);
-  const [newMetric, setNewMetric] = useState({ name:"", unit:"number", goal:"", frequency:"weekly", description:"", linked_kr_id:"", auto_source:"", auto_agg:"sum", auto_weight_key:"", target_direction:"above", metric_type:"quantitative" });
+  const [newMetric, setNewMetric] = useState({ name:"", unit:"number", goal:"", frequency:"weekly", description:"", linked_kr_id:"", auto_source:"", auto_agg:"sum", auto_weight_key:"", source:null, target_direction:"above", metric_type:"quantitative" });
   const [saving, setSaving] = useState(false);
   const [autoCalcRunning, setAutoCalcRunning] = useState(false);
   const [editAutoSource, setEditAutoSource] = useState(null);
@@ -176,13 +177,6 @@ export default function ScorecardView() {
   const [ragPick, setRagPick] = useState("");
   const [ragText, setRagText] = useState(""); // { metricId, auto_source, auto_agg, auto_weight_key }
 
-  const DAILY_KEYS = ["revenue","amazon_revenue","ad_spend","cpa","dtc_cac","x_cac","gwp_cpa","nc_aov","net_dollars","total_orders","new_orders","amazon_total_orders","units_shipped","dtc_new_customers","amz_new_customers","traffic","blended_cvr","new_gwp_subs","new_shopify_subs","daily_cancels","net_daily_subs","amz_net_subs","sub_rate","upsell_take_rate","comp_yago","opex_pct_rev"];
-  const AGG_METHODS = [
-    { value: "sum", label: "Sum", desc: "Total for the week (e.g., revenue, orders)" },
-    { value: "average", label: "Average", desc: "Simple average of daily values" },
-    { value: "weighted_average", label: "Weighted Average", desc: "Weighted by another metric (e.g., CPA weighted by purchases)" },
-    { value: "last", label: "Last Value", desc: "Use the last day's value for the week" },
-  ];
 
   useEffect(() => {
     (async () => {
@@ -331,22 +325,20 @@ export default function ScorecardView() {
       linked_kr_id: newMetric.linked_kr_id || null,
       target_direction: isRag ? null : (newMetric.target_direction || "above"),
       metric_type: newMetric.metric_type || "quantitative",
-      auto_source: isRag ? null : (newMetric.auto_source || null),
-      auto_agg: !isRag && newMetric.auto_source ? (newMetric.auto_agg || "sum") : null,
-      auto_weight_key: newMetric.auto_agg === "weighted_average" ? (newMetric.auto_weight_key || null) : null,
+      ...metricFieldsFromSource(isRag ? null : newMetric.source),
       org_id: orgId, owner_id: user.id, sort_order: metrics.length,
     }).select().single();
     if (data) { setMetrics(p => [...p, data]); setEntries(p => ({...p, [data.id]: {}})); }
-    setNewMetric({ name:"", unit:"number", goal:"", frequency:"weekly", description:"", linked_kr_id:"", auto_source:"", auto_agg:"sum", auto_weight_key:"", target_direction:"above", metric_type:"quantitative" });
+    setNewMetric({ name:"", unit:"number", goal:"", frequency:"weekly", description:"", linked_kr_id:"", auto_source:"", auto_agg:"sum", auto_weight_key:"", source:null, target_direction:"above", metric_type:"quantitative" });
     setShowAddMetric(false);
     setSaving(false);
-    if (data?.auto_source) runAutoCalc();
+    if (data?.auto_source) runAutoCalc(data.id);
   };
 
-  const runAutoCalc = async () => {
+  const runAutoCalc = async (metricId) => {
     setAutoCalcRunning(true);
     try {
-      const { data: result, error: invokeErr } = await invokeFunction("scorecard-auto-calc", { body: {} });
+      const { data: result, error: invokeErr } = await invokeFunction("scorecard-auto-calc", { body: typeof metricId === "string" ? { metric_id: metricId } : {} });
       if (invokeErr) throw new Error(invokeErr.message);
       console.log("[Scorecard] Auto-calc result:", result);
       // Reload metrics (in case auto_source was configured externally)
@@ -564,41 +556,13 @@ export default function ScorecardView() {
               </select>
             </div>
           </div>
-          {/* Auto-calculate from Scoreboard */}
-          <div style={{ marginTop: 12, padding: "12px 14px", borderRadius: 8, border: `1px solid ${newMetric.auto_source ? T.accent + "40" : T.border}`, background: newMetric.auto_source ? T.accent + "08" : "transparent" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: newMetric.auto_source ? 10 : 0 }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: newMetric.auto_source ? T.accent : T.text2 }}>⚡ Auto-calculate from Scoreboard</span>
-              <select value={newMetric.auto_source} onChange={e => setNewMetric(p => ({ ...p, auto_source: e.target.value }))}
-                style={{ fontSize: 11, padding: "4px 8px", borderRadius: 5, border: `1px solid ${T.border}`, background: T.surface, color: T.text, cursor: "pointer" }}>
-                <option value="">Manual entry</option>
-                {DAILY_KEYS.map(k => <option key={k} value={k}>{k.replace(/_/g, " ")}</option>)}
-              </select>
-            </div>
-            {newMetric.auto_source && (
-              <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                <div>
-                  <div style={{ fontSize: 10, color: T.text3, marginBottom: 3, fontWeight: 600 }}>Aggregation</div>
-                  <select value={newMetric.auto_agg} onChange={e => setNewMetric(p => ({ ...p, auto_agg: e.target.value }))}
-                    style={{ fontSize: 11, padding: "4px 8px", borderRadius: 5, border: `1px solid ${T.border}`, background: T.surface, color: T.text, cursor: "pointer" }}>
-                    {AGG_METHODS.map(a => <option key={a.value} value={a.value}>{a.label}</option>)}
-                  </select>
-                </div>
-                {newMetric.auto_agg === "weighted_average" && (
-                  <div>
-                    <div style={{ fontSize: 10, color: T.text3, marginBottom: 3, fontWeight: 600 }}>Weight by</div>
-                    <select value={newMetric.auto_weight_key} onChange={e => setNewMetric(p => ({ ...p, auto_weight_key: e.target.value }))}
-                      style={{ fontSize: 11, padding: "4px 8px", borderRadius: 5, border: `1px solid ${T.border}`, background: T.surface, color: T.text, cursor: "pointer" }}>
-                      <option value="">Select weight metric…</option>
-                      {DAILY_KEYS.filter(k => k !== newMetric.auto_source).map(k => <option key={k} value={k}>{k.replace(/_/g, " ")}</option>)}
-                    </select>
-                  </div>
-                )}
-                <div style={{ fontSize: 10, color: T.text3, marginTop: 12, flex: 1 }}>
-                  {AGG_METHODS.find(a => a.value === newMetric.auto_agg)?.desc}
-                </div>
-              </div>
-            )}
+          {/* Auto-calculate from the Scoreboard or Metabase */}
+          {newMetric.metric_type !== "rag" && (
+          <div style={{ marginTop: 12, padding: "12px 14px", borderRadius: 8, border: `1px solid ${newMetric.source ? T.accent + "40" : T.border}`, background: newMetric.source ? T.accent + "08" : "transparent" }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: newMetric.source ? T.accent : T.text2, marginBottom: 8 }}>⚡ Auto-calculate weekly values</div>
+            <MetricSourcePicker mode="scorecard" value={newMetric.source} onChange={v => setNewMetric(p => ({ ...p, source: v }))} />
           </div>
+          )}
           <div style={{ display:"flex", gap:6, justifyContent:"flex-end", marginTop:12 }}>
             <button onClick={() => setShowAddMetric(false)}
               style={{ padding:"7px 10px", fontSize:12, background:T.surface3, color:T.text2, border:`1px solid ${T.border}`, borderRadius:6, cursor:"pointer" }}>Cancel</button>
@@ -653,7 +617,7 @@ export default function ScorecardView() {
                       <div style={{ display:"flex", alignItems:"center", gap:8 }}>
                         <RagDot value={m.latest} goal={m.currentGoal} unit={m.unit} direction={m.target_direction} />
                         <div style={{ flex:1, minWidth:0 }}>
-                          <div style={{ fontSize:13, fontWeight:600, color:T.text }}>{m.name}{m.auto_source && <span title={`Auto: ${m.auto_agg}${m.auto_weight_key ? ` weighted by ${m.auto_weight_key}` : ""} from ${m.auto_source}`} style={{ fontSize:10, color:T.accent, marginLeft:5, fontWeight:700 }}>⚡</span>}</div>
+                          <div style={{ fontSize:13, fontWeight:600, color:T.text }}>{m.name}{m.auto_source && <span title={m.auto_error ? `Auto-calc failed: ${m.auto_error}` : `${describeSource(sourceFromMetric(m))} (${m.auto_agg || "sum"} per week)`} style={{ fontSize:10, color: m.auto_error ? "#ef4444" : T.accent, marginLeft:5, fontWeight:700 }}>⚡</span>}</div>
                           {m.description && <div style={{ fontSize:10, color:T.text3 }}>{m.description}</div>}
                           {m.linked_kr_id && (() => {
                             const kr = keyResults.find(k => k.id === m.linked_kr_id);
@@ -800,10 +764,10 @@ export default function ScorecardView() {
                     })}
                     <td style={{ padding:"6px 4px", textAlign:"center", whiteSpace:"nowrap" }}>
                       <button onClick={() => {
-                        setEditAutoSource({ metricId: m.id, auto_source: m.auto_source || "", auto_agg: m.auto_agg || "sum", auto_weight_key: m.auto_weight_key || "" });
+                        setEditAutoSource({ metricId: m.id, name: m.name, source: sourceFromMetric(m), error: m.auto_error, synced: m.auto_synced_at });
                       }}
-                        title={m.auto_source ? `Auto: ${m.auto_agg} of ${m.auto_source}${m.auto_weight_key ? " weighted by " + m.auto_weight_key : ""}` : "Configure auto-calculate"}
-                        style={{ background:"none", border:"none", color: m.auto_source ? T.accent : T.text3, cursor:"pointer", fontSize:11, opacity: m.auto_source ? 1 : 0.5 }}>⚡</button>
+                        title={m.auto_error ? `Auto-calc failed: ${m.auto_error}` : m.auto_source ? `${describeSource(sourceFromMetric(m))} (${m.auto_agg || "sum"} per week)` : "Configure auto-calculate"}
+                        style={{ background:"none", border:"none", color: m.auto_error ? "#ef4444" : m.auto_source ? T.accent : T.text3, cursor:"pointer", fontSize:11, opacity: m.auto_source ? 1 : 0.5 }}>⚡</button>
                       <button onClick={() => deleteMetric(m.id)}
                         style={{ background:"none", border:"none", color:T.text3, cursor:"pointer", fontSize:12, opacity:0.5 }}>✕</button>
                     </td>
@@ -1015,57 +979,24 @@ export default function ScorecardView() {
         {/* Auto-Source Edit Modal */}
         {editAutoSource && (() => {
           const eas = editAutoSource;
-          const set = (k, v) => setEditAutoSource(p => ({ ...p, [k]: v }));
           const save = async () => {
-            if (eas.auto_source) {
-              await updateMetricAutoSource(eas.metricId, "auto_source", eas.auto_source);
-              await updateMetricAutoSource(eas.metricId, "auto_agg", eas.auto_agg || "sum");
-              await updateMetricAutoSource(eas.metricId, "auto_weight_key", eas.auto_agg === "weighted_average" ? eas.auto_weight_key : null);
-            } else {
-              await updateMetricAutoSource(eas.metricId, "auto_source", null);
-              await updateMetricAutoSource(eas.metricId, "auto_agg", null);
-              await updateMetricAutoSource(eas.metricId, "auto_weight_key", null);
-            }
+            const fields = metricFieldsFromSource(eas.source);
+            await supabase.from("scorecard_metrics").update({ ...fields, auto_error: null }).eq("id", eas.metricId);
+            setMetrics(p => p.map(m => m.id === eas.metricId ? { ...m, ...fields, auto_error: null } : m));
             setEditAutoSource(null);
+            if (fields.auto_source) runAutoCalc(eas.metricId);
           };
-          const lbl = { fontSize: 11, color: T.text3, fontWeight: 600, display: "block", marginBottom: 4 };
-          const sel = { width: "100%", padding: "7px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12, outline: "none", cursor: "pointer", boxSizing: "border-box" };
           return (
             <div onClick={() => setEditAutoSource(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <div onClick={e => e.stopPropagation()} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 24, width: 400, maxWidth: "95vw" }}>
-                <div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 16 }}>Configure auto-source</div>
-                <div style={{ marginBottom: 12 }}>
-                  <label style={lbl}>Scoreboard metric key</label>
-                  <select value={eas.auto_source} onChange={e => set("auto_source", e.target.value)} style={sel}>
-                    <option value="">- Disabled -</option>
-                    {DAILY_KEYS.map(k => <option key={k} value={k}>{k.replace(/_/g, " ")}</option>)}
-                  </select>
-                </div>
-                {eas.auto_source && (
-                  <>
-                    <div style={{ marginBottom: 12 }}>
-                      <label style={lbl}>Aggregation method</label>
-                      <select value={eas.auto_agg} onChange={e => set("auto_agg", e.target.value)} style={sel}>
-                        <option value="sum">Sum - Total for the week</option>
-                        <option value="average">Average - Simple daily average</option>
-                        <option value="weighted_average">Weighted average - By another metric</option>
-                        <option value="last">Last - Last day's value</option>
-                      </select>
-                    </div>
-                    {eas.auto_agg === "weighted_average" && (
-                      <div style={{ marginBottom: 12 }}>
-                        <label style={lbl}>Weight by metric</label>
-                        <select value={eas.auto_weight_key} onChange={e => set("auto_weight_key", e.target.value)} style={sel}>
-                          <option value="">- Select -</option>
-                          {DAILY_KEYS.filter(k => k !== eas.auto_source).map(k => <option key={k} value={k}>{k.replace(/_/g, " ")}</option>)}
-                        </select>
-                      </div>
-                    )}
-                  </>
-                )}
-                <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16 }}>
+              <div onClick={e => e.stopPropagation()} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 22, width: 620, maxWidth: "95vw", maxHeight: "88vh", overflow: "auto" }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>Auto-calculate</div>
+                <div style={{ fontSize: 12, color: T.text3, marginBottom: 14 }}>{eas.name}: pick a Scoreboard number or search Metabase for any question, model or table.</div>
+                {eas.error && <div style={{ fontSize: 11, color: "#ef4444", marginBottom: 10 }}>Last run failed: {eas.error}</div>}
+                <MetricSourcePicker mode="scorecard" value={eas.source} onChange={v => setEditAutoSource(p => ({ ...p, source: v }))} />
+                <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16, alignItems: "center" }}>
+                  {eas.synced && <span style={{ fontSize: 10, color: T.text3, marginRight: "auto" }}>Last calculated {new Date(eas.synced).toLocaleString()}</span>}
                   <button onClick={() => setEditAutoSource(null)} style={{ padding: "7px 16px", fontSize: 12, background: "none", border: `1px solid ${T.border}`, borderRadius: 6, color: T.text3, cursor: "pointer" }}>Cancel</button>
-                  <button onClick={save} style={{ padding: "7px 16px", fontSize: 12, fontWeight: 600, background: T.accent, color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>Save</button>
+                  <button onClick={save} style={{ padding: "7px 16px", fontSize: 12, fontWeight: 600, background: T.accent, color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>Save and calculate</button>
                 </div>
               </div>
             </div>

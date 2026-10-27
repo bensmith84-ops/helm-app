@@ -2,6 +2,11 @@
 // POST /scorecard-auto-calc - recomputes weekly scorecard entries from daily data.
 // System-fired (cron via Cloud Scheduler), no user auth required.
 // Uses pool directly with admin privileges since this writes across the org.
+// Sources: Scoreboard keys (scoreboard_daily), any Metabase question / model /
+// table (auto_source = 'metabase', details in source_config), and key results
+// with auto_config (current value over the KR window). body.kr_id / body.metric_id
+// limit a run to one item (the Save button in the UI).
+const src = require('../lib/metric-source');
 
 const DEFAULT_ORG_ID = 'a0000000-0000-0000-0000-000000000001';
 
@@ -16,17 +21,102 @@ function getWeekStart(d) {
   return `${y}-${m}-${dd}`;
 }
 
+async function upsertEntries(pool, rows) {
+  if (!rows.length) return;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    for (const r of rows) {
+      await client.query(
+        `INSERT INTO scorecard_entries (metric_id, week_start, value, org_id, note)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (metric_id, week_start) DO UPDATE
+         SET value = EXCLUDED.value, note = EXCLUDED.note, org_id = EXCLUDED.org_id`,
+        [r.metric_id, r.week_start, r.value, r.org_id, r.note]);
+    }
+    await client.query('COMMIT');
+  } catch (e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
+}
+
+// Scorecard metrics fed from a Metabase question / model / table.
+async function calcMetabaseMetrics(pool, metrics, weeks, defaultOrg) {
+  const out = { processed: metrics.length, entries: 0, errors: [] };
+  if (!metrics.length) return out;
+  const from = weeks[weeks.length - 1], to = src.ymd(new Date());
+  for (const m of metrics) {
+    try {
+      const daily = await src.metabaseDaily(m.source_config, from, to);
+      const byWeek = src.rollWeeks(daily, m.auto_agg || 'sum');
+      const rows = [];
+      for (const w of weeks) {
+        const x = byWeek.get(w);
+        if (!x || x.value == null) continue;
+        rows.push({ metric_id: m.id, week_start: w, value: Math.round(x.value * 100) / 100, org_id: m.org_id || defaultOrg,
+          note: `Auto: ${m.auto_agg || 'sum'} of ${x.days} days from Metabase "${(m.source_config && m.source_config.name) || ''}"`.slice(0, 300) });
+      }
+      await upsertEntries(pool, rows);
+      out.entries += rows.length;
+      await pool.query(`UPDATE scorecard_metrics SET auto_synced_at = now(), auto_error = NULL WHERE id = $1`, [m.id]);
+    } catch (e) {
+      out.errors.push(`${m.name}: ${e.message}`);
+      await pool.query(`UPDATE scorecard_metrics SET auto_error = $2 WHERE id = $1`, [m.id, String(e.message).slice(0, 500)]);
+    }
+  }
+  return out;
+}
+
+// Key results with auto_config: current value over the KR window (KR dates,
+// else the objective's, else the OKR cycle's), capped at today.
+async function calcKeyResults(pool, onlyKr) {
+  const { rows } = await pool.query(
+    `SELECT kr.id, kr.title, kr.objective_id, kr.auto_config, kr.target_value, kr.target_direction,
+            coalesce(kr.start_date, o.start_date, c.start_date)::text AS w_from,
+            coalesce(kr.end_date, o.end_date, c.end_date)::text AS w_to
+       FROM key_results kr
+       LEFT JOIN objectives o ON o.id = kr.objective_id
+       LEFT JOIN okr_cycles c ON c.id = o.cycle_id
+      WHERE kr.auto_config IS NOT NULL AND kr.deleted_at IS NULL AND ($1::uuid IS NULL OR kr.id = $1)`, [onlyKr]);
+  const out = { processed: rows.length, updated: 0, errors: [] };
+  const today = src.ymd(new Date());
+  const touched = new Set();
+  for (const kr of rows) {
+    try {
+      if (!kr.w_from) throw new Error('set a start date on the key result, its objective or its cycle');
+      const from = kr.w_from.slice(0, 10), to = kr.w_to && kr.w_to.slice(0, 10) < today ? kr.w_to.slice(0, 10) : today;
+      if (from > today) throw new Error(`the key result starts on ${from}`);
+      const r = await src.krValue(pool, kr.auto_config, from, to);
+      if (r.value == null) throw new Error(`no data between ${from} and ${to}`);
+      const value = Math.round(r.value * 100) / 100;
+      const progress = src.calcProgress(value, Number(kr.target_value), kr.target_direction);
+      await pool.query(
+        `UPDATE key_results SET current_value = $2, progress = $3, auto_synced_at = now(), auto_error = NULL, updated_at = now() WHERE id = $1`,
+        [kr.id, value, progress]);
+      out.updated++;
+      if (kr.objective_id) touched.add(kr.objective_id);
+    } catch (e) {
+      out.errors.push(`${kr.title}: ${e.message}`);
+      await pool.query(`UPDATE key_results SET auto_error = $2 WHERE id = $1`, [kr.id, String(e.message).slice(0, 500)]);
+    }
+  }
+  for (const objId of touched) {
+    await pool.query(
+      `UPDATE objectives SET progress = sub.p FROM (SELECT round(avg(progress))::int AS p FROM key_results WHERE objective_id = $1 AND deleted_at IS NULL) sub WHERE id = $1`,
+      [objId]);
+  }
+  return out;
+}
+
 module.exports = function(app, { pool }) {
   app.post('/scorecard-auto-calc', async (req, res) => {
     try {
       const orgId = req.body?.org_id || DEFAULT_ORG_ID;
 
-      const { rows: metrics } = await pool.query(
-        `SELECT * FROM scorecard_metrics WHERE auto_source IS NOT NULL AND active = true`
+      const onlyMetric = req.body?.metric_id || null, onlyKr = req.body?.kr_id || null;
+      const { rows: allMetrics } = onlyKr ? { rows: [] } : await pool.query(
+        `SELECT * FROM scorecard_metrics WHERE auto_source IS NOT NULL AND active = true AND ($1::uuid IS NULL OR id = $1)`, [onlyMetric]
       );
-      if (!metrics.length) {
-        return res.json({ success: true, message: 'No auto-source metrics configured', updated: 0 });
-      }
+      const metrics = allMetrics.filter((m) => m.auto_source !== 'metabase');
+      const mbMetrics = allMetrics.filter((m) => m.auto_source === 'metabase');
 
       const today = new Date();
       const weeks = [];
@@ -36,6 +126,9 @@ module.exports = function(app, { pool }) {
         weeks.push(getWeekStart(d));
       }
       const uniqueWeeks = [...new Set(weeks)];
+
+      const krResult = onlyMetric ? null : await calcKeyResults(pool, onlyKr);
+      const mbResult = await calcMetabaseMetrics(pool, mbMetrics, uniqueWeeks, orgId);
 
       const sourceKeys = new Set();
       for (const m of metrics) {
@@ -51,9 +144,6 @@ module.exports = function(app, { pool }) {
         [Array.from(sourceKeys), earliest]
       );
 
-      if (!dailyRows.length) {
-        return res.json({ success: true, message: 'No daily data found', updated: 0 });
-      }
 
       const grouped = {};
       for (const row of dailyRows) {
@@ -130,6 +220,8 @@ module.exports = function(app, { pool }) {
         metrics_processed: metrics.length,
         entries_upserted: upserted.length,
         weeks_covered: uniqueWeeks,
+        metabase_metrics: mbResult,
+        key_results: krResult,
         daily_rows_fetched: dailyRows.length,
         org_id: orgId,
         errors: errors.length ? errors : undefined,
