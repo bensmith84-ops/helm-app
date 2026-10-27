@@ -39,7 +39,7 @@ const progressColor = (pct, direction, current, target) => {
 // lowest (all) or best (any) of the values; the colour follows.
 const krProgress = (kr) => evalKR(kr).progress;
 const krColor = (kr) => evalKR(kr).color;
-const krParts = (kr) => evalKR(kr).parts.map(p => ({ label: p.label, current: Number(p.current_value || 0), target: p.target_value === "" || p.target_value == null ? null : Number(p.target_value), unit: p.unit, op: p.op, auto: !!p.auto_config, error: p.auto_error, color: p.color, met: p.met }));
+const krParts = (kr) => evalKR(kr).parts.map(p => ({ label: p.label, current: p.current_value === null || p.current_value === "" ? null : Number(p.current_value), target: p.target_value === "" || p.target_value == null ? null : Number(p.target_value), unit: p.unit, op: p.op, auto: !!p.auto_config, error: p.auto_error, color: p.color, met: p.met }));
 const partColor = (p) => p.color;
 const fmtVal = (v, unit) => { const n = Number(v || 0); const s = Math.abs(n) >= 1000 ? Math.round(n).toLocaleString() : (Math.round(n * 100) / 100).toLocaleString(); return unit === "$" ? `$${s}` : unit === "%" ? `${s}%` : unit ? `${s} ${unit}` : s; };
 const acol = (uid) => uid ? AVATAR_COLORS[uid.charCodeAt(uid.length - 1) % AVATAR_COLORS.length] : T.text3;
@@ -470,7 +470,7 @@ export default function OKRsView() {
       if (mode === "manual") {
         const toNum = (v) => (v === "" || v == null || isNaN(Number(v)) ? null : Number(v));
         const measures = (rest.measures || []).filter((m, i) => i === 0 || m.label || toNum(m.target_value) != null)
-          .map(({ _open, ...m }, i) => ({ ...m, id: m.id || `m${i}`, label: m.label || (i === 0 ? rest.title : ""), current_value: toNum(m.current_value) ?? 0, target_value: toNum(m.target_value), op: m.op || ">=", kind: m.kind || "total", auto_config: m.auto_config || null }));
+          .map(({ _open, ...m }, i) => ({ ...m, id: m.id || `m${i}`, label: m.label || (i === 0 ? rest.title : ""), current_value: toNum(m.current_value) ?? (i === 0 ? 0 : null), target_value: toNum(m.target_value), op: m.op || ">=", kind: m.kind || "total", auto_config: m.auto_config || null }));
         updates.measures = measures;
         updates.measure_logic = rest.measure_logic || "all";
         updates.measure_period = rest.measure_period || "kr";
@@ -944,7 +944,7 @@ export default function OKRsView() {
                         {conds.map((c, i) => (
                           <span key={i} title={`${kr.measure_logic === "any" ? "Any one value must be met." : "All values must be met."}${c.auto ? " Auto-calculated." : ""}${c.error ? " Last run failed: " + c.error : ""}`}
                             style={{ fontSize: 9, padding: "1px 6px", borderRadius: 8, border: `1px solid ${partColor(c)}60`, background: `${partColor(c)}12`, color: partColor(c), fontWeight: 700, flexShrink: 0, whiteSpace: "nowrap" }}>
-                            {c.auto ? "⚡ " : ""}{c.label || "Value"} {fmtVal(c.current, c.unit)} {OP_SYMBOL[c.op] || "≥"} {fmtVal(c.target, c.unit)}
+                            {c.auto ? "⚡ " : ""}{c.label || "Value"} {c.current == null ? "–" : fmtVal(c.current, c.unit)} {OP_SYMBOL[c.op] || "≥"} {fmtVal(c.target, c.unit)}
                           </span>
                         ))}
                         {kr.progress_mode === "milestones" && <span style={{ fontSize: 8, padding: "1px 5px", borderRadius: 3, background: `${T.accent}20`, color: T.accent, fontWeight: 700, flexShrink: 0 }}>AUTO</span>}
