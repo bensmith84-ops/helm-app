@@ -138,7 +138,7 @@ module.exports = function(app, { pool }) {
       const earliest = uniqueWeeks[uniqueWeeks.length - 1];
 
       const { rows: dailyRows } = await pool.query(
-        `SELECT date, metric_key, value FROM scoreboard_daily
+        `SELECT date::text AS date, metric_key, value FROM scoreboard_daily
          WHERE metric_key = ANY($1) AND date >= $2
          ORDER BY date`,
         [Array.from(sourceKeys), earliest]
