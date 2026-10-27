@@ -6,6 +6,8 @@ import { useAuth } from "../lib/auth";
 import { useResponsive } from "../lib/responsive";
 import { useResizableColumns } from "../lib/useResizableColumns";
 import { useModal } from "../lib/modal";
+import { invokeFunction } from "../lib/invokeFunction";
+import MetricSourcePicker, { describeSource } from "./MetricSourcePicker";
 
 const HEALTH = {
   on_track:  { label: "On Track",  color: "#22c55e", bg: "#0d3a20" },
@@ -120,9 +122,10 @@ export default function OKRsView() {
   const [checkIns, setCheckIns] = useState([]); // all check-ins loaded
   // Key results already tracked weekly on the Scorecard (scorecard_metrics.linked_kr_id)
   const [onScorecard, setOnScorecard] = useState(new Set());
+  const [scMetrics, setScMetrics] = useState([]); // Scorecard metrics a KR can be calculated from
   useEffect(() => {
-    supabase.from("scorecard_metrics").select("linked_kr_id").eq("active", true).not("linked_kr_id", "is", null)
-      .then(({ data }) => setOnScorecard(new Set((data || []).map(r => r.linked_kr_id))));
+    supabase.from("scorecard_metrics").select("id,name,linked_kr_id").eq("active", true).order("sort_order")
+      .then(({ data }) => { setScMetrics(data || []); setOnScorecard(new Set((data || []).filter(r => r.linked_kr_id).map(r => r.linked_kr_id))); });
   }, []);
   const addKrToScorecard = async (kr) => {
     if (onScorecard.has(kr.id)) return;
@@ -457,9 +460,20 @@ export default function OKRsView() {
         updates.progress = linked.length > 0 ? Math.round(linked.reduce((s, m) => s + Number(m.progress || 0), 0) / linked.length) : 0;
         updates.current_value = Math.round((updates.progress / 100) * updates.target_value);
       }
+      updates.auto_config = mode === "manual" ? (rest.auto_config || null) : null;
+      if (!updates.auto_config) updates.auto_error = null;
       setKeyResults(p => p.map(k => k.id === id ? { ...k, ...updates } : k));
       await supabase.from("key_results").update(updates).eq("org_id", orgId).eq("id", id);
       recalcObjectiveProgress(keyResults.find(k => k.id === id)?.objective_id, keyResults.map(k => k.id === id ? { ...k, ...updates } : k));
+      if (updates.auto_config) {
+        // Calculate now; the server also refreshes auto KRs after each warehouse sync.
+        await invokeFunction("scorecard-auto-calc", { body: { kr_id: id } });
+        const { data: fresh } = await supabase.from("key_results").select("*").eq("id", id).single();
+        if (fresh) {
+          setKeyResults(p => p.map(k => k.id === id ? fresh : k));
+          recalcObjectiveProgress(fresh.objective_id, keyResults.map(k => k.id === id ? fresh : k));
+        }
+      }
     } else if (type === "milestone") {
       const { id, _newUpdate, ...rest } = data;
       const cv = Number(rest.current_value) || 0;
@@ -902,6 +916,7 @@ export default function OKRsView() {
                       <span style={{ fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: 12, display: "flex", alignItems: "center", gap: 6 }}>
                         {kr.title}
                         {kr.progress_mode === "milestones" && <span style={{ fontSize: 8, padding: "1px 5px", borderRadius: 3, background: `${T.accent}20`, color: T.accent, fontWeight: 700, flexShrink: 0 }}>AUTO</span>}
+                        {kr.auto_config && kr.progress_mode !== "milestones" && <span title={kr.auto_error ? `Auto-calc failed: ${kr.auto_error}` : `${describeSource(kr.auto_config)}${kr.auto_synced_at ? ` · updated ${new Date(kr.auto_synced_at).toLocaleString()}` : ""}`} style={{ fontSize: 8, padding: "1px 5px", borderRadius: 3, background: kr.auto_error ? "#ef444420" : `${T.accent}20`, color: kr.auto_error ? "#ef4444" : T.accent, fontWeight: 700, flexShrink: 0 }}>⚡ AUTO</span>}
                         <button onClick={e => { e.stopPropagation(); addKrToScorecard(kr); }} title={onScorecard.has(kr.id) ? "Tracked weekly on the Scorecard" : "Add to the weekly Scorecard"}
                           style={{ fontSize: 9, padding: "2px 7px", borderRadius: 10, border: `1px solid ${onScorecard.has(kr.id) ? "#22c55e60" : T.border}`, background: onScorecard.has(kr.id) ? "#22c55e15" : "transparent", color: onScorecard.has(kr.id) ? "#22c55e" : T.text3, cursor: onScorecard.has(kr.id) ? "default" : "pointer", fontWeight: 600, whiteSpace: "nowrap", flexShrink: 0 }}>
                           {onScorecard.has(kr.id) ? "✓ Scorecard" : "+ Scorecard"}
@@ -916,7 +931,7 @@ export default function OKRsView() {
                         <span style={{ fontSize: 11, fontWeight: 600, color: pColor, minWidth: 36, textAlign: "right" }}>{Math.round(p)}%</span>
                       </div>
                       {/* Inline value edit */}
-                      {kr.progress_mode === "milestones" ? (
+                      {kr.progress_mode === "milestones" || kr.auto_config ? (
                         <span style={{ fontSize: 12, color: T.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{kr.current_value}/{kr.target_value}{kr.unit ? " "+kr.unit : ""}</span>
                       ) : (
                         <span onClick={e => e.stopPropagation()} style={{ display: "flex", alignItems: "center", gap: 4 }}>
@@ -1011,8 +1026,24 @@ export default function OKRsView() {
                   {linkedMS.length > 0 ? `${linkedMS.length} linked milestone${linkedMS.length > 1 ? "s" : ""} → ${autoProgress}% avg` : "No milestones linked yet - edit milestones and link them to this KR"}
                 </div>}
               </div>
+              {mode === "manual" && (() => {
+                const obj = objectives.find(o => o.id === d.objective_id);
+                const cyc = cycles.find(c => c.id === obj?.cycle_id);
+                const today = new Date().toISOString().slice(0, 10);
+                const wFrom = d.start_date || obj?.start_date || cyc?.start_date || null;
+                const wToRaw = d.end_date || obj?.end_date || cyc?.end_date || null;
+                const wTo = wToRaw && wToRaw < today ? wToRaw : today;
+                return (
+                  <div style={{ marginBottom: 12, padding: "10px 14px", borderRadius: 8, border: `1px solid ${d.auto_config ? T.accent + "40" : T.border}`, background: d.auto_config ? T.accent + "08" : T.surface2 }}>
+                    <label style={{ ..._elbl, marginBottom: 8, color: d.auto_config ? T.accent : undefined }}>⚡ Calculate the current value automatically</label>
+                    {d.auto_error && <div style={{ fontSize: 11, color: "#ef4444", marginBottom: 8 }}>Last run failed: {d.auto_error}</div>}
+                    <MetricSourcePicker mode="kr" value={d.auto_config || null} onChange={v => editSet("auto_config", v)} scorecardMetrics={scMetrics} krWindow={wFrom ? { from: wFrom, to: wTo } : null} />
+                    {d.auto_config && <div style={{ fontSize: 10, color: T.text3, marginTop: 8 }}>Saved KRs recalculate after each data refresh (10:15 and 13:15 ET){d.auto_synced_at ? `; last ${new Date(d.auto_synced_at).toLocaleString()}` : ""}.</div>}
+                  </div>
+                );
+              })()}
               <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
-                <div><label style={_elbl}>Current Value</label><input type="number" value={d.current_value ?? 0} onChange={e => editSet("current_value", e.target.value)} disabled={mode === "milestones"} style={{ ..._einp, opacity: mode === "milestones" ? 0.5 : 1 }} /></div>
+                <div><label style={_elbl}>Current Value</label><input type="number" value={d.current_value ?? 0} onChange={e => editSet("current_value", e.target.value)} disabled={mode === "milestones" || !!d.auto_config} style={{ ..._einp, opacity: mode === "milestones" || d.auto_config ? 0.5 : 1 }} /></div>
                 <div><label style={_elbl}>Target Value</label><input type="number" value={d.target_value ?? 100} onChange={e => editSet("target_value", e.target.value)} style={_einp} /></div>
                 <div><label style={_elbl}>Unit</label><input value={d.unit || ""} onChange={e => editSet("unit", e.target.value)} placeholder="e.g. $, %" style={_einp} /></div>
               </div>

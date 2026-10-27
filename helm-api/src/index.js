@@ -115,6 +115,7 @@ const helpers = { requireAuth, optionalAuth, withAuthedClient, pool };
 require('./routes/health-detailed')(app, helpers);
 require('./routes/whoami')(app, helpers);
 require('./routes/scoreboard-chat')(app, helpers);
+require('./routes/metric-source')(app, helpers);
 require('./routes/slack-notify')(app, helpers);
 require('./routes/slack-update')(app, helpers);
 require('./routes/slack-interactivity')(app, helpers);

@@ -117,6 +117,8 @@ const JOBS = {
   'warehouse-sync':           { path: '/warehouse-sync',          body: {} },
   // After the data team's ~11:45 ET rebuild: refresh the Scoreboard numbers only.
   'warehouse-sync-midday':    { path: '/warehouse-sync',          body: { tasks: ['scorecard', 'scoreboard'] } },
+  // Scorecard metrics + key results from Scoreboard keys and Metabase, after each warehouse refresh.
+  'scorecard-auto-calc':      { path: '/scorecard-auto-calc',     body: {} },
   'dp-daily-sync-verify':     { sql: 'SELECT public.dp_daily_sync_verify_and_log()' },
   // dp-daily-sync was a Postgres fn (dp_daily_sync_fire_all) that internally
   // http_posted to multiple Supabase fns. After cutover, this becomes a
