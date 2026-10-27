@@ -118,6 +118,22 @@ export default function OKRsView() {
   // Check-in state
   const [checkInModal, setCheckInModal] = useState(null); // { kr, objective }
   const [checkIns, setCheckIns] = useState([]); // all check-ins loaded
+  // Key results already tracked weekly on the Scorecard (scorecard_metrics.linked_kr_id)
+  const [onScorecard, setOnScorecard] = useState(new Set());
+  useEffect(() => {
+    supabase.from("scorecard_metrics").select("linked_kr_id").eq("active", true).not("linked_kr_id", "is", null)
+      .then(({ data }) => setOnScorecard(new Set((data || []).map(r => r.linked_kr_id))));
+  }, []);
+  const addKrToScorecard = async (kr) => {
+    if (onScorecard.has(kr.id)) return;
+    const obj = objectives.find(o => o.id === kr.objective_id);
+    const { error } = await supabase.from("scorecard_metrics").insert({
+      name: kr.title, unit: "number", goal: null, frequency: "weekly", description: obj ? `OKR: ${obj.title}` : "From OKRs",
+      linked_kr_id: kr.id, target_direction: kr.target_direction === "below" ? "below" : "above", metric_type: "quantitative",
+      org_id: orgId, owner_id: kr.owner_id || user?.id, sort_order: 999,
+    });
+    if (!error) setOnScorecard(p => new Set([...p, kr.id]));
+  };
   // OKR Status Updates (objective-level weekly updates)
   const [okrStatusUpdates, setOkrStatusUpdates] = useState([]);
   const [showOkrStatusForm, setShowOkrStatusForm] = useState(null); // objective or null for all
@@ -136,7 +152,9 @@ export default function OKRsView() {
       ]);
       setCycles(c || []);
       const m = {}; (prof || []).forEach(u => { m[u.id] = u; }); setProfiles(m);
-      const active = (c || []).find(cy => cy.status === "active") || c?.[0];
+      // Same period as last time (shared with the Scorecard), else the active cycle.
+      let savedCycle = null; try { savedCycle = localStorage.getItem("helm_okr_cycle"); } catch {}
+      const active = (c || []).find(cy => cy.id === savedCycle) || (c || []).find(cy => cy.status === "active") || c?.[0];
       // Load financial metrics for current year
       const yr = new Date().getFullYear();
       const { data: fmData } = await supabase.from("okr_financial_metrics")
@@ -884,6 +902,10 @@ export default function OKRsView() {
                       <span style={{ fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: 12, display: "flex", alignItems: "center", gap: 6 }}>
                         {kr.title}
                         {kr.progress_mode === "milestones" && <span style={{ fontSize: 8, padding: "1px 5px", borderRadius: 3, background: `${T.accent}20`, color: T.accent, fontWeight: 700, flexShrink: 0 }}>AUTO</span>}
+                        <button onClick={e => { e.stopPropagation(); addKrToScorecard(kr); }} title={onScorecard.has(kr.id) ? "Tracked weekly on the Scorecard" : "Add to the weekly Scorecard"}
+                          style={{ fontSize: 9, padding: "2px 7px", borderRadius: 10, border: `1px solid ${onScorecard.has(kr.id) ? "#22c55e60" : T.border}`, background: onScorecard.has(kr.id) ? "#22c55e15" : "transparent", color: onScorecard.has(kr.id) ? "#22c55e" : T.text3, cursor: onScorecard.has(kr.id) ? "default" : "pointer", fontWeight: 600, whiteSpace: "nowrap", flexShrink: 0 }}>
+                          {onScorecard.has(kr.id) ? "✓ Scorecard" : "+ Scorecard"}
+                        </button>
                         <button onClick={e => { e.stopPropagation(); setCheckInModal({ kr, objective: objectives.find(o => o.id === kr.objective_id) }); }}
                           style={{ fontSize: 9, padding: "2px 7px", borderRadius: 10, border: `1px solid ${isStale ? "#ef444460" : T.accent+"40"}`, background: isStale ? "#ef444415" : T.accentDim, color: isStale ? "#ef4444" : T.accent, cursor: "pointer", fontWeight: 600, whiteSpace: "nowrap", flexShrink: 0 }}>
                           {lastCI ? (daysSince === 0 ? "✓ Today" : `${daysSince}d ago`) : "Check in"}
@@ -1479,7 +1501,7 @@ export default function OKRsView() {
               <select value={cycleForm.status} onChange={e => setCycleForm(p => ({ ...p, status: e.target.value }))}
                 style={{ padding: "7px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, cursor: "pointer", outline: "none" }}>
                 <option value="active">Active</option>
-                <option value="planning">Planning</option>
+                <option value="draft">Draft</option>
                 <option value="completed">Completed</option>
               </select>
             </div>
@@ -1494,7 +1516,7 @@ export default function OKRsView() {
         <div style={{ flex: 1 }}>
           <h2 style={{ fontSize: 20, fontWeight: 700, marginBottom: 4 }}>Objectives &amp; Key Results</h2>
           <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 12 }}>
-            <select value={activeCycle || ""} onChange={e => setActiveCycle(e.target.value)} style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, padding: "4px 8px", fontSize: 12, cursor: "pointer", outline: "none", fontFamily: "inherit" }}>
+            <select value={activeCycle || ""} onChange={e => { setActiveCycle(e.target.value); try { localStorage.setItem("helm_okr_cycle", e.target.value); localStorage.setItem("helm_scorecard_period", e.target.value); } catch {} }} style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, padding: "4px 8px", fontSize: 12, cursor: "pointer", outline: "none", fontFamily: "inherit" }}>
               {cycles.length === 0 && <option value="">No cycles yet</option>}
               {cycles.map(c => <option key={c.id} value={c.id}>{c.name} {c.status !== "active" ? `(${c.status})` : ""}</option>)}
             </select>
