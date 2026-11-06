@@ -1013,7 +1013,7 @@ export default function OKRsView() {
                       onDrop={e => { e.preventDefault(); const dk = dragRef.current, dp = dropRef.current; if (dk && dp && dk.obj === obj.id) reorderKR(obj.id, dk.id, dp.id, dp.pos); endDrag(); }}
                       onDragEnd={endDrag}
                       className="okr-kr-row"
-                      style={{ position: "relative", display: "grid", gridTemplateColumns: okrGrid, columnGap: 16, padding: "0 20px 0 48px", alignItems: "center", height: 48, cursor: "pointer", borderBottom: `1px solid ${T.border}`, background: sel ? `${T.accent}10` : "transparent", borderLeft: sel ? `3px solid ${T.accent}` : isStale ? "3px solid #eab30840" : "3px solid transparent", transition: "background 0.1s",
+                      style={{ position: "relative", display: "grid", gridTemplateColumns: okrGrid, columnGap: 16, padding: "0 20px 0 48px", alignItems: "center", height: multi && ev.parts.length > 2 ? 60 : 48, cursor: "pointer", borderBottom: `1px solid ${T.border}`, background: sel ? `${T.accent}10` : "transparent", borderLeft: sel ? `3px solid ${T.accent}` : isStale ? "3px solid #eab30840" : "3px solid transparent", transition: "background 0.1s",
                         opacity: dragKR?.id === kr.id ? 0.4 : 1,
                         boxShadow: dropKR?.id === kr.id ? (dropKR.pos === "before" ? `inset 0 2px 0 ${T.accent}` : `inset 0 -2px 0 ${T.accent}`) : "none" }}>
                       <span className="okr-kr-grip" title="Drag to reorder" onClick={e => e.stopPropagation()}
@@ -1047,13 +1047,28 @@ export default function OKRsView() {
                         </button>
                       </span>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <div style={{ flex: 1, height: 5, borderRadius: 5, background: T.surface3, overflow: "hidden" }}><div style={{ width: `${Math.min(p, 100)}%`, height: "100%", borderRadius: 5, background: pColor, transition: "width 0.3s" }} /></div>
-                        <span title={whyTitle} style={{ fontSize: 11, fontWeight: 600, color: pColor, minWidth: 36, textAlign: "right" }}>{Math.round(p)}%</span>
-                        {limiter && <span title={whyTitle} style={{ fontSize: 10, color: T.text3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 140 }}>{limiter.label || "Value"} {gapText(limiter)}</span>}
+                        {multi ? (
+                          // One bar per value, so a met value and a missed one are both visible.
+                          <div title={whyTitle} style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 3 }}>
+                            {ev.parts.slice(0, 3).map((x, i) => {
+                              const col = x.pct == null ? T.text3 : x.met ? "#22c55e" : x === limiter ? "#ef4444" : "#eab308";
+                              return (
+                                <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                  <span style={{ fontSize: 10, color: T.text2, width: 64, flexShrink: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{x.label || "Value"}</span>
+                                  <div style={{ flex: 1, height: 4, borderRadius: 4, background: T.surface3, overflow: "hidden" }}><div style={{ width: `${x.pct == null ? 0 : Math.max(2, Math.min(x.pct, 100))}%`, height: "100%", borderRadius: 4, background: col, transition: "width 0.3s" }} /></div>
+                                  <span style={{ fontSize: 10, fontWeight: 600, color: col, minWidth: 40, textAlign: "right", whiteSpace: "nowrap" }}>{x.pct == null ? "–" : `${x.pct}%`}{x.met ? " ✓" : ""}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <div style={{ flex: 1, height: 5, borderRadius: 5, background: T.surface3, overflow: "hidden" }}><div style={{ width: `${Math.min(p, 100)}%`, height: "100%", borderRadius: 5, background: pColor, transition: "width 0.3s" }} /></div>
+                        )}
+                        <span title={whyTitle} style={{ fontSize: multi ? 12 : 11, fontWeight: 700, color: pColor, minWidth: 36, textAlign: "right" }}>{Math.round(p)}%</span>
                       </div>
                       {/* Inline value edit */}
                       {kr.progress_mode === "milestones" || kr.auto_config || (Array.isArray(kr.measures) && kr.measures.length) ? (
-                        <span title={kr.measure_period && kr.measure_period !== "kr" ? `Measured ${kr.measure_period}ly` : undefined} style={{ fontSize: 12, color: T.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{multi ? `${metN} of ${ev.parts.length} met` : Array.isArray(kr.measures) && kr.measures[0]?.target_type === "growth" ? `${fmtPct(evalKR(kr).parts[0]?.growth ?? null)} / ${fmtPct(Number(kr.measures[0].target_value))}` : `${fmtVal(kr.current_value, kr.unit)} / ${fmtVal(kr.target_value, kr.unit)}`}</span>
+                        <span title={kr.measure_period && kr.measure_period !== "kr" ? `Measured ${kr.measure_period}ly` : undefined} style={{ fontSize: 12, color: T.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{multi ? `${metN} of ${ev.parts.length} met${limiter ? ` · ${limiter.label || "value"} ${gapText(limiter)}` : ""}` : Array.isArray(kr.measures) && kr.measures[0]?.target_type === "growth" ? `${fmtPct(evalKR(kr).parts[0]?.growth ?? null)} / ${fmtPct(Number(kr.measures[0].target_value))}` : `${fmtVal(kr.current_value, kr.unit)} / ${fmtVal(kr.target_value, kr.unit)}`}</span>
                       ) : (
                         <span onClick={e => e.stopPropagation()} style={{ display: "flex", alignItems: "center", gap: 4 }}>
                           <input
