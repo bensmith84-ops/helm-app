@@ -19,6 +19,10 @@ module.exports = function (app, { pool }) {
         return res.json({ results: await src.search(q) });
       }
       if (b.action === 'fields') return res.json(await src.fields(b.model, b.id));
+      if (b.action === 'scoreboard_keys') {
+        const { rows } = await pool.query(`SELECT DISTINCT metric_key FROM scoreboard_daily WHERE date >= current_date - 45 ORDER BY 1`);
+        return res.json({ keys: rows.map((r) => r.metric_key) });
+      }
       // Metabase report sources (a dashboard question run with filter values).
       if (b.action === 'dashboards') return res.json({ results: String(b.q || '').trim().length < 2 ? [] : await src.dashboards(b.q) });
       if (b.action === 'dashboard') return res.json(await src.dashboard(b.id));
@@ -34,7 +38,7 @@ module.exports = function (app, { pool }) {
           if (from > to) return res.status(400).json({ error: `The period ends (${to}) before it starts (${from}).` });
           const r = await src.krValue(pool, cfg, from, to);
           const weeks = cfg.kind === 'scorecard' || cfg.kind === 'mb_report' ? [...r.series.entries()].map(([w, v]) => ({ week: w, value: v }))
-            : [...src.rollWeeks(r.series, 'sum').entries()].map(([w, x]) => ({ week: w, value: x.value, days: x.days }));
+            : [...src.rollWeeks(new Map([...r.series].filter(([, v]) => v != null)), cfg.denom_key ? 'average' : 'sum').entries()].map(([w, x]) => ({ week: w, value: x.value, days: x.days }));
           return res.json({ value: r.value, points: r.points, unit: r.unit, from, to, weeks: weeks.sort((a, b2) => (a.week < b2.week ? -1 : 1)).slice(-26) });
         }
         const n = Math.min(26, Math.max(1, Number(b.weeks) || 8));

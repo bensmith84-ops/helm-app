@@ -250,13 +250,15 @@ async function dashboard(id) {
     dashcard_id: c.id, card_id: c.card_id, name: c.card.name, display: c.card.display, tab: tabs[c.dashboard_tab_id] || null,
     params: (c.parameter_mappings || []).map((m) => params[m.parameter_id]).filter(Boolean)
       .filter((p, i, a) => a.findIndex((x) => x.id === p.id) === i)
-      .map((p) => ({ slug: p.slug, name: p.name, default: p.default ?? null, multi: p.isMultiSelect !== false,
+      .map((p) => ({ slug: p.slug, name: p.name, type: p.type, isDate: /^date/.test(p.type || ''), default: p.default ?? null, multi: p.isMultiSelect !== false,
         values: ((p.values_source_config && p.values_source_config.values) || []).map((v) => (Array.isArray(v) ? { value: v[0], label: v[1] ?? v[0] } : { value: v, label: v })) })),
   }));
   return { id, name: d.name, cards };
 }
 
-async function runReport(cfg) {
+// window: {from, to} - date filters the user didn't set follow the KR window, so a
+// dashboard defaulting to "past 7 days" still answers for the month or year asked.
+async function runReport(cfg, window) {
   const id = Number(cfg.dashboard_id), dcId = Number(cfg.dashcard_id), cardId = Number(cfg.card_id);
   if (![id, dcId, cardId].every((n) => Number.isInteger(n) && n > 0)) throw new Error('pick a dashboard question');
   const d = await mb(`/dashboard/${id}`);
@@ -266,7 +268,10 @@ async function runReport(cfg) {
   const parameters = (dc.parameter_mappings || []).map((m) => {
     const p = (d.parameters || []).find((x) => x.id === m.parameter_id);
     if (!p) return null;
-    let v = Object.prototype.hasOwnProperty.call(chosen, p.slug) ? chosen[p.slug] : p.default;
+    const isDate = /^date/.test(p.type || '');
+    let v = Object.prototype.hasOwnProperty.call(chosen, p.slug) && chosen[p.slug] != null ? chosen[p.slug] : p.default;
+    if (isDate && !(Object.prototype.hasOwnProperty.call(chosen, p.slug) && chosen[p.slug])) v = window ? `${window.from}~${window.to}` : 'past30days';
+    if (isDate) return { id: p.id, type: p.type, target: m.target, value: Array.isArray(v) ? v[0] : v };
     if (v != null && !Array.isArray(v)) v = [v];
     return { id: p.id, type: p.type, target: m.target, value: v ?? null };
   }).filter(Boolean);
@@ -287,7 +292,7 @@ async function reportValue(cfg, from, to) {
   const agg = REPORT_AGGS.includes(cfg.agg) ? cfg.agg : 'sum';
   if (!cfg.value_col) throw new Error('pick a value column');
   if (agg === 'ratio' && !cfg.denom_col) throw new Error('pick the column to divide by');
-  const { rows } = await runReport(cfg);
+  const { rows } = await runReport(cfg, { from, to });
   const filters = Array.isArray(cfg.row_filters) ? cfg.row_filters.filter((f) => f && f.col && f.value !== '' && f.value != null) : [];
   const keep = rows.filter((r) => filters.every((f) => String(r[f.col] ?? '').toLowerCase() === String(f.value).toLowerCase()));
   const series = new Map();
@@ -318,6 +323,14 @@ async function krValue(pool, cfg, from, to) {
     if (!cfg.metric_id) throw new Error('pick a Scorecard metric');
     const weekly = await scorecardWeekly(pool, cfg.metric_id, from, to);
     return { value: scorecardWindowValue(weekly, how), points: weekly.size, unit: 'weeks', series: weekly };
+  }
+  if (cfg.kind === 'scoreboard' && cfg.denom_key) {
+    // Ratio of two Scoreboard metrics over the window, e.g. CPA = laundry_gwp_adspend / laundry_gwp_subs:
+    // exact for any window, where averaging daily CPAs is not.
+    const num = await scoreboardDaily(pool, cfg.key, from, to), den = await scoreboardDaily(pool, cfg.denom_key, from, to);
+    const a = [...num.values()].reduce((x, y) => x + y, 0), b = [...den.values()].reduce((x, y) => x + y, 0);
+    const series = new Map([...num.keys()].sort().map((d) => [d, den.get(d) ? num.get(d) / den.get(d) : null]));
+    return { value: num.size && b ? a / b : null, points: num.size, unit: 'days', series };
   }
   const daily = cfg.kind === 'scoreboard' ? await scoreboardDaily(pool, cfg.key, from, to) : await metabaseDaily(cfg, from, to);
   return { value: windowValue(daily, how), points: daily.size, unit: 'days', series: daily };

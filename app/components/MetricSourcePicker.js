@@ -51,7 +51,7 @@ export function metricFieldsFromSource(s) {
 }
 export function describeSource(s) {
   if (!s) return "Manual";
-  if (s.kind === "scoreboard") return `Scoreboard: ${String(s.key || "").replace(/_/g, " ")}`;
+  if (s.kind === "scoreboard") return `Scoreboard: ${String(s.key || "").replace(/_/g, " ")}${s.denom_key ? ` ÷ ${String(s.denom_key).replace(/_/g, " ")}` : ""}`;
   if (s.kind === "scorecard") return "Scorecard metric";
   if (s.kind === "mb_report") return `Metabase report: ${s.agg === "ratio" ? `${s.value_col} ÷ ${s.denom_col}` : `${s.agg || "sum"} of ${s.value_col || "?"}`} in "${s.card_name || ""}"`;
   const what = s.day_agg === "count" ? "count of rows" : `${(DAY_AGGS.find(a => a.v === s.day_agg)?.l || "Sum of").toLowerCase()} ${s.value?.name || ""}`;
@@ -61,7 +61,14 @@ export function describeSource(s) {
 const fmtNum = (v) => v == null ? "–" : Math.abs(v) >= 1000 ? Math.round(v).toLocaleString() : (Math.round(v * 100) / 100).toLocaleString();
 const shortDate = (d) => { const x = new Date(d + "T12:00:00"); return x.toLocaleDateString(undefined, { month: "short", day: "numeric" }); };
 
+// Scoreboard metric keys, loaded once from what the daily sync actually writes.
+let sbKeysCache = null;
 export default function MetricSourcePicker({ value, onChange, mode = "scorecard", scorecardMetrics = [], krWindow = null, hideWindowAgg = false, windowAgg = null }) {
+  const [sbKeys, setSbKeys] = useState(sbKeysCache || SCOREBOARD_KEYS);
+  useEffect(() => {
+    if (sbKeysCache || value?.kind !== "scoreboard") return;
+    invokeFunction("metric-source", { body: { action: "scoreboard_keys" } }).then(({ data }) => { if (data?.keys?.length) { sbKeysCache = data.keys; setSbKeys(data.keys); } });
+  }, [value?.kind]);
   const kind = value?.kind || "manual";
   const set = (patch) => onChange({ ...(value || {}), ...patch });
   const setKind = (k) => {
@@ -91,8 +98,18 @@ export default function MetricSourcePicker({ value, onChange, mode = "scorecard"
           <div><label style={lbl}>Scoreboard metric</label>
             <select value={value.key || ""} onChange={e => set({ key: e.target.value })} style={sel}>
               <option value="">Select…</option>
-              {SCOREBOARD_KEYS.map(k => <option key={k} value={k}>{k.replace(/_/g, " ")}</option>)}
+              {sbKeys.map(k => <option key={k} value={k}>{k.replace(/_/g, " ")}</option>)}
             </select></div>
+          {mode === "kr" && <div><label style={lbl}>Use</label>
+            <select value={value.denom_key ? "ratio" : "value"} onChange={e => set({ denom_key: e.target.value === "ratio" ? (value.denom_key || "") : null })} style={sel}>
+              <option value="value">This metric</option>
+              <option value="ratio">Ratio: this ÷ another metric</option>
+            </select></div>}
+          {mode === "kr" && value.denom_key != null && <div><label style={lbl}>Divide by</label>
+            <select value={value.denom_key || ""} onChange={e => set({ denom_key: e.target.value })} style={sel}>
+              <option value="">Select…</option>
+              {sbKeys.filter(k => k !== value.key).map(k => <option key={k} value={k}>{k.replace(/_/g, " ")}</option>)}
+            </select></div>}
           {mode === "scorecard" && <div><label style={lbl}>Each week</label>
             <select value={value.agg || "sum"} onChange={e => set({ agg: e.target.value })} style={sel}>
               {WEEK_AGGS.map(a => <option key={a.v} value={a.v}>{a.l}</option>)}
@@ -336,7 +353,7 @@ function MetabaseReportSource({ value, set, lbl, sel }) {
       )}
       {dash && (
         <div><label style={lbl}>Question</label>
-          <select value={value.dashcard_id || ""} onChange={e => { const c = dash.cards.find(x => String(x.dashcard_id) === e.target.value); setCols(null); set({ dashcard_id: c?.dashcard_id || null, card_id: c?.card_id || null, card_name: c?.name || null, params: Object.fromEntries((c?.params || []).map(p => [p.slug, p.default])), period_col: null, value_col: null, denom_col: null, row_filters: [] }); }} style={sel}>
+          <select value={value.dashcard_id || ""} onChange={e => { const c = dash.cards.find(x => String(x.dashcard_id) === e.target.value); setCols(null); set({ dashcard_id: c?.dashcard_id || null, card_id: c?.card_id || null, card_name: c?.name || null, params: Object.fromEntries((c?.params || []).filter(p => !p.isDate).map(p => [p.slug, p.default])), period_col: null, value_col: null, denom_col: null, row_filters: [] }); }} style={sel}>
             <option value="">Select…</option>
             {dash.cards.map(c => <option key={c.dashcard_id} value={c.dashcard_id}>{c.tab ? `${c.tab} · ` : ""}{c.name}</option>)}
           </select></div>
@@ -347,7 +364,9 @@ function MetabaseReportSource({ value, set, lbl, sel }) {
             const cur = value.params?.[p.slug]; const curV = Array.isArray(cur) ? cur[0] : cur;
             return (
               <div key={p.slug}><label style={lbl}>{p.name}</label>
-                {p.values.length ? (
+                {p.isDate ? (
+                  <div style={{ ...sel, color: T.text3, cursor: "default" }} title="Date filters follow the KR's period automatically">Follows the KR period</div>
+                ) : p.values.length ? (
                   <select value={curV ?? ""} onChange={e => { setCols(null); set({ params: { ...(value.params || {}), [p.slug]: e.target.value === "" ? null : [e.target.value] } }); }} style={sel}>
                     <option value="">{p.default != null ? `Default (${[].concat(p.default).join(", ")})` : "Any"}</option>
                     {p.values.map(v => <option key={String(v.value)} value={v.value}>{String(v.label).replace(/[├└│─]/g, "").trim()}</option>)}
@@ -413,7 +432,7 @@ function MetabaseReportSource({ value, set, lbl, sel }) {
 function Preview({ value, mode, krWindow }) {
   const [res, setRes] = useState(null);
   const [busy, setBusy] = useState(false);
-  const ready = value.kind === "scoreboard" ? !!value.key : value.kind === "scorecard" ? !!value.metric_id
+  const ready = value.kind === "scoreboard" ? !!value.key && value.denom_key !== "" : value.kind === "scorecard" ? !!value.metric_id
     : value.kind === "mb_report" ? !!(value.card_id && value.period_col && value.value_col && (value.agg !== "ratio" || value.denom_col))
     : !!(value.id && value.date && (value.day_agg === "count" || value.value));
   useEffect(() => { setRes(null); }, [JSON.stringify(value)]); // eslint-disable-line react-hooks/exhaustive-deps
