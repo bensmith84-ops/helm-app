@@ -368,6 +368,26 @@ export default function OKRsView() {
 
   const createObjective = openObjectiveForm;
 
+  // Drag to reorder key results within an objective; order is saved as sort_order.
+  const [dragKR, setDragKR] = useState(null);   // { id, obj }
+  const [dropKR, setDropKR] = useState(null);   // { id, pos: "before" | "after" }
+  const reorderKR = async (objId, fromId, toId, pos) => {
+    if (fromId === toId) return;
+    const list = keyResults.filter(k => k.objective_id === objId);
+    const moving = list.find(k => k.id === fromId);
+    if (!moving) return;
+    const rest = list.filter(k => k.id !== fromId);
+    const at = rest.findIndex(k => k.id === toId);
+    if (at < 0) return;
+    rest.splice(pos === "after" ? at + 1 : at, 0, moving);
+    const order = new Map(rest.map((k, i) => [k.id, i + 1]));
+    const changed = rest.filter((k, i) => (k.sort_order || 0) !== i + 1);
+    // Put this objective's KRs back into their slots in the new order; other objectives untouched.
+    setKeyResults(prev => { let n = 0; return prev.map(k => k.objective_id === objId ? { ...rest[n], sort_order: ++n } : k); });
+    const results = await Promise.all(changed.map(k => supabase.from("key_results").update({ sort_order: order.get(k.id) }).eq("org_id", orgId).eq("id", k.id)));
+    if (results.some(r => r.error)) showToast("Couldn't save the new order - refresh and try again", "error");
+  };
+
   const createKeyResult = async (objId) => {
     const title = await showPrompt("New Key Result", "Key Result title");
     if (!title?.trim()) return;
@@ -938,7 +958,24 @@ export default function OKRsView() {
                   const daysSince = lastCI ? Math.floor((Date.now() - new Date(lastCI.created_at).getTime()) / 86400000) : null;
                   const isStale = daysSince === null || daysSince >= 7;
                   return (
-                    <div key={kr.id} onClick={() => editKR(kr)} style={{ display: "grid", gridTemplateColumns: okrGrid, columnGap: 16, padding: "0 20px 0 48px", alignItems: "center", height: 48, cursor: "pointer", borderBottom: `1px solid ${T.border}`, background: sel ? `${T.accent}10` : "transparent", borderLeft: sel ? `3px solid ${T.accent}` : isStale ? "3px solid #eab30840" : "3px solid transparent", transition: "background 0.1s" }}>
+                    <div key={kr.id} onClick={() => editKR(kr)}
+                      draggable
+                      onDragStart={e => { setDragKR({ id: kr.id, obj: obj.id }); e.dataTransfer.effectAllowed = "move"; try { e.dataTransfer.setData("text/plain", kr.id); } catch (_) {} }}
+                      onDragOver={e => {
+                        if (!dragKR || dragKR.obj !== obj.id || dragKR.id === kr.id) return;
+                        e.preventDefault(); e.dataTransfer.dropEffect = "move";
+                        const r = e.currentTarget.getBoundingClientRect();
+                        const pos = e.clientY < r.top + r.height / 2 ? "before" : "after";
+                        if (dropKR?.id !== kr.id || dropKR?.pos !== pos) setDropKR({ id: kr.id, pos });
+                      }}
+                      onDrop={e => { e.preventDefault(); if (dragKR && dropKR) reorderKR(obj.id, dragKR.id, dropKR.id, dropKR.pos); setDragKR(null); setDropKR(null); }}
+                      onDragEnd={() => { setDragKR(null); setDropKR(null); }}
+                      className="okr-kr-row"
+                      style={{ position: "relative", display: "grid", gridTemplateColumns: okrGrid, columnGap: 16, padding: "0 20px 0 48px", alignItems: "center", height: 48, cursor: "pointer", borderBottom: `1px solid ${T.border}`, background: sel ? `${T.accent}10` : "transparent", borderLeft: sel ? `3px solid ${T.accent}` : isStale ? "3px solid #eab30840" : "3px solid transparent", transition: "background 0.1s",
+                        opacity: dragKR?.id === kr.id ? 0.4 : 1,
+                        boxShadow: dropKR?.id === kr.id ? (dropKR.pos === "before" ? `inset 0 2px 0 ${T.accent}` : `inset 0 -2px 0 ${T.accent}`) : "none" }}>
+                      <span className="okr-kr-grip" title="Drag to reorder" onClick={e => e.stopPropagation()}
+                        style={{ position: "absolute", left: 18, top: 0, bottom: 0, display: "flex", alignItems: "center", color: T.text3, cursor: "grab", fontSize: 14, letterSpacing: -3, userSelect: "none", opacity: 0.55 }}>⋮⋮</span>
                       <span style={{ fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: 12, display: "flex", alignItems: "center", gap: 6 }}>
                         {kr.title}
                         {conds.map((c, i) => (
