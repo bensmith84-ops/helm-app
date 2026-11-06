@@ -112,7 +112,7 @@ async function calcKeyResults(pool, onlyKr) {
           if (base.value == null) throw new Error(`no data for the comparison period ${cw.from} to ${cw.to}`);
           // A total over a comparison period the data only partly covers would understate the baseline.
           const span = Math.round((Date.parse(cw.to) - Date.parse(cw.from)) / 86400000) + 1;
-          if (cfg.kind !== 'scorecard' && (m.kind || 'total') === 'total' && base.points < span * 0.9) {
+          if (cfg.kind !== 'scorecard' && cfg.kind !== 'mb_report' && (m.kind || 'total') === 'total' && base.points < span * 0.9) {
             throw new Error(`the data covers only ${base.points} of the ${span} days in the comparison period (${cw.from} to ${cw.to})`);
           }
           m.current_value = round(cur.value); m.baseline_value = round(base.value); m.auto_error = null;

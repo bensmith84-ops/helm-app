@@ -218,7 +218,101 @@ function scorecardWindowValue(weekly, how) {
 }
 
 // One key result's current value from its auto_config over [from, to].
+// ── Metabase report: a question on a dashboard, run with chosen filter values.
+// Rows carry a period column (a date, "2026-09" or "Sep 2026") and value columns;
+// a KR value combines the rows whose period starts inside the KR window:
+//   sum | avg | latest of one column, or ratio = sum(A) / sum(B)
+//   (e.g. CPA = Product Spend / Cohort Customers, exact for any window length).
+const MON = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
+function periodStart(v) {
+  if (v == null) return null;
+  const s = String(v).trim();
+  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/); if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  m = s.match(/^(\d{4})-(\d{2})$/); if (m) return `${m[1]}-${m[2]}-01`;
+  m = s.match(/^([A-Za-z]{3})[a-z]*\.?\s+(\d{4})$/); if (m && MON[m[1].toLowerCase()]) return `${m[2]}-${String(MON[m[1].toLowerCase()]).padStart(2, '0')}-01`;
+  m = s.match(/^(\d{4})\s*Q([1-4])$/i); if (m) return `${m[1]}-${String((m[2] - 1) * 3 + 1).padStart(2, '0')}-01`;
+  return null;
+}
+
+async function dashboards(q) {
+  const qs = new URLSearchParams({ q: String(q || '').slice(0, 100) }); qs.append('models', 'dashboard');
+  const j = await mb(`/search?${qs}`);
+  return (j.data || []).filter((x) => !x.archived).slice(0, 30).map((x) => ({ id: x.id, name: x.name, where: (x.collection && x.collection.name) || 'Our analytics', description: x.description || null }));
+}
+
+// A dashboard's questions and the filters each one takes, with their choices.
+async function dashboard(id) {
+  id = Number(id); if (!Number.isInteger(id) || id <= 0) throw new Error('invalid dashboard');
+  const d = await mb(`/dashboard/${id}`);
+  const tabs = Object.fromEntries((d.tabs || []).map((t) => [t.id, t.name]));
+  const params = Object.fromEntries((d.parameters || []).map((p) => [p.id, p]));
+  const cards = (d.dashcards || []).filter((c) => c.card_id && c.card && !['text', 'heading', 'link'].includes(c.card.display)).map((c) => ({
+    dashcard_id: c.id, card_id: c.card_id, name: c.card.name, display: c.card.display, tab: tabs[c.dashboard_tab_id] || null,
+    params: (c.parameter_mappings || []).map((m) => params[m.parameter_id]).filter(Boolean)
+      .filter((p, i, a) => a.findIndex((x) => x.id === p.id) === i)
+      .map((p) => ({ slug: p.slug, name: p.name, default: p.default ?? null, multi: p.isMultiSelect !== false,
+        values: ((p.values_source_config && p.values_source_config.values) || []).map((v) => (Array.isArray(v) ? { value: v[0], label: v[1] ?? v[0] } : { value: v, label: v })) })),
+  }));
+  return { id, name: d.name, cards };
+}
+
+async function runReport(cfg) {
+  const id = Number(cfg.dashboard_id), dcId = Number(cfg.dashcard_id), cardId = Number(cfg.card_id);
+  if (![id, dcId, cardId].every((n) => Number.isInteger(n) && n > 0)) throw new Error('pick a dashboard question');
+  const d = await mb(`/dashboard/${id}`);
+  const dc = (d.dashcards || []).find((c) => c.id === dcId && c.card_id === cardId);
+  if (!dc) throw new Error('that question is no longer on the dashboard');
+  const chosen = cfg.params || {};
+  const parameters = (dc.parameter_mappings || []).map((m) => {
+    const p = (d.parameters || []).find((x) => x.id === m.parameter_id);
+    if (!p) return null;
+    let v = Object.prototype.hasOwnProperty.call(chosen, p.slug) ? chosen[p.slug] : p.default;
+    if (v != null && !Array.isArray(v)) v = [v];
+    return { id: p.id, type: p.type, target: m.target, value: v ?? null };
+  }).filter(Boolean);
+  const j = await mb(`/dashboard/${id}/dashcard/${dcId}/card/${cardId}/query`, { method: 'POST', body: { parameters } });
+  const cols = ((j.data && j.data.cols) || []).map((c) => ({ name: c.name, label: c.display_name || c.name, base_type: c.base_type, kind: kindOf(c.base_type) }));
+  const rows = ((j.data && j.data.rows) || []).map((r) => Object.fromEntries(cols.map((c, i) => [c.name, r[i]])));
+  return { cols, rows };
+}
+
+function reportColumnsInfo({ cols, rows }) {
+  const periodCols = cols.filter((c) => rows.slice(0, 20).some((r) => r[c.name] != null) && rows.slice(0, 20).every((r) => r[c.name] == null || periodStart(r[c.name])));
+  return { columns: cols, period_columns: periodCols.map((c) => c.name), sample: rows.slice(0, 3) };
+}
+
+const REPORT_AGGS = ['sum', 'avg', 'latest', 'ratio'];
+async function reportValue(cfg, from, to) {
+  if (!cfg.period_col) throw new Error('pick the period column');
+  const agg = REPORT_AGGS.includes(cfg.agg) ? cfg.agg : 'sum';
+  if (!cfg.value_col) throw new Error('pick a value column');
+  if (agg === 'ratio' && !cfg.denom_col) throw new Error('pick the column to divide by');
+  const { rows } = await runReport(cfg);
+  const filters = Array.isArray(cfg.row_filters) ? cfg.row_filters.filter((f) => f && f.col && f.value !== '' && f.value != null) : [];
+  const keep = rows.filter((r) => filters.every((f) => String(r[f.col] ?? '').toLowerCase() === String(f.value).toLowerCase()));
+  const series = new Map();
+  for (const r of keep) {
+    const p = periodStart(r[cfg.period_col]);
+    if (!p || p < from || p > to) continue;
+    const prev = series.get(p) || { a: 0, b: 0, n: 0 };
+    prev.a += Number(r[cfg.value_col]) || 0;
+    if (agg === 'ratio') prev.b += Number(r[cfg.denom_col]) || 0;
+    prev.n += 1;
+    series.set(p, prev);
+  }
+  const keys = [...series.keys()].sort();
+  if (!keys.length) return { value: null, points: 0, unit: 'periods', series: new Map() };
+  let value;
+  if (agg === 'ratio') { const a = keys.reduce((s, k) => s + series.get(k).a, 0), b = keys.reduce((s, k) => s + series.get(k).b, 0); value = b ? a / b : null; }
+  else if (agg === 'avg') value = keys.reduce((s, k) => s + series.get(k).a, 0) / keys.length;
+  else if (agg === 'latest') value = series.get(keys[keys.length - 1]).a;
+  else value = keys.reduce((s, k) => s + series.get(k).a, 0);
+  const out = new Map(keys.map((k) => { const x = series.get(k); return [k, agg === 'ratio' ? (x.b ? x.a / x.b : null) : x.a]; }));
+  return { value, points: keys.length, unit: 'periods', series: out };
+}
+
 async function krValue(pool, cfg, from, to) {
+  if (cfg.kind === 'mb_report') return reportValue(cfg, from, to);
   const how = WINDOW_AGGS.includes(cfg.window_agg) ? cfg.window_agg : 'total';
   if (cfg.kind === 'scorecard') {
     if (!cfg.metric_id) throw new Error('pick a Scorecard metric');
@@ -240,6 +334,7 @@ function calcProgress(current, target, direction) {
 }
 
 module.exports = {
+  dashboards, dashboard, runReport, reportColumnsInfo, reportValue, periodStart,
   search, fields, cleanConfig, metabaseDaily, scoreboardDaily, scorecardWeekly, scorecardWindowValue,
   weekStart, rollWeeks, windowValue, WINDOW_AGGS, calcProgress, ymd, krValue,
 };
