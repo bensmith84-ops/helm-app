@@ -9,7 +9,7 @@ import { useModal } from "../lib/modal";
 import { invokeFunction } from "../lib/invokeFunction";
 import { describeSource } from "./MetricSourcePicker";
 import KRMeasuresEditor from "./KRMeasuresEditor";
-import { evalKR, getMeasures, legacyMirror, OP_SYMBOL } from "../lib/krMeasures";
+import { evalKR, getMeasures, legacyMirror, OP_SYMBOL, fmtPct } from "../lib/krMeasures";
 
 const HEALTH = {
   on_track:  { label: "On Track",  color: "#22c55e", bg: "#0d3a20" },
@@ -39,7 +39,7 @@ const progressColor = (pct, direction, current, target) => {
 // lowest (all) or best (any) of the values; the colour follows.
 const krProgress = (kr) => evalKR(kr).progress;
 const krColor = (kr) => evalKR(kr).color;
-const krParts = (kr) => evalKR(kr).parts.map(p => ({ label: p.label, current: p.current_value === null || p.current_value === "" ? null : Number(p.current_value), target: p.target_value === "" || p.target_value == null ? null : Number(p.target_value), unit: p.unit, op: p.op, auto: !!p.auto_config, error: p.auto_error, color: p.color, met: p.met }));
+const krParts = (kr) => evalKR(kr).parts.map(p => ({ growth: p.target_type === "growth" ? (p.growth ?? null) : undefined, label: p.label, current: p.current_value === null || p.current_value === "" ? null : Number(p.current_value), target: p.target_value === "" || p.target_value == null ? null : Number(p.target_value), unit: p.unit, op: p.op, auto: !!p.auto_config, error: p.auto_error, color: p.color, met: p.met }));
 const partColor = (p) => p.color;
 const fmtVal = (v, unit) => { const n = Number(v || 0); const s = Math.abs(n) >= 1000 ? Math.round(n).toLocaleString() : (Math.round(n * 100) / 100).toLocaleString(); return unit === "$" ? `$${s}` : unit === "%" ? `${s}%` : unit ? `${s} ${unit}` : s; };
 const acol = (uid) => uid ? AVATAR_COLORS[uid.charCodeAt(uid.length - 1) % AVATAR_COLORS.length] : T.text3;
@@ -490,12 +490,15 @@ export default function OKRsView() {
       if (mode === "manual") {
         const toNum = (v) => (v === "" || v == null || isNaN(Number(v)) ? null : Number(v));
         const measures = (rest.measures || []).filter((m, i) => i === 0 || m.label || toNum(m.target_value) != null)
-          .map(({ _open, ...m }, i) => ({ ...m, id: m.id || `m${i}`, label: m.label || (i === 0 ? rest.title : ""), current_value: toNum(m.current_value) ?? (i === 0 ? 0 : null), target_value: toNum(m.target_value), op: m.op || ">=", kind: m.kind || "total", auto_config: m.auto_config || null }));
+          .map(({ _open, ...m }, i) => ({ ...m, id: m.id || `m${i}`, label: m.label || (i === 0 ? rest.title : ""), current_value: toNum(m.current_value) ?? (i === 0 && m.target_type !== "growth" ? 0 : null), target_value: toNum(m.target_value), op: m.op || ">=", kind: m.kind || "total", auto_config: m.auto_config || null,
+            ...(m.target_type === "growth" ? { baseline_value: toNum(m.baseline_value), stretch_value: toNum(m.stretch_value), compare: m.compare || { mode: "yoy" } } : {}) }));
         updates.measures = measures;
         updates.measure_logic = rest.measure_logic || "all";
         updates.measure_period = rest.measure_period || "kr";
-        updates.period_eval = updates.measure_period === "kr" ? "to_date" : (rest.period_eval || "last_complete");
-        Object.assign(updates, legacyMirror(measures));
+        updates.period_eval = ["kr", "year", "custom"].includes(updates.measure_period) ? "to_date" : (rest.period_eval || "last_complete");
+        updates.period_from = ["year", "custom"].includes(updates.measure_period) ? (rest.period_from || null) : null;
+        updates.period_to = ["year", "custom"].includes(updates.measure_period) ? (rest.period_to || null) : null;
+        Object.assign(updates, legacyMirror(measures, { ...rest, ...updates }));
         if (updates.target_value == null) updates.target_value = 0;
         updates.conditions = null;
         updates.progress = krProgress({ ...rest, ...updates });
@@ -981,7 +984,7 @@ export default function OKRsView() {
                         {conds.map((c, i) => (
                           <span key={i} title={`${kr.measure_logic === "any" ? "Any one value must be met." : "All values must be met."}${c.auto ? " Auto-calculated." : ""}${c.error ? " Last run failed: " + c.error : ""}`}
                             style={{ fontSize: 9, padding: "1px 6px", borderRadius: 8, border: `1px solid ${partColor(c)}60`, background: `${partColor(c)}12`, color: partColor(c), fontWeight: 700, flexShrink: 0, whiteSpace: "nowrap" }}>
-                            {c.auto ? "⚡ " : ""}{c.label || "Value"} {c.current == null ? "–" : fmtVal(c.current, c.unit)} {OP_SYMBOL[c.op] || "≥"} {fmtVal(c.target, c.unit)}
+                            {c.auto ? "⚡ " : ""}{c.label || "Value"} {c.growth !== undefined ? `${fmtPct(c.growth)} ${OP_SYMBOL[c.op] || "≥"} ${fmtPct(c.target)}` : `${c.current == null ? "–" : fmtVal(c.current, c.unit)} ${OP_SYMBOL[c.op] || "≥"} ${fmtVal(c.target, c.unit)}`}
                           </span>
                         ))}
                         {kr.progress_mode === "milestones" && <span style={{ fontSize: 8, padding: "1px 5px", borderRadius: 3, background: `${T.accent}20`, color: T.accent, fontWeight: 700, flexShrink: 0 }}>AUTO</span>}
@@ -1001,7 +1004,7 @@ export default function OKRsView() {
                       </div>
                       {/* Inline value edit */}
                       {kr.progress_mode === "milestones" || kr.auto_config || (Array.isArray(kr.measures) && kr.measures.length) ? (
-                        <span title={kr.measure_period && kr.measure_period !== "kr" ? `Measured ${kr.measure_period}ly` : undefined} style={{ fontSize: 12, color: T.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fmtVal(kr.current_value, kr.unit)} / {fmtVal(kr.target_value, kr.unit)}</span>
+                        <span title={kr.measure_period && kr.measure_period !== "kr" ? `Measured ${kr.measure_period}ly` : undefined} style={{ fontSize: 12, color: T.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{Array.isArray(kr.measures) && kr.measures[0]?.target_type === "growth" ? `${fmtPct(evalKR(kr).parts[0]?.growth ?? null)} / ${fmtPct(Number(kr.measures[0].target_value))}` : `${fmtVal(kr.current_value, kr.unit)} / ${fmtVal(kr.target_value, kr.unit)}`}</span>
                       ) : (
                         <span onClick={e => e.stopPropagation()} style={{ display: "flex", alignItems: "center", gap: 4 }}>
                           <input

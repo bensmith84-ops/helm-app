@@ -72,7 +72,7 @@ const km = require('../lib/kr-measures');
 async function calcKeyResults(pool, onlyKr) {
   const { rows } = await pool.query(
     `SELECT kr.id, kr.title, kr.objective_id, kr.auto_config, kr.conditions, kr.measures, kr.measure_logic, kr.measure_period, kr.period_eval,
-            kr.current_value, kr.target_value, kr.target_direction, kr.unit,
+            kr.current_value, kr.target_value, kr.target_direction, kr.unit, kr.period_from::text AS period_from, kr.period_to::text AS period_to,
             coalesce(kr.start_date, o.start_date, c.start_date)::text AS start_date,
             coalesce(kr.end_date, o.end_date, c.end_date)::text AS end_date
        FROM key_results kr
@@ -98,8 +98,26 @@ async function calcKeyResults(pool, onlyKr) {
     for (const m of ms) {
       if (!m.auto_config || typeof m.auto_config !== 'object') continue;
       try {
-        if (!win) throw new Error('set a start date on the key result, its objective or its cycle');
+        if (!win) throw new Error('set the period dates, or a start date on the key result, its objective or its cycle');
+        if (win.notStarted) { m.current_value = null; m.auto_error = null; continue; }  // target period hasn't begun
         if (win.from > today) throw new Error(`the period starts on ${win.from}`);
+        if (isNew && m.target_type === 'growth') {
+          // Growth: the value over the target window and the same measure over the comparison window.
+          const cw = km.compareWindow(m, win);
+          if (!cw) throw new Error('set the comparison dates');
+          const cfg = { ...m.auto_config, window_agg: km.KIND_TO_WINDOW[m.kind] || 'total' };
+          const cur = await src.krValue(pool, cfg, win.from, win.to > today ? today : win.to);
+          const base = await src.krValue(pool, cfg, cw.from, cw.to);
+          if (cur.value == null) throw new Error(`no data between ${win.from} and ${win.to}`);
+          if (base.value == null) throw new Error(`no data for the comparison period ${cw.from} to ${cw.to}`);
+          // A total over a comparison period the data only partly covers would understate the baseline.
+          const span = Math.round((Date.parse(cw.to) - Date.parse(cw.from)) / 86400000) + 1;
+          if (cfg.kind !== 'scorecard' && (m.kind || 'total') === 'total' && base.points < span * 0.9) {
+            throw new Error(`the data covers only ${base.points} of the ${span} days in the comparison period (${cw.from} to ${cw.to})`);
+          }
+          m.current_value = round(cur.value); m.baseline_value = round(base.value); m.auto_error = null;
+          continue;
+        }
         const cfg = isNew ? { ...m.auto_config, window_agg: km.KIND_TO_WINDOW[m.kind] || 'total' } : m.auto_config;
         const r = await src.krValue(pool, cfg, win.from, win.to > today ? today : win.to);
         if (r.value == null) throw new Error(`no data between ${win.from} and ${win.to}`);
@@ -108,7 +126,7 @@ async function calcKeyResults(pool, onlyKr) {
     }
     if (isNew) {
       const ev = km.evalKR({ ...kr, measures: ms, start_date: krFrom, end_date: krTo }, today);
-      const mirror = km.legacyMirror(ms);
+      const mirror = km.legacyMirror(ms, { ...kr, measures: ms, start_date: krFrom, end_date: krTo });
       const err = ms.map((m) => m.auto_error).filter(Boolean)[0] || null;
       await pool.query(
         `UPDATE key_results SET measures = $2::jsonb, current_value = $3, target_value = $4, unit = $5, target_direction = $6, progress = $7,
