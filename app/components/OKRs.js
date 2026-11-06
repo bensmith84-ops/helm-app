@@ -371,6 +371,10 @@ export default function OKRsView() {
   // Drag to reorder key results within an objective; order is saved as sort_order.
   const [dragKR, setDragKR] = useState(null);   // { id, obj }
   const [dropKR, setDropKR] = useState(null);   // { id, pos: "before" | "after" }
+  // Refs carry the drag between events: Chrome cancels a native drag if the dragged
+  // element re-renders inside dragstart, so the visual state is applied a tick later.
+  const dragRef = useRef(null), dropRef = useRef(null);
+  const endDrag = () => { dragRef.current = null; dropRef.current = null; setDragKR(null); setDropKR(null); };
   const reorderKR = async (objId, fromId, toId, pos) => {
     if (fromId === toId) return;
     const list = keyResults.filter(k => k.objective_id === objId);
@@ -963,16 +967,23 @@ export default function OKRsView() {
                   return (
                     <div key={kr.id} onClick={() => editKR(kr)}
                       draggable
-                      onDragStart={e => { setDragKR({ id: kr.id, obj: obj.id }); e.dataTransfer.effectAllowed = "move"; try { e.dataTransfer.setData("text/plain", kr.id); } catch (_) {} }}
+                      onDragStart={e => {
+                        dragRef.current = { id: kr.id, obj: obj.id };
+                        e.dataTransfer.effectAllowed = "move";
+                        try { e.dataTransfer.setData("text/plain", kr.id); } catch (_) {}
+                        setTimeout(() => { if (dragRef.current) setDragKR(dragRef.current); }, 0);
+                      }}
                       onDragOver={e => {
-                        if (!dragKR || dragKR.obj !== obj.id || dragKR.id === kr.id) return;
+                        const dk = dragRef.current;
+                        if (!dk || dk.obj !== obj.id) return;
                         e.preventDefault(); e.dataTransfer.dropEffect = "move";
+                        if (dk.id === kr.id) return;
                         const r = e.currentTarget.getBoundingClientRect();
                         const pos = e.clientY < r.top + r.height / 2 ? "before" : "after";
-                        if (dropKR?.id !== kr.id || dropKR?.pos !== pos) setDropKR({ id: kr.id, pos });
+                        if (dropRef.current?.id !== kr.id || dropRef.current?.pos !== pos) { dropRef.current = { id: kr.id, pos }; setDropKR(dropRef.current); }
                       }}
-                      onDrop={e => { e.preventDefault(); if (dragKR && dropKR) reorderKR(obj.id, dragKR.id, dropKR.id, dropKR.pos); setDragKR(null); setDropKR(null); }}
-                      onDragEnd={() => { setDragKR(null); setDropKR(null); }}
+                      onDrop={e => { e.preventDefault(); const dk = dragRef.current, dp = dropRef.current; if (dk && dp && dk.obj === obj.id) reorderKR(obj.id, dk.id, dp.id, dp.pos); endDrag(); }}
+                      onDragEnd={endDrag}
                       className="okr-kr-row"
                       style={{ position: "relative", display: "grid", gridTemplateColumns: okrGrid, columnGap: 16, padding: "0 20px 0 48px", alignItems: "center", height: 48, cursor: "pointer", borderBottom: `1px solid ${T.border}`, background: sel ? `${T.accent}10` : "transparent", borderLeft: sel ? `3px solid ${T.accent}` : isStale ? "3px solid #eab30840" : "3px solid transparent", transition: "background 0.1s",
                         opacity: dragKR?.id === kr.id ? 0.4 : 1,
