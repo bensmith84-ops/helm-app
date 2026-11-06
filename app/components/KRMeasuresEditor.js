@@ -167,7 +167,15 @@ export default function KRMeasuresEditor({ d, editSet, scMetrics, krDates, isMob
           style={{ fontSize: 12, fontWeight: 600, padding: "6px 12px", borderRadius: 6, border: `1px dashed ${T.border}`, background: "transparent", color: T.text2, cursor: "pointer" }}>+ Add value</button>
         {measures.length > 1 && (
           <span style={{ fontSize: 11, color: T.text3 }}>
-            {d.measure_logic === "any" ? "Green when any one value is met; progress is the best of them." : "Green only when every value is met; progress is the lowest of them."}
+            {(() => {
+              const scored = result.parts.filter(x => x.pct != null);
+              const any = d.measure_logic === "any";
+              if (!scored.length) return any ? "Green when any one value is met; progress is the best of them." : "Green only when every value is met; progress is the lowest of them.";
+              if (result.met) return any ? `On track: ${scored.filter(x => x.met).map(x => x.label || "a value").join(" and ")} met.` : "On track: every value is met.";
+              const lim = any ? [...scored].sort((a, b) => b.pct - a.pct)[0] : [...scored].filter(x => !x.met).sort((a, b) => a.pct - b.pct)[0];
+              const met = scored.filter(x => x.met).map(x => x.label || "a value");
+              return <span><b style={{ color: "#ef4444" }}>Not on track:</b> {lim.label || "a value"} is at {lim.pct}% of its target{met.length ? `, so ${result.progress}% overall even though ${met.join(" and ")} ${met.length > 1 ? "are" : "is"} met` : ""}. {any ? "Progress is the best value." : "Progress is the lowest value."}</span>;
+            })()}
           </span>
         )}
       </div>
