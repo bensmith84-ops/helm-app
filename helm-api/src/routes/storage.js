@@ -17,7 +17,7 @@
 
 const crypto = require('crypto');
 const express = require('express');
-const multer = require('multer');
+const Busboy = require('busboy');
 const { gcsClient } = require('../lib/gcs');
 
 const list = (v, d) => new Set((v || d).split(',').map((s) => s.trim()).filter(Boolean));
@@ -65,7 +65,26 @@ async function rfpVendorMayUpload(pool, bucket, path) {
 }
 
 function mount(app, { gcs = gcsClient(), pool = null } = {}) {
-  const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_BYTES } }).any();
+  // supabase-js sends a File/Blob as multipart with an EMPTY field name
+  // (formData.append('', file)). multer rejects that ("Field name missing"),
+  // so parse multipart with busboy directly and take the first file part.
+  const upload = (req, res, next) => {
+    let bb;
+    try { bb = Busboy({ headers: req.headers, limits: { fileSize: MAX_BYTES, files: 1 } }); } catch (e) { return bad(res, 400, e.message); }
+    const files = []; let tooBig = false;
+    bb.on('file', (name, file, info) => {
+      const chunks = [];
+      file.on('data', (d) => chunks.push(d));
+      file.on('limit', () => { tooBig = true; });
+      file.on('end', () => files.push({ fieldname: name, buffer: Buffer.concat(chunks), mimetype: info.mimeType, originalname: info.filename }));
+    });
+    bb.on('error', (e) => bad(res, 400, e.message));
+    bb.on('close', () => {
+      if (tooBig) return bad(res, 413, 'file too large');
+      req.files = files; next();
+    });
+    req.pipe(bb);
+  };
   const raw = express.raw({ type: () => true, limit: MAX_BYTES });
 
   // Who may touch which bucket: signed-in members anywhere; external
