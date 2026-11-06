@@ -24,6 +24,19 @@ function NumInput({ value, onChange, disabled, style, placeholder }) {
   );
 }
 
+// What Preview should query. A target period that hasn't started has no data, so
+// show the same dates a year earlier (the comparison period) instead.
+function previewWindow(win, m) {
+  if (!win) return null;
+  if (!win.notStarted) return { from: win.from, to: win.to };
+  const back = (s) => `${Number(s.slice(0, 4)) - 1}${s.slice(4)}`;
+  const today = new Date().toISOString().slice(0, 10);
+  const from = back(win.from), fullTo = back(win.fullTo || win.to);
+  const to = fullTo < today ? fullTo : today;
+  if (from > today) return { from: win.from, to: win.fullTo || win.to };
+  return { from, to, note: `The target period hasn't started, so Preview shows ${from} to ${to}${m?.target_type === "growth" ? " (the comparison period)" : " (the same dates a year earlier)"}.` };
+}
+
 export default function KRMeasuresEditor({ d, editSet, scMetrics, krDates, isMobile, lbl, inp }) {
   const measures = Array.isArray(d.measures) && d.measures.length ? d.measures : [{ id: "m0", label: "", current_value: 0, target_value: "", unit: "", op: ">=", kind: "total" }];
   const setMeasures = (next) => editSet("measures", next);
@@ -142,7 +155,7 @@ export default function KRMeasuresEditor({ d, editSet, scMetrics, krDates, isMob
             {m._open && (
               <div style={{ marginTop: 8, padding: 10, borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface }}>
                 <MetricSourcePicker mode="kr" value={m.auto_config || null} onChange={v => setM(i, { auto_config: v })} scorecardMetrics={scMetrics}
-                  krWindow={win ? { from: win.from, to: win.to } : null} hideWindowAgg windowAgg={KIND_TO_WINDOW[m.kind || "total"]} />
+                  krWindow={previewWindow(win, m)} hideWindowAgg windowAgg={KIND_TO_WINDOW[m.kind || "total"]} />
                 <div style={{ fontSize: 10, color: T.text3, marginTop: 6 }}>Calculated for {win ? win.label : "the period"} as a {(KINDS.find(k => k.v === (m.kind || "total"))?.l || "total").toLowerCase()}.</div>
               </div>
             )}

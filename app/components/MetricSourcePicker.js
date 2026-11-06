@@ -285,7 +285,9 @@ function Preview({ value, mode, krWindow }) {
         {busy ? "Loading…" : res ? "Refresh preview" : "Preview numbers"}
       </button>
       {res?.error && <div style={{ fontSize: 11, color: "#ef4444", marginTop: 6 }}>{res.error}</div>}
-      {res && !res.error && (
+      {krWindow?.note && <div style={{ fontSize: 11, color: T.text3, marginTop: 6 }}>{krWindow.note}</div>}
+      {res?.note && <div style={{ fontSize: 11, color: T.text3, marginTop: 6 }}>{res.note}</div>}
+      {res && !res.error && !res.note && (
         <div style={{ marginTop: 8 }}>
           {mode === "kr" && <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 6 }}>Current value: {fmtNum(res.value)} <span style={{ fontSize: 11, fontWeight: 500, color: T.text3 }}>from {res.points} {res.unit} of data</span></div>}
           {(res.weeks || []).length === 0 ? <div style={{ fontSize: 11, color: T.text3 }}>No rows in this period. Check the date column and filters.</div> : (

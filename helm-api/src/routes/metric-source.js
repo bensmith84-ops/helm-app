@@ -25,6 +25,9 @@ module.exports = function (app, { pool }) {
         const today = src.ymd(new Date());
         if (b.from) {
           const from = String(b.from).slice(0, 10), to = String(b.to || today).slice(0, 10) > today ? today : String(b.to || today).slice(0, 10);
+          // A period that hasn't started has no data yet: say so rather than failing.
+          if (from > today) return res.json({ value: null, points: 0, unit: 'days', from, to: String(b.to || from).slice(0, 10), weeks: [], note: `This period starts on ${from}, so there is no data yet.` });
+          if (from > to) return res.status(400).json({ error: `The period ends (${to}) before it starts (${from}).` });
           const r = await src.krValue(pool, cfg, from, to);
           const weeks = cfg.kind === 'scorecard' ? [...r.series.entries()].map(([w, v]) => ({ week: w, value: v }))
             : [...src.rollWeeks(r.series, 'sum').entries()].map(([w, x]) => ({ week: w, value: x.value, days: x.days }));
@@ -39,6 +42,8 @@ module.exports = function (app, { pool }) {
       }
       return res.status(400).json({ error: 'unknown action' });
     } catch (e) {
+      // Logged so a 400 seen in the browser can be traced in Cloud Run logs.
+      console.warn('[metric-source]', b.action, (b.config && (b.config.kind + ':' + (b.config.id || b.config.key || b.config.metric_id))) || (b.model + ':' + b.id), String(e.message || e).slice(0, 300));
       return res.status(400).json({ error: String(e.message || e).slice(0, 400) });
     }
   });
