@@ -5,7 +5,9 @@
 //   op:   '<' | '<=' | '=' | '>=' | '>'
 //   kind: 'total' (adds up over the period: spend, orders) | 'rate' (CPA, %, averages) | 'latest'
 // kr.measure_logic:  'all' (every value must be met) | 'any' (one or more)
-// kr.measure_period: 'week' | 'month' | 'quarter' | 'kr' (the whole KR period)
+// kr.measure_period: 'week' | 'month' | 'quarter' | 'kr' (the whole KR period) | 'year' | 'custom' (kr.period_from..kr.period_to)
+// Growth values (m.target_type 'growth'): target_value / stretch_value are % change against
+// baseline_value, the same value over a comparison period: m.compare = {mode: 'yoy' | 'prior' | 'custom', from, to}.
 // kr.period_eval:    'last_complete' (latest full period) | 'to_date' (current period so far, totals projected)
 // KRs without measures fall back to current/target/direction (+ legacy conditions).
 
@@ -19,7 +21,8 @@ export const KINDS = [
   { v: "rate", l: "Rate / average", hint: "Averaged over the period (CPA, %, AOV)" },
   { v: "latest", l: "Latest", hint: "The most recent value" },
 ];
-export const PERIODS = [{ v: "week", l: "Weekly" }, { v: "month", l: "Monthly" }, { v: "quarter", l: "Quarterly" }, { v: "kr", l: "Whole KR period" }];
+export const PERIODS = [{ v: "week", l: "Weekly" }, { v: "month", l: "Monthly" }, { v: "quarter", l: "Quarterly" }, { v: "year", l: "Calendar year" }, { v: "custom", l: "Custom dates" }, { v: "kr", l: "Whole KR period" }];
+export const COMPARES = [{ v: "yoy", l: "Same period last year" }, { v: "prior", l: "Previous period" }, { v: "custom", l: "Custom dates" }];
 export const EVALS = [{ v: "last_complete", l: "Last full period" }, { v: "to_date", l: "Period to date (totals projected)" }];
 export const KIND_TO_WINDOW = { total: "total", rate: "avg_day", latest: "latest" };
 
@@ -53,11 +56,21 @@ export function periodWindow(kr, today = ymd(new Date()), krFrom = kr?.start_dat
   const period = kr?.measure_period || "kr", ev = kr?.period_eval || (period === "kr" ? "to_date" : "last_complete");
   const t = parse(today);
   let start, end, label;
+  if (period === "year" || period === "custom") {
+    const from = kr?.period_from && String(kr.period_from).slice(0, 10), fullTo = kr?.period_to && String(kr.period_to).slice(0, 10);
+    if (!from || !fullTo) return null;
+    const name = period === "year" && from.slice(5) === "01-01" && fullTo.slice(5) === "12-31" && from.slice(0, 4) === fullTo.slice(0, 4)
+      ? `Calendar ${from.slice(0, 4)}` : `${from} to ${fullTo}`;
+    if (today < from) return { from, to: fullTo, fullTo, label: `${name} (starts ${from})`, fraction: 0, toDate: true, notStarted: true, period };
+    const to = fullTo < today ? fullTo : today;
+    const fraction = Math.min(1, days(from, to) / days(from, fullTo));
+    return { from, to, fullTo, label: fraction < 1 ? `${name} to date` : name, fraction, toDate: fraction < 1, period };
+  }
   if (period === "kr") {
     if (!krFrom) return null;
     const to = krTo && krTo < today ? krTo : today;
     const full = days(krFrom, krTo || today);
-    return { from: String(krFrom).slice(0, 10), to, label: `KR period to date`, fraction: Math.min(1, days(krFrom, to) / full), toDate: true, period };
+    return { from: String(krFrom).slice(0, 10), to, fullTo: String(krTo || today).slice(0, 10), label: `KR period to date`, fraction: Math.min(1, days(krFrom, to) / full), toDate: true, period };
   }
   if (period === "week") {
     const mon = addDays(t, -((t.getDay() + 6) % 7));
@@ -75,9 +88,9 @@ export function periodWindow(kr, today = ymd(new Date()), krFrom = kr?.start_dat
   }
   const from = ymd(start), fullTo = ymd(end);
   if (ev === "to_date") {
-    return { from, to: today, label: `${label} to date`, fraction: days(from, today) / days(from, fullTo), toDate: true, period };
+    return { from, to: today, fullTo, label: `${label} to date`, fraction: days(from, today) / days(from, fullTo), toDate: true, period };
   }
-  return { from, to: fullTo, label: `${label} (last full ${period === "week" ? "week" : period === "month" ? "month" : "quarter"})`, fraction: 1, toDate: false, period };
+  return { from, to: fullTo, fullTo, label: `${label} (last full ${period === "week" ? "week" : period === "month" ? "month" : "quarter"})`, fraction: 1, toDate: false, period };
 }
 
 const GREEN = "#22c55e", YELLOW = "#eab308", RED = "#ef4444", BLUE = "#3b82f6";
@@ -109,6 +122,41 @@ export function evalMeasure(m, { strict = true, fraction = 1, toDate = false } =
   return { pct, met, color, value, projected: value !== cur ? value : null };
 }
 
+// The comparison window for a growth value, given the KR's current window.
+// yoy / prior are like-for-like (the same elapsed days); custom is a fixed range,
+// scaled to the target period's length for totals.
+const shiftYear = (s, n) => { const d = parse(s); return ymd(new Date(d.getFullYear() + n, d.getMonth(), d.getDate())); };
+export function compareWindow(m, win) {
+  if (!win || win.notStarted) return null;
+  const c = m?.compare || { mode: "yoy" };
+  if (c.mode === "custom") {
+    if (!c.from || !c.to) return null;
+    return { from: c.from, to: c.to, likeForLike: false, ratio: days(win.from, win.fullTo || win.to) / days(c.from, c.to), label: `${c.from} to ${c.to}` };
+  }
+  if (c.mode === "prior") {
+    const len = days(win.from, win.fullTo || win.to);
+    return { from: ymd(addDays(parse(win.from), -len)), to: ymd(addDays(parse(win.to), -len)), likeForLike: true, label: "previous period" };
+  }
+  return { from: shiftYear(win.from, -1), to: shiftYear(win.to, -1), likeForLike: true, label: "same period last year" };
+}
+
+// A growth value: % change of the current value against its baseline.
+export function evalGrowth(m, win) {
+  const cw = compareWindow(m, win);
+  const base = num(m.baseline_value), cur = num(m.current_value), target = num(m.target_value), stretch = num(m.stretch_value);
+  if (!cw || base == null || cur == null || target == null || base === 0) return { pct: null, met: false, color: "#64748b", value: cur, noData: true, compare: cw };
+  const totals = (m.kind || "total") === "total";
+  const eff = !cw.likeForLike && totals && win.toDate && win.fraction > 0 && win.fraction < 1 ? cur / win.fraction : cur;
+  const baseEff = !cw.likeForLike && totals ? base * cw.ratio : base;
+  const growth = (eff / baseEff - 1) * 100;
+  const op = m.op || ">=";
+  let met, pct;
+  if (isBelow(op)) { met = op === "<" ? growth < target : growth <= target; pct = met ? 100 : Math.max(0, Math.round(100 - (growth - target))); }
+  else { met = op === ">" ? growth > target : growth >= target; pct = target > 0 ? Math.round((growth / target) * 100) : (met ? 100 : 0); }
+  const stretchPct = !isBelow(op) && stretch != null && stretch > 0 ? Math.round((growth / stretch) * 100) : null;
+  return { pct, met, color: met ? GREEN : pct >= 90 ? YELLOW : RED, value: eff, projected: eff !== cur ? eff : null, growth, stretchPct, baseline: baseEff, compare: cw };
+}
+
 // The whole KR. Multi-value (or explicit period) KRs are strict: green only when met.
 export function evalKR(kr, today) {
   const ms = getMeasures(kr);
@@ -117,7 +165,7 @@ export function evalKR(kr, today) {
   const strict = ms.length > 1 || (!!kr?.measure_period && kr.measure_period !== "kr");
   const win = periodWindow(kr, today);
   const ctx = { strict, fraction: win?.fraction ?? 1, toDate: !!win?.toDate };
-  const parts = ms.map((m) => ({ ...m, ...evalMeasure(m, ctx) }));
+  const parts = ms.map((m) => ({ ...m, ...(m.target_type === "growth" ? evalGrowth(m, win) : evalMeasure(m, ctx)) }));
   const scored = parts.filter((p) => p.pct != null);
   if (!scored.length) return { progress: 0, color: "#64748b", met: false, parts, window: win };
   const any = kr?.measure_logic === "any";
@@ -128,10 +176,17 @@ export function evalKR(kr, today) {
 }
 
 // Legacy columns other views read (Scorecard, People, Projects): mirror the first value.
-export function legacyMirror(measures) {
+// A growth value mirrors as its % change (e.g. 46 against a target of 30, unit %).
+export function legacyMirror(measures, kr) {
   const m = measures[0] || {};
+  if (m.target_type === "growth") {
+    const g = kr ? evalKR({ ...kr, measures }).parts[0]?.growth : null;
+    return { current_value: g == null ? 0 : Math.round(g * 10) / 10, target_value: num(m.target_value) ?? 0, unit: "%", target_direction: isBelow(m.op) ? "below" : "above" };
+  }
   return { current_value: Number(m.current_value || 0), target_value: num(m.target_value) ?? 0, unit: m.unit || null, target_direction: isBelow(m.op) ? "below" : "above" };
 }
+
+export const fmtPct = (g) => (g == null ? "–" : `${g >= 0 ? "+" : ""}${Math.round(g * 10) / 10}%`);
 
 export function fmtValue(v, unit) {
   if (v == null || v === "") return "–";
