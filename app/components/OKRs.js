@@ -42,6 +42,23 @@ const krColor = (kr) => evalKR(kr).color;
 const krParts = (kr) => evalKR(kr).parts.map(p => ({ growth: p.target_type === "growth" ? (p.growth ?? null) : undefined, label: p.label, current: p.current_value === null || p.current_value === "" ? null : Number(p.current_value), target: p.target_value === "" || p.target_value == null ? null : Number(p.target_value), unit: p.unit, op: p.op, auto: !!p.auto_config, error: p.auto_error, color: p.color, met: p.met }));
 const partColor = (p) => p.color;
 const fmtVal = (v, unit) => { const n = Number(v || 0); const s = Math.abs(n) >= 1000 ? Math.round(n).toLocaleString() : (Math.round(n * 100) / 100).toLocaleString(); return unit === "$" ? `$${s}` : unit === "%" ? `${s}%` : unit ? `${s} ${unit}` : s; };
+// Compact values for row chips: $3.61M, $361K, $64.42.
+const fmtShort = (v, unit) => {
+  if (v == null || v === "") return "–";
+  const n = Number(v), a = Math.abs(n), pre = unit === "$" ? "$" : "", suf = unit && unit !== "$" ? (unit === "%" ? "%" : ` ${unit}`) : "";
+  if (a >= 1e6) return `${pre}${(n / 1e6).toFixed(a >= 1e7 ? 1 : 2)}M${suf}`;
+  if (a >= 1e4) return `${pre}${Math.round(n / 1e3)}K${suf}`;
+  return fmtVal(n, unit);
+};
+// Why a multi-value KR isn't green: each value's distance from its target, in plain words.
+const gapText = (p) => {
+  if (p.met) return "met";
+  if (p.target_type === "growth") { const g = p.growth ?? 0, t = Number(p.target_value); return `${Math.abs(Math.round((t - g) * 10) / 10)} pts ${["<", "<="].includes(p.op) ? "over" : "short"}`; }
+  const cur = Number(p.value ?? p.current_value), t = Number(p.target_value);
+  if (["<", "<="].includes(p.op)) return `${fmtShort(cur - t, p.unit)} over`;
+  if (p.op === "=") return `${fmtShort(Math.abs(cur - t), p.unit)} off`;
+  return `${fmtShort(t - cur, p.unit)} short`;
+};
 const acol = (uid) => uid ? AVATAR_COLORS[uid.charCodeAt(uid.length - 1) % AVATAR_COLORS.length] : T.text3;
 const TIMEFRAME_OPTIONS = [
   { value: "month", label: "Monthly" },
@@ -960,6 +977,17 @@ export default function OKRsView() {
                   const p = krProgress(kr); const sel = selectedKR === kr.id;
                   const pColor = krColor(kr);
                   const conds = krParts(kr).slice(1).filter(c => c.target != null);
+                  // Multi-value KRs: which values are met, and which one holds progress back.
+                  const ev = evalKR(kr);
+                  const scored = ev.parts.filter(x => x.pct != null);
+                  const multi = ev.parts.length > 1;
+                  const metN = scored.filter(x => x.met).length;
+                  const anyLogic = kr.measure_logic === "any";
+                  const limiter = multi && !ev.met && scored.length
+                    ? (anyLogic ? [...scored].sort((a, b) => b.pct - a.pct)[0] : [...scored].filter(x => !x.met).sort((a, b) => a.pct - b.pct)[0])
+                    : null;
+                  const whyTitle = multi ? ev.parts.map(x => `${x.met ? "✓" : x.pct == null ? "–" : "✗"} ${x.label || "Value"}: ${x.target_type === "growth" ? fmtPct(x.growth ?? null) : fmtVal(x.value ?? x.current_value, x.unit)} vs ${OP_SYMBOL[x.op] || "≥"} ${x.target_type === "growth" ? fmtPct(Number(x.target_value)) : fmtVal(x.target_value, x.unit)}${x.pct == null ? " (no data yet)" : x.met ? "" : ` (${gapText(x)}, ${x.pct}%)`}`).join("\n")
+                    + `\n\n${anyLogic ? "On track when any one value is met; progress is the best of them." : "On track only when every value is met; progress is the lowest of them."}` : undefined;
                   const krCIs = checkIns.filter(c => c.key_result_id === kr.id);
                   const lastCI = krCIs[0];
                   const daysSince = lastCI ? Math.floor((Date.now() - new Date(lastCI.created_at).getTime()) / 86400000) : null;
@@ -992,7 +1020,16 @@ export default function OKRsView() {
                         style={{ position: "absolute", left: 18, top: 0, bottom: 0, display: "flex", alignItems: "center", color: T.text3, cursor: "grab", fontSize: 14, letterSpacing: -3, userSelect: "none", opacity: 0.55 }}>⋮⋮</span>
                       <span style={{ fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: 12, display: "flex", alignItems: "center", gap: 6 }}>
                         {kr.title}
-                        {conds.map((c, i) => (
+                        {multi && ev.parts.map((x, i) => {
+                          const col = x.pct == null ? T.text3 : x.met ? "#22c55e" : x === limiter ? "#ef4444" : "#eab308";
+                          return (
+                            <span key={"v" + i} title={whyTitle}
+                              style={{ fontSize: 9, padding: "1px 6px", borderRadius: 8, border: `1px solid ${col}60`, background: `${col}12`, color: col, fontWeight: 700, flexShrink: 0, whiteSpace: "nowrap" }}>
+                              {x.pct == null ? "–" : x.met ? "✓" : "✗"} {x.label || "Value"} {x.target_type === "growth" ? `${fmtPct(x.growth ?? null)} ${OP_SYMBOL[x.op] || "≥"} ${fmtPct(Number(x.target_value))}` : `${fmtShort(x.value ?? x.current_value, x.unit)} ${OP_SYMBOL[x.op] || "≥"} ${fmtShort(x.target_value, x.unit)}`}
+                            </span>
+                          );
+                        })}
+                        {!multi && conds.map((c, i) => (
                           <span key={i} title={`${kr.measure_logic === "any" ? "Any one value must be met." : "All values must be met."}${c.auto ? " Auto-calculated." : ""}${c.error ? " Last run failed: " + c.error : ""}`}
                             style={{ fontSize: 9, padding: "1px 6px", borderRadius: 8, border: `1px solid ${partColor(c)}60`, background: `${partColor(c)}12`, color: partColor(c), fontWeight: 700, flexShrink: 0, whiteSpace: "nowrap" }}>
                             {c.auto ? "⚡ " : ""}{c.label || "Value"} {c.growth !== undefined ? `${fmtPct(c.growth)} ${OP_SYMBOL[c.op] || "≥"} ${fmtPct(c.target)}` : `${c.current == null ? "–" : fmtVal(c.current, c.unit)} ${OP_SYMBOL[c.op] || "≥"} ${fmtVal(c.target, c.unit)}`}
@@ -1011,11 +1048,12 @@ export default function OKRsView() {
                       </span>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <div style={{ flex: 1, height: 5, borderRadius: 5, background: T.surface3, overflow: "hidden" }}><div style={{ width: `${Math.min(p, 100)}%`, height: "100%", borderRadius: 5, background: pColor, transition: "width 0.3s" }} /></div>
-                        <span style={{ fontSize: 11, fontWeight: 600, color: pColor, minWidth: 36, textAlign: "right" }}>{Math.round(p)}%</span>
+                        <span title={whyTitle} style={{ fontSize: 11, fontWeight: 600, color: pColor, minWidth: 36, textAlign: "right" }}>{Math.round(p)}%</span>
+                        {limiter && <span title={whyTitle} style={{ fontSize: 10, color: T.text3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 140 }}>{limiter.label || "Value"} {gapText(limiter)}</span>}
                       </div>
                       {/* Inline value edit */}
                       {kr.progress_mode === "milestones" || kr.auto_config || (Array.isArray(kr.measures) && kr.measures.length) ? (
-                        <span title={kr.measure_period && kr.measure_period !== "kr" ? `Measured ${kr.measure_period}ly` : undefined} style={{ fontSize: 12, color: T.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{Array.isArray(kr.measures) && kr.measures[0]?.target_type === "growth" ? `${fmtPct(evalKR(kr).parts[0]?.growth ?? null)} / ${fmtPct(Number(kr.measures[0].target_value))}` : `${fmtVal(kr.current_value, kr.unit)} / ${fmtVal(kr.target_value, kr.unit)}`}</span>
+                        <span title={kr.measure_period && kr.measure_period !== "kr" ? `Measured ${kr.measure_period}ly` : undefined} style={{ fontSize: 12, color: T.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{multi ? `${metN} of ${ev.parts.length} met` : Array.isArray(kr.measures) && kr.measures[0]?.target_type === "growth" ? `${fmtPct(evalKR(kr).parts[0]?.growth ?? null)} / ${fmtPct(Number(kr.measures[0].target_value))}` : `${fmtVal(kr.current_value, kr.unit)} / ${fmtVal(kr.target_value, kr.unit)}`}</span>
                       ) : (
                         <span onClick={e => e.stopPropagation()} style={{ display: "flex", alignItems: "center", gap: 4 }}>
                           <input
