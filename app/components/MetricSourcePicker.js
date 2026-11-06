@@ -53,6 +53,7 @@ export function describeSource(s) {
   if (!s) return "Manual";
   if (s.kind === "scoreboard") return `Scoreboard: ${String(s.key || "").replace(/_/g, " ")}`;
   if (s.kind === "scorecard") return "Scorecard metric";
+  if (s.kind === "mb_report") return `Metabase report: ${s.agg === "ratio" ? `${s.value_col} ÷ ${s.denom_col}` : `${s.agg || "sum"} of ${s.value_col || "?"}`} in "${s.card_name || ""}"`;
   const what = s.day_agg === "count" ? "count of rows" : `${(DAY_AGGS.find(a => a.v === s.day_agg)?.l || "Sum of").toLowerCase()} ${s.value?.name || ""}`;
   return `Metabase: ${what} in "${s.name}"`;
 }
@@ -68,12 +69,13 @@ export default function MetricSourcePicker({ value, onChange, mode = "scorecard"
     const base = mode === "kr" ? { window_agg: value?.window_agg || "total" } : { agg: value?.agg && value.agg !== "weighted_average" ? value.agg : "sum" };
     if (k === "scoreboard") onChange({ kind: k, key: "", ...base, agg: value?.agg || "sum" });
     else if (k === "metabase") onChange({ kind: k, day_agg: "sum", filters: [], ...base });
+    else if (k === "mb_report") onChange({ kind: k, agg: "sum", params: {}, row_filters: [], ...base, agg: "sum" });
     else onChange({ kind: k, metric_id: "", ...base });
   };
 
   const lbl = { fontSize: 10, color: T.text3, fontWeight: 600, display: "block", marginBottom: 3, textTransform: "uppercase", letterSpacing: ".03em" };
   const sel = { width: "100%", padding: "6px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12, outline: "none", boxSizing: "border-box" };
-  const kinds = [["manual", "Manual"], ["scoreboard", "Scoreboard"], ["metabase", "Metabase"], ...(mode === "kr" ? [["scorecard", "Scorecard metric"]] : [])];
+  const kinds = [["manual", "Manual"], ["scoreboard", "Scoreboard"], ["metabase", "Metabase"], ...(mode === "kr" ? [["mb_report", "Metabase report"], ["scorecard", "Scorecard metric"]] : [])];
 
   return (
     <div style={{ display: "grid", gap: 10 }}>
@@ -104,6 +106,7 @@ export default function MetricSourcePicker({ value, onChange, mode = "scorecard"
       )}
 
       {kind === "metabase" && <MetabaseSource value={value} set={set} lbl={lbl} sel={sel} mode={mode} />}
+      {kind === "mb_report" && <MetabaseReportSource value={value} set={set} lbl={lbl} sel={sel} />}
 
       {kind === "scorecard" && (
         <div><label style={lbl}>Scorecard metric (weekly values)</label>
@@ -262,10 +265,157 @@ function MetabaseSource({ value, set, lbl, sel, mode }) {
   );
 }
 
+// A question on a Metabase dashboard, run with chosen filter values (e.g. the
+// "Product Type CPA" monthly summary for Dish / Shopify / all cohorts). Rows carry a
+// period column (date, "2026-09" or "Sep 2026"); the KR value is the sum, average or
+// latest of a column over the KR window, or a ratio of two summed columns (CPA).
+function MetabaseReportSource({ value, set, lbl, sel }) {
+  const [q, setQ] = useState("");
+  const [results, setResults] = useState(null);
+  const [dash, setDash] = useState(null);
+  const [cols, setCols] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const timer = useRef(null);
+
+  useEffect(() => {
+    if (!value.dashboard_id) { setDash(null); return; }
+    let live = true;
+    invokeFunction("metric-source", { body: { action: "dashboard", id: value.dashboard_id } }).then(({ data, error }) => { if (live) { if (error) setErr(error.message); else setDash(data); } });
+    return () => { live = false; };
+  }, [value.dashboard_id]);
+
+  const search = (text) => {
+    setQ(text); clearTimeout(timer.current);
+    if (text.trim().length < 2) { setResults(null); return; }
+    timer.current = setTimeout(async () => {
+      const { data, error } = await invokeFunction("metric-source", { body: { action: "dashboards", q: text.trim() } });
+      if (error) setErr(error.message); else setResults(data.results || []);
+    }, 350);
+  };
+  const card = dash?.cards?.find(c => c.dashcard_id === value.dashcard_id);
+  const loadCols = async (cfg = value) => {
+    setBusy(true); setErr(null);
+    const { data, error } = await invokeFunction("metric-source", { body: { action: "report_columns", config: cfg } });
+    setBusy(false);
+    if (error) { setErr(error.message); return; }
+    setCols(data);
+    const patch = {};
+    if (!cfg.period_col && data.period_columns?.length) patch.period_col = data.period_columns[0];
+    if (Object.keys(patch).length) set(patch);
+  };
+  useEffect(() => { if (value.card_id && value.period_col && !cols) loadCols(); }, [value.card_id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const numCols = (cols?.columns || []).filter(c => c.kind === "number");
+  const textCols = (cols?.columns || []).filter(c => c.kind !== "number");
+  const rf = (value.row_filters || [])[0] || { col: "", value: "" };
+
+  return (
+    <div style={{ display: "grid", gap: 10 }}>
+      {!value.dashboard_id || results ? (
+        <div>
+          <label style={lbl}>Search Metabase dashboards</label>
+          <input autoFocus value={q} onChange={e => search(e.target.value)} placeholder="e.g. CAC, CPA, LTR" style={{ ...sel, padding: "8px 10px" }} />
+          {results && results.length > 0 && (
+            <div style={{ marginTop: 6, maxHeight: 220, overflow: "auto", border: `1px solid ${T.border}`, borderRadius: 8, background: T.surface }}>
+              {results.map(r => (
+                <button key={r.id} type="button" onClick={() => { setResults(null); setQ(""); setCols(null); set({ dashboard_id: r.id, dashboard_name: r.name, dashcard_id: null, card_id: null, card_name: null, params: {}, period_col: null, value_col: null, denom_col: null, row_filters: [] }); }}
+                  style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 10px", border: "none", borderBottom: `1px solid ${T.border}`, background: "transparent", cursor: "pointer", color: T.text }}>
+                  <span style={{ fontSize: 12, fontWeight: 600 }}>{r.name}</span><span style={{ fontSize: 11, color: T.text3, marginLeft: 6 }}>{r.where}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          {results && results.length === 0 && q.trim().length >= 2 && <div style={{ fontSize: 12, color: T.text3, marginTop: 6 }}>No dashboards match "{q}".</div>}
+        </div>
+      ) : (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: 8, background: T.surface2, border: `1px solid ${T.border}` }}>
+          <div style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Dashboard: {value.dashboard_name}</div>
+          <button type="button" onClick={() => setResults([])} style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text2, cursor: "pointer" }}>Change</button>
+        </div>
+      )}
+      {dash && (
+        <div><label style={lbl}>Question</label>
+          <select value={value.dashcard_id || ""} onChange={e => { const c = dash.cards.find(x => String(x.dashcard_id) === e.target.value); setCols(null); set({ dashcard_id: c?.dashcard_id || null, card_id: c?.card_id || null, card_name: c?.name || null, params: Object.fromEntries((c?.params || []).map(p => [p.slug, p.default])), period_col: null, value_col: null, denom_col: null, row_filters: [] }); }} style={sel}>
+            <option value="">Select…</option>
+            {dash.cards.map(c => <option key={c.dashcard_id} value={c.dashcard_id}>{c.tab ? `${c.tab} · ` : ""}{c.name}</option>)}
+          </select></div>
+      )}
+      {card && card.params.length > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10 }}>
+          {card.params.map(p => {
+            const cur = value.params?.[p.slug]; const curV = Array.isArray(cur) ? cur[0] : cur;
+            return (
+              <div key={p.slug}><label style={lbl}>{p.name}</label>
+                {p.values.length ? (
+                  <select value={curV ?? ""} onChange={e => { setCols(null); set({ params: { ...(value.params || {}), [p.slug]: e.target.value === "" ? null : [e.target.value] } }); }} style={sel}>
+                    <option value="">{p.default != null ? `Default (${[].concat(p.default).join(", ")})` : "Any"}</option>
+                    {p.values.map(v => <option key={String(v.value)} value={v.value}>{String(v.label).replace(/[├└│─]/g, "").trim()}</option>)}
+                  </select>
+                ) : (
+                  <input value={curV ?? ""} onChange={e => { setCols(null); set({ params: { ...(value.params || {}), [p.slug]: e.target.value === "" ? null : [e.target.value] } }); }} placeholder={p.default != null ? String([].concat(p.default).join(", ")) : "Any"} style={sel} />
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {card && (
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <button type="button" onClick={() => loadCols()} disabled={busy}
+            style={{ fontSize: 11, fontWeight: 600, padding: "5px 12px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text2, cursor: busy ? "default" : "pointer" }}>
+            {busy ? "Running…" : cols ? "Re-run with these filters" : "Load columns"}
+          </button>
+          {cols && <span style={{ fontSize: 11, color: T.text3 }}>{cols.columns.length} columns</span>}
+        </div>
+      )}
+      {err && <div style={{ fontSize: 11, color: "#ef4444" }}>{err}</div>}
+      {cols && (
+        <>
+          {cols.period_columns.length === 0 && <div style={{ fontSize: 11, color: "#f59e0b" }}>No column in this question reads as a date or month, so it can't be lined up with the KR period.</div>}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10 }}>
+            <div><label style={lbl}>Period column</label>
+              <select value={value.period_col || ""} onChange={e => set({ period_col: e.target.value || null })} style={sel}>
+                <option value="">Select…</option>
+                {cols.period_columns.map(c => <option key={c} value={c}>{cols.columns.find(x => x.name === c)?.label || c}</option>)}
+              </select></div>
+            <div><label style={lbl}>Combine</label>
+              <select value={value.agg || "sum"} onChange={e => set({ agg: e.target.value })} style={sel}>
+                <option value="sum">Sum of</option><option value="avg">Average of</option><option value="latest">Latest</option><option value="ratio">Ratio: sum of A ÷ sum of B</option>
+              </select></div>
+            <div><label style={lbl}>{value.agg === "ratio" ? "A (numerator)" : "Column"}</label>
+              <select value={value.value_col || ""} onChange={e => set({ value_col: e.target.value || null })} style={sel}>
+                <option value="">Select…</option>
+                {numCols.map(c => <option key={c.name} value={c.name}>{c.label}</option>)}
+              </select></div>
+            {value.agg === "ratio" && <div><label style={lbl}>B (divide by)</label>
+              <select value={value.denom_col || ""} onChange={e => set({ denom_col: e.target.value || null })} style={sel}>
+                <option value="">Select…</option>
+                {numCols.map(c => <option key={c.name} value={c.name}>{c.label}</option>)}
+              </select></div>}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <div><label style={lbl}>Only rows where (optional)</label>
+              <select value={rf.col} onChange={e => set({ row_filters: e.target.value ? [{ col: e.target.value, value: rf.value }] : [] })} style={sel}>
+                <option value="">No filter</option>
+                {textCols.filter(c => c.name !== value.period_col).map(c => <option key={c.name} value={c.name}>{c.label}</option>)}
+              </select></div>
+            {rf.col && <div><label style={lbl}>equals</label>
+              <input value={rf.value || ""} onChange={e => set({ row_filters: [{ col: rf.col, value: e.target.value }] })} placeholder={String(cols.sample?.[0]?.[rf.col] ?? "")} style={sel} /></div>}
+          </div>
+          {value.agg === "ratio" && <div style={{ fontSize: 10, color: T.text3 }}>For CPA use Spend ÷ Customers: the ratio stays exact over any number of months, where averaging monthly CPAs would not.</div>}
+        </>
+      )}
+    </div>
+  );
+}
+
 function Preview({ value, mode, krWindow }) {
   const [res, setRes] = useState(null);
   const [busy, setBusy] = useState(false);
-  const ready = value.kind === "scoreboard" ? !!value.key : value.kind === "scorecard" ? !!value.metric_id : !!(value.id && value.date && (value.day_agg === "count" || value.value));
+  const ready = value.kind === "scoreboard" ? !!value.key : value.kind === "scorecard" ? !!value.metric_id
+    : value.kind === "mb_report" ? !!(value.card_id && value.period_col && value.value_col && (value.agg !== "ratio" || value.denom_col))
+    : !!(value.id && value.date && (value.day_agg === "count" || value.value));
   useEffect(() => { setRes(null); }, [JSON.stringify(value)]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!ready) return null;
   const run = async () => {
