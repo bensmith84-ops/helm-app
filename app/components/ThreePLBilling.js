@@ -1859,7 +1859,34 @@ export default function ThreePLBilling() {
   const isParseableFile = (file) => {
     if (!file || !file.name) return false;
     const ext = file.name.toLowerCase().split(".").pop();
-    return ["xlsx", "xlsm", "xls", "csv"].includes(ext);
+    return ["xlsx", "xlsm", "xlsb", "xls", "csv"].includes(ext);
+  };
+
+  // Unpack any .zip files (e.g. a month of invoices downloaded from Drive) into
+  // their spreadsheet entries, recursively. Other files pass through unchanged.
+  const expandZips = async (files) => {
+    const out = [];
+    for (const f of files) {
+      if (!f?.name || !f.name.toLowerCase().endsWith(".zip")) { out.push(f); continue; }
+      try {
+        const JSZip = (await import("jszip")).default;
+        const zip = await JSZip.loadAsync(await f.arrayBuffer());
+        const inner = [];
+        for (const entry of Object.values(zip.files)) {
+          if (entry.dir) continue;
+          const base = entry.name.split("/").pop();
+          if (!base || base.startsWith(".") || entry.name.includes("__MACOSX/")) continue;
+          const blob = await entry.async("blob");
+          const file = new File([blob], base);
+          try { Object.defineProperty(file, "webkitRelativePath", { value: f.name + "/" + entry.name, configurable: true }); } catch (e) {}
+          inner.push(file);
+        }
+        out.push(...(await expandZips(inner)));
+      } catch (e) {
+        console.warn("[3pl-billing] could not unzip", f.name, e);
+      }
+    }
+    return out;
   };
 
   // Recursively flatten a DataTransferItem entry (from drag-drop) into a flat
@@ -1951,7 +1978,7 @@ export default function ThreePLBilling() {
   // Public entry point: pass a FileList / File[] / DataTransfer items → parse
   // each in parallel, then append all to the queue. Switches to review view.
   const handleFiles = async (filesIn) => {
-    const files = Array.from(filesIn || []).filter(isParseableFile);
+    const files = (await expandZips(Array.from(filesIn || []))).filter(isParseableFile);
     if (!files.length) return;
     setParseProgress({ done: 0, total: files.length });
     setView("review");
@@ -2342,7 +2369,7 @@ export default function ThreePLBilling() {
         <div style={card}>
           <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>Upload invoice files</div>
           <div style={{ fontSize: 12, color: T.text3, marginBottom: 16 }}>
-            Drop one file, several files, or an entire folder. Format auto-detects per file. Supported: Next3PL (UK/AU/CA) <code>.xlsm</code>/<code>.xlsx</code>, Stord <code>_CUSTOMER.xlsx</code> + <code>consolidated-transaction-report.xlsx</code>.
+            Drop one file, several files, or an entire folder. Format auto-detects per file. Supported: Next3PL (UK/AU/CA) <code>.xlsm</code>/<code>.xlsx</code>, Stord <code>_CUSTOMER.xlsx/.xlsb</code> + <code>consolidated-transaction-report.xlsx</code>. Zip files are unpacked automatically.
           </div>
           <div
             onDrop={async (e) => { e.preventDefault(); const files = await filesFromDropEvent(e); if (files.length) handleFiles(files); }}
@@ -2351,9 +2378,9 @@ export default function ThreePLBilling() {
             style={{ border: `2px dashed ${T.border}`, borderRadius: 12, padding: 50, textAlign: "center", cursor: "pointer", background: T.surface2 + "40" }}>
             <div style={{ fontSize: 40, marginBottom: 8 }}>📁</div>
             <div style={{ fontSize: 14, fontWeight: 600, color: T.text2 }}>Drop files or a folder here</div>
-            <div style={{ fontSize: 11, color: T.text3, marginTop: 6 }}>xlsx · xlsm · xls · csv · folders scanned recursively</div>
+            <div style={{ fontSize: 11, color: T.text3, marginTop: 6 }}>xlsx · xlsm · xlsb · xls · csv · zip · folders scanned recursively</div>
           </div>
-          <input ref={fileInputRef} type="file" multiple accept=".xlsx,.xlsm,.xls,.csv"
+          <input ref={fileInputRef} type="file" multiple accept=".xlsx,.xlsm,.xlsb,.xls,.csv,.zip"
             onChange={(e) => { const fs = Array.from(e.target.files || []); if (fs.length) handleFiles(fs); e.target.value = ""; }}
             style={{ display: "none" }} />
           <input ref={folderInputRef} type="file" webkitdirectory="" directory="" multiple
@@ -2412,7 +2439,7 @@ export default function ThreePLBilling() {
                 </button>
               </div>
             </div>
-            <input ref={fileInputRef} type="file" multiple accept=".xlsx,.xlsm,.xls,.csv"
+            <input ref={fileInputRef} type="file" multiple accept=".xlsx,.xlsm,.xlsb,.xls,.csv,.zip"
               onChange={(e) => { const fs = Array.from(e.target.files || []); if (fs.length) handleFiles(fs); e.target.value = ""; }}
               style={{ display: "none" }} />
             <input ref={folderInputRef} type="file" webkitdirectory="" directory="" multiple
