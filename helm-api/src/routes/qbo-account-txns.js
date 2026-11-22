@@ -21,19 +21,39 @@ const num = (v) => {
 };
 
 // Resolve a P&L label to a QBO account id. Labels look like "50321 Direct Rent - OFS"
-// when account numbers are on, otherwise the bare name.
-async function resolveAccount(base, rid, token, label) {
-  const m = /^(\d[\w.-]*)\s+(.+)$/.exec(label.trim());
-  const tries = [];
-  if (m) tries.push(`SELECT Id, Name, AcctNum, FullyQualifiedName FROM Account WHERE AcctNum = '${q(m[1])}'`);
-  tries.push(`SELECT Id, Name, AcctNum, FullyQualifiedName FROM Account WHERE Name = '${q(m ? m[2] : label.trim())}'`);
-  if (m) tries.push(`SELECT Id, Name, AcctNum, FullyQualifiedName FROM Account WHERE Name = '${q(label.trim())}'`);
-  for (const sql of tries) {
+// when account numbers are on, otherwise the bare name. QBO won't filter on
+// AcctNum, so load the chart of accounts (cached briefly) and match here.
+let acctCache = { rid: null, at: 0, list: [] };
+async function loadAccounts(base, rid, token) {
+  if (acctCache.rid === rid && Date.now() - acctCache.at < 10 * 60 * 1000) return acctCache.list;
+  const list = [];
+  for (let sp = 1; sp < 20000; sp += 1000) {
+    const sql = `SELECT * FROM Account STARTPOSITION ${sp} MAXRESULTS 1000`;
     const d = await qboFetch(`${base}/v3/company/${rid}/query?query=${encodeURIComponent(sql)}&minorversion=65`, token);
     const a = d?.QueryResponse?.Account || [];
-    if (a.length) return { id: String(a[0].Id), name: a[0].FullyQualifiedName || a[0].Name, acct_num: a[0].AcctNum || null };
+    list.push(...a);
+    if (a.length < 1000) break;
   }
-  return null;
+  acctCache = { rid, at: Date.now(), list };
+  return list;
+}
+async function resolveAccount(base, rid, token, label) {
+  const L = label.trim();
+  const m = /^(\d[\w.-]*)\s+(.+)$/.exec(L);
+  const list = await loadAccounts(base, rid, token);
+  const pick = (a) => a && { id: String(a.Id), name: a.FullyQualifiedName || a.Name, acct_num: a.AcctNum || null };
+  const lc = (s) => String(s || '').trim().toLowerCase();
+  if (m) {
+    const byNum = list.filter((a) => String(a.AcctNum || '') === m[1]);
+    if (byNum.length === 1) return pick(byNum[0]);
+    const both = byNum.find((a) => lc(a.Name) === lc(m[2]));
+    if (both) return pick(both);
+  }
+  const name = m ? m[2] : L;
+  return pick(list.find((a) => lc(a.Name) === lc(name)))
+    || pick(list.find((a) => lc(a.Name) === lc(L)))
+    || pick(list.find((a) => lc(a.FullyQualifiedName).endsWith(':' + lc(name))))
+    || null;
 }
 
 // Flatten the GeneralLedger report into rows keyed by column.
