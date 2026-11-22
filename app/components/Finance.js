@@ -2884,6 +2884,75 @@ function ClearingPending({ T, orgId, fmt }) {
   );
 }
 
+// Ledger lines for one P&L account, laid out under the month columns.
+function LedgerRows({ tx, acct, months, T, TD, fmt, plMonth, plYTD, group, setGroup, retry }) {
+  const span = months.length + 2;
+  const box = { background: T.surface2, fontSize: 11, color: T.text3 };
+  if (!tx || tx.loading) return <tr><td colSpan={span} style={{ ...box, padding: "10px 16px" }}>Loading every transaction posted to this account from QuickBooks…</td></tr>;
+  if (tx.error) return <tr><td colSpan={span} style={{ ...box, padding: "10px 16px" }}>Couldn't load the ledger detail: {tx.error}. <button onClick={(e) => { e.stopPropagation(); retry(); }} style={{ fontSize: 11, border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface, color: T.text2, cursor: "pointer", padding: "1px 8px" }}>Try again</button></td></tr>;
+  const d = tx.data || {};
+  const rows = d.rows || [];
+  if (!rows.length) return <tr><td colSpan={span} style={{ ...box, padding: "10px 16px", fontStyle: "italic" }}>No transactions posted to this account in these months.</td></tr>;
+  const mode = group || (rows.length > 80 ? "payee" : "txn");
+  const money = (v) => (Math.abs(v) < 0.005 ? "" : fmt(v));
+  const dt = (s) => new Date(s + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" });
+  let lines;
+  if (mode === "payee") {
+    const by = new Map();
+    for (const r of rows) {
+      const k = r.name || r.memo || r.type || "(no name)";
+      const e = by.get(k) || { label: k, sub: "", m: {}, total: 0, n: 0, types: new Set() };
+      const mo = r.date.slice(0, 7);
+      e.m[mo] = (e.m[mo] || 0) + r.amount; e.total += r.amount; e.n++; e.types.add(r.type);
+      by.set(k, e);
+    }
+    lines = [...by.values()].sort((a, b) => Math.abs(b.total) - Math.abs(a.total))
+      .map(e => ({ ...e, sub: `${e.n} transaction${e.n === 1 ? "" : "s"} · ${[...e.types].join(", ")}` }));
+  } else {
+    lines = rows.map(r => ({ label: r.name || "(no name)", sub: [dt(r.date), r.type, r.num ? `#${r.num}` : "", r.memo || "", r.split ? `split: ${r.split}` : ""].filter(Boolean).join(" · "), m: { [r.date.slice(0, 7)]: r.amount }, total: r.amount }));
+  }
+  const ledgerMonth = (m) => d.months?.[m] || 0;
+  const diffs = months.map(m => plMonth(m) - ledgerMonth(m));
+  const ledgerTotal = months.reduce((s, m) => s + ledgerMonth(m), 0);
+  const hasDiff = diffs.some(x => Math.abs(x) > 1) || Math.abs(plYTD - ledgerTotal) > 1;
+  const cell = { ...TD, fontSize: 10.5, background: T.surface2 };
+  const first = { padding: "4px 8px 4px 28px", fontSize: 10.5, background: T.surface2, position: "sticky", left: 0, zIndex: 1, maxWidth: 260 };
+  const btn = (k, l) => <button key={k} onClick={(e) => { e.stopPropagation(); setGroup(k); }} style={{ padding: "2px 8px", fontSize: 10, fontWeight: 600, border: `1px solid ${T.border}`, borderRadius: 4, cursor: "pointer", background: mode === k ? T.accent : T.surface, color: mode === k ? "#fff" : T.text3 }}>{l}</button>;
+  return (
+    <>
+      <tr>
+        <td colSpan={span} style={{ ...box, padding: "6px 16px 4px 28px" }}>
+          <span style={{ fontSize: 10, fontWeight: 700, marginRight: 10 }}>QUICKBOOKS LEDGER · {d.count} LINE{d.count === 1 ? "" : "S"}{d.truncated ? ` (first ${rows.length} shown)` : ""}</span>
+          <span style={{ display: "inline-flex", gap: 4 }}>{btn("txn", "By transaction")}{btn("payee", "By payee")}</span>
+          <span style={{ marginLeft: 10, fontSize: 10 }}>Amounts are what posted to this account (split lines, not whole bills), in the month QuickBooks dates them.</span>
+        </td>
+      </tr>
+      {lines.map((l, i) => (
+        <tr key={i}>
+          <td style={first} title={l.sub}>
+            <div style={{ fontWeight: 600, color: T.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{l.label}</div>
+            <div style={{ color: T.text3, fontSize: 9.5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{l.sub}</div>
+          </td>
+          {months.map(m => <td key={m} style={{ ...cell, color: l.m[m] ? T.text2 : T.text3 }}>{money(l.m[m] || 0)}</td>)}
+          <td style={{ ...cell, fontWeight: 600, color: T.text }}>{fmt(l.total)}</td>
+        </tr>
+      ))}
+      <tr>
+        <td style={{ ...first, fontWeight: 700, color: T.text, borderTop: `1px solid ${T.border}` }}>Ledger total</td>
+        {months.map(m => <td key={m} style={{ ...cell, fontWeight: 700, color: T.text, borderTop: `1px solid ${T.border}` }}>{money(ledgerMonth(m))}</td>)}
+        <td style={{ ...cell, fontWeight: 700, color: T.text, borderTop: `1px solid ${T.border}` }}>{fmt(ledgerTotal)}</td>
+      </tr>
+      {hasDiff && (
+        <tr>
+          <td style={{ ...first, color: T.yellow }} title="P&L row minus ledger lines. Usually the open month or a sync timing difference.">Difference vs P&L row</td>
+          {diffs.map((x, i) => <td key={months[i]} style={{ ...cell, color: Math.abs(x) > 1 ? T.yellow : T.text3 }}>{Math.abs(x) > 1 ? fmt(x) : ""}</td>)}
+          <td style={{ ...cell, color: T.yellow }}>{Math.abs(plYTD - ledgerTotal) > 1 ? fmt(plYTD - ledgerTotal) : ""}</td>
+        </tr>
+      )}
+    </>
+  );
+}
+
 function PLExplorer({ isMobile }) {
   const T = typeof window !== "undefined" && document.body.dataset.theme === "dark"
     ? { bg:"#0a0a0f",surface:"#13131a",surface2:"#1a1a24",surface3:"#22222e",text:"#e8e8f0",text2:"#b0b0c0",text3:"#6b6b80",border:"#2a2a3a",accent:"#6366f1",green:"#10B981",red:"#EF4444",yellow:"#F59E0B" }
@@ -2903,6 +2972,9 @@ function PLExplorer({ isMobile }) {
   const [showExport, setShowExport] = useState(false);
   const [exportOpts, setExportOpts] = useState({ startMonth: "", endMonth: "", granularity: "monthly", detail: "accounts", includeVendors: false });
   const [pendingClearing, setPendingClearing] = useState(0);
+  // Ledger drill-down: { [account]: { loading, error, data } } and per-account view (txn | payee)
+  const [txCache, setTxCache] = useState({});
+  const [txGroup, setTxGroup] = useState({});
 
   useEffect(() => {
     (async () => {
@@ -2975,16 +3047,32 @@ function PLExplorer({ isMobile }) {
   const revYTD = getSectionYTDTotal(revenueAccts);
   const expYTD = getSectionYTDTotal([...cogsAccts, ...opexAccts, ...otherAccts]);
 
-  // Find transactions for expanded row
-  const getTransactions = (acctName) => {
-    const num = acctName.split(" ")[0];
-    const name = acctName.split(" ").slice(1).join(" ").toLowerCase();
-    const allTxns = [...bills, ...purchases].filter(t => {
-      if (!t.gl_accounts) return false;
-      return t.gl_accounts.includes(num) || t.gl_accounts.toLowerCase().includes(name);
-    }).sort((a, b) => (b.txn_date || "").localeCompare(a.txn_date || ""));
-    return allTxns.slice(0, 30);
+  // Ledger detail for one account from QuickBooks' General Ledger (every
+  // transaction type, the amount posted to this account), loaded on first expand.
+  const loadLedger = async (acct) => {
+    if (!months.length || txCache[acct]?.data || txCache[acct]?.loading) return;
+    setTxCache(c => ({ ...c, [acct]: { loading: true } }));
+    const last = months[months.length - 1];
+    const [ly, lm] = last.split("-").map(Number);
+    const end = `${last}-${String(new Date(ly, lm, 0).getDate()).padStart(2, "0")}`;
+    try {
+      const r = await fetch(supabase.supabaseUrl + "/functions/v1/qbo-account-txns", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ account: acct, start: `${months[0]}-01`, end }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      setTxCache(c => ({ ...c, [acct]: { data: j } }));
+    } catch (e) {
+      setTxCache(c => ({ ...c, [acct]: { error: String(e.message || e) } }));
+    }
   };
+  const toggleRow = (acct) => {
+    if (expandedRow === acct) { setExpandedRow(null); return; }
+    setExpandedRow(acct);
+    loadLedger(acct);
+  };
+
 
   const TH = { padding: "6px 8px", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", textAlign: "right", whiteSpace: "nowrap", position: "sticky", top: 0, background: T.surface, zIndex: 1 };
   const TD = { padding: "5px 8px", fontSize: 11, textAlign: "right", whiteSpace: "nowrap", borderBottom: `1px solid ${T.border}08` };
@@ -3052,10 +3140,10 @@ function PLExplorer({ isMobile }) {
                   {sortedAccts.map(acct => {
                     const ytd = getYTDAmt(acct);
                     const isExpanded = expandedRow === acct;
-                    const txns = isExpanded ? getTransactions(acct) : [];
+                    const tx = isExpanded ? txCache[acct] : null;
                     return (
                       <Fragment key={acct}>
-                        <tr onClick={() => setExpandedRow(isExpanded ? null : acct)} style={{ cursor: "pointer" }}
+                        <tr onClick={() => toggleRow(acct)} style={{ cursor: "pointer" }}
                           onMouseEnter={e => e.currentTarget.style.background = T.surface2} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                           <td style={{ padding: "5px 8px 5px 16px", fontSize: 11, color: T.text2, position: "sticky", left: 0, background: "inherit", zIndex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 260 }}>
                             <span style={{ color: T.text3, fontSize: 9, marginRight: 4 }}>{isExpanded ? "▼" : "▶"}</span>
@@ -3067,33 +3155,12 @@ function PLExplorer({ isMobile }) {
                           })}
                           <td style={{ ...TD, fontWeight: 600, color: T.text }}>{fmtK(ytd)}</td>
                         </tr>
-                        {/* Expanded transaction detail */}
+                        {/* Expanded ledger detail: each line in the month it posted */}
                         {isExpanded && (
-                          <tr>
-                            <td colSpan={months.length + 2} style={{ padding: 0 }}>
-                              <div style={{ background: T.surface2, padding: "8px 16px", borderBottom: `1px solid ${T.border}` }}>
-                                {txns.length === 0 ? (
-                                  <div style={{ fontSize: 11, color: T.text3, fontStyle: "italic" }}>No bill/purchase transactions found. This may be payroll or journal entry based.</div>
-                                ) : (
-                                  <>
-                                    <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, marginBottom: 4 }}>TRANSACTIONS ({txns.length}{txns.length >= 30 ? "+" : ""})</div>
-                                    {txns.map((t, i) => (
-                                      <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "3px 0", fontSize: 11, borderBottom: `1px solid ${T.border}10` }}>
-                                        <div style={{ flex: 1, minWidth: 0, display: "flex", gap: 8, alignItems: "center" }}>
-                                          <span style={{ fontWeight: 600, color: T.text, whiteSpace: "nowrap" }}>{t.vendor_name || "-"}</span>
-                                          {t.memo && <span style={{ color: T.text3, fontSize: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>- {t.memo.slice(0, 50)}</span>}
-                                        </div>
-                                        <div style={{ display: "flex", gap: 10, alignItems: "center", flexShrink: 0 }}>
-                                          <span style={{ fontSize: 10, color: T.text3 }}>{t.txn_date ? new Date(t.txn_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : ""}</span>
-                                          <span style={{ fontWeight: 600, color: T.text, minWidth: 55, textAlign: "right" }}>{fmt(Number(t.total_amount))}</span>
-                                        </div>
-                                      </div>
-                                    ))}
-                                  </>
-                                )}
-                              </div>
-                            </td>
-                          </tr>
+                          <LedgerRows tx={tx} acct={acct} months={months} T={T} TD={TD} fmt={fmt}
+                            plMonth={(m) => getMonthAmt(acct, m)} plYTD={ytd}
+                            group={txGroup[acct]} setGroup={(g) => setTxGroup(s => ({ ...s, [acct]: g }))}
+                            retry={() => { setTxCache(c => { const n = { ...c }; delete n[acct]; return n; }); setTimeout(() => loadLedger(acct), 0); }} />
                         )}
                       </Fragment>
                     );
