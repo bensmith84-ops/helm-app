@@ -58,10 +58,20 @@ async function resolveAccount(base, rid, token, label) {
 
 // Flatten the GeneralLedger report into rows keyed by column.
 function parseLedger(report) {
-  const cols = (report?.Columns?.Column || []).map((c) => {
-    const key = (c.MetaData || []).find((x) => x.Name === 'ColKey')?.Value;
-    return key || String(c.ColTitle || '').toLowerCase();
-  });
+  const meta = (report?.Columns?.Column || []).map((c) => ({
+    key: (c.MetaData || []).find((x) => x.Name === 'ColKey')?.Value || '',
+    title: String(c.ColTitle || ''),
+  }));
+  const cols = meta.map((c) => c.key || c.title.toLowerCase());
+  // Amount column: by key first, then by title; never a running balance.
+  const amtIdx = (() => {
+    const keys = ['subt_nat_amount', 'subt_nat_home_amount', 'amount', 'nat_amount'];
+    for (const k of keys) { const i = meta.findIndex((c) => c.key === k); if (i >= 0) return i; }
+    const i = meta.findIndex((c) => /amount/i.test(c.title) && !/balance/i.test(c.title + c.key));
+    return i;
+  })();
+  const debIdx = meta.findIndex((c) => c.key === 'debt_amt' || /^debit/i.test(c.title));
+  const crdIdx = meta.findIndex((c) => c.key === 'credit_amt' || /^credit/i.test(c.title));
   const out = [];
   const walk = (rows) => {
     for (const r of rows || []) {
@@ -79,13 +89,15 @@ function parseLedger(report) {
           name: rec.name?.value || null,
           memo: rec.memo?.value || null,
           split: rec.split_acc?.value || null,
-          amount: num(rec.subt_nat_amount?.value),
+          amount: amtIdx >= 0 ? num(r.ColData[amtIdx]?.value)
+            : num(debIdx >= 0 ? r.ColData[debIdx]?.value : 0) - num(crdIdx >= 0 ? r.ColData[crdIdx]?.value : 0),
         });
       }
       if (r.Rows?.Row) walk(r.Rows.Row);
     }
   };
   walk(report?.Rows?.Row);
+  out.columns = meta;
   return out;
 }
 
@@ -106,9 +118,8 @@ module.exports = function (app, { pool }) {
       const acct = await resolveAccount(base, rid, token, account);
       if (!acct) return res.status(404).json({ error: `No QuickBooks account matches "${account}"` });
 
-      const cols = 'tx_date,txn_type,doc_num,name,memo,split_acc,subt_nat_amount';
       const url = `${base}/v3/company/${rid}/reports/GeneralLedger?start_date=${start}&end_date=${end}` +
-        `&account=${encodeURIComponent(acct.id)}&accounting_method=Accrual&columns=${cols}&minorversion=65`;
+        `&account=${encodeURIComponent(acct.id)}&accounting_method=Accrual&minorversion=65`;
       const report = await qboFetch(url, token);
       const all = parseLedger(report);
 
@@ -126,6 +137,7 @@ module.exports = function (app, { pool }) {
         months,
         total,
         count: all.length,
+        columns: all.columns,
         truncated: all.length > MAX_ROWS,
       });
     } catch (e) {
