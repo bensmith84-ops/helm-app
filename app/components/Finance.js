@@ -2900,9 +2900,29 @@ function LedgerRows({ tx, acct, months, T, TD, fmt, plMonth, plYTD, group, setGr
   const dt = (s) => new Date(s + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" });
   let lines;
   if (mode === "payee") {
+    // Journal entries often carry no vendor; take it from the memo ("July 2026 Prepaid | Burrill Real Estate")
+    // and fold it into a named vendor that starts with the same word.
+    const STOP = new Set(["move","bill","bills","to","the","prepaid","accrual","accruals","reclass","reverse","reversal","adjustment","adj","jan","feb","mar","apr","may","jun","june","jul","july","aug","august","sep","sept","september","oct","october","nov","november","dec","december","january","february","march","april","rent"]);
+    const firstWord = (s) => (String(s || "").toLowerCase().match(/[a-z0-9]+/) || [""])[0];
+    const named = [...new Set(rows.map(r => r.name).filter(Boolean))];
+    const wordLabel = {};
+    const vendorFor = (r) => {
+      if (r.name) return r.name;
+      const memo = String(r.memo || "");
+      const parts = memo.includes("|") ? [memo.split("|").slice(1).join("|"), memo] : [memo];
+      for (const c of parts) {
+        const w = firstWord(c);
+        if (!w || STOP.has(w) || /^\d/.test(w)) continue;
+        const hit = named.find(n => firstWord(n) === w);
+        if (hit) return hit;
+        if (!wordLabel[w]) wordLabel[w] = c.trim().replace(/\s+/g, " ").slice(0, 48);
+        return wordLabel[w];
+      }
+      return r.type === "Journal Entry" ? "Journal entries (no vendor)" : (r.type || "(no name)");
+    };
     const by = new Map();
     for (const r of rows) {
-      const k = r.name || r.memo || r.type || "(no name)";
+      const k = vendorFor(r);
       const e = by.get(k) || { key: k, label: k, sub: "", m: {}, total: 0, n: 0, types: new Set(), rows: [] };
       e.rows.push(r);
       const mo = r.date.slice(0, 7);
