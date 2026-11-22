@@ -2886,6 +2886,7 @@ function ClearingPending({ T, orgId, fmt }) {
 
 // Ledger lines for one P&L account, laid out under the month columns.
 function LedgerRows({ tx, acct, months, T, TD, fmt, plMonth, plYTD, group, setGroup, retry }) {
+  const [openPayee, setOpenPayee] = useState({});
   const span = months.length + 2;
   const box = { background: T.surface2, fontSize: 11, color: T.text3 };
   if (!tx || tx.loading) return <tr><td colSpan={span} style={{ ...box, padding: "10px 16px" }}>Loading every transaction posted to this account from QuickBooks…</td></tr>;
@@ -2893,7 +2894,8 @@ function LedgerRows({ tx, acct, months, T, TD, fmt, plMonth, plYTD, group, setGr
   const d = tx.data || {};
   const rows = d.rows || [];
   if (!rows.length) return <tr><td colSpan={span} style={{ ...box, padding: "10px 16px", fontStyle: "italic" }}>No transactions posted to this account in these months.</td></tr>;
-  const mode = group || (rows.length > 80 ? "payee" : "txn");
+  const mode = group || "payee";
+  const txLine = (r) => ({ label: r.name || "(no name)", sub: [dt(r.date), r.type, r.num ? `#${r.num}` : "", r.memo || "", r.split ? `split: ${r.split}` : ""].filter(Boolean).join(" · "), m: { [r.date.slice(0, 7)]: r.amount }, total: r.amount });
   const money = (v) => (Math.abs(v) < 0.005 ? "" : fmt(v));
   const dt = (s) => new Date(s + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" });
   let lines;
@@ -2901,7 +2903,8 @@ function LedgerRows({ tx, acct, months, T, TD, fmt, plMonth, plYTD, group, setGr
     const by = new Map();
     for (const r of rows) {
       const k = r.name || r.memo || r.type || "(no name)";
-      const e = by.get(k) || { label: k, sub: "", m: {}, total: 0, n: 0, types: new Set() };
+      const e = by.get(k) || { key: k, label: k, sub: "", m: {}, total: 0, n: 0, types: new Set(), rows: [] };
+      e.rows.push(r);
       const mo = r.date.slice(0, 7);
       e.m[mo] = (e.m[mo] || 0) + r.amount; e.total += r.amount; e.n++; e.types.add(r.type);
       by.set(k, e);
@@ -2909,7 +2912,7 @@ function LedgerRows({ tx, acct, months, T, TD, fmt, plMonth, plYTD, group, setGr
     lines = [...by.values()].sort((a, b) => Math.abs(b.total) - Math.abs(a.total))
       .map(e => ({ ...e, sub: `${e.n} transaction${e.n === 1 ? "" : "s"} · ${[...e.types].join(", ")}` }));
   } else {
-    lines = rows.map(r => ({ label: r.name || "(no name)", sub: [dt(r.date), r.type, r.num ? `#${r.num}` : "", r.memo || "", r.split ? `split: ${r.split}` : ""].filter(Boolean).join(" · "), m: { [r.date.slice(0, 7)]: r.amount }, total: r.amount }));
+    lines = rows.map(txLine);
   }
   const ledgerMonth = (m) => d.months?.[m] || 0;
   const diffs = months.map(m => plMonth(m) - ledgerMonth(m));
@@ -2923,20 +2926,35 @@ function LedgerRows({ tx, acct, months, T, TD, fmt, plMonth, plYTD, group, setGr
       <tr>
         <td colSpan={span} style={{ ...box, padding: "6px 16px 4px 28px" }}>
           <span style={{ fontSize: 10, fontWeight: 700, marginRight: 10 }}>QUICKBOOKS LEDGER · {d.count} LINE{d.count === 1 ? "" : "S"}{d.truncated ? ` (first ${rows.length} shown)` : ""}</span>
-          <span style={{ display: "inline-flex", gap: 4 }}>{btn("txn", "By transaction")}{btn("payee", "By payee")}</span>
-          <span style={{ marginLeft: 10, fontSize: 10 }}>Amounts are what posted to this account (split lines, not whole bills), in the month QuickBooks dates them.</span>
+          <span style={{ display: "inline-flex", gap: 4 }}>{btn("payee", "By vendor")}{btn("txn", "By transaction")}</span>
+          <span style={{ marginLeft: 10, fontSize: 10 }}>One row per vendor, summed by month; click a vendor to see its transactions. Amounts are what posted to this account (split lines, not whole bills).</span>
         </td>
       </tr>
-      {lines.map((l, i) => (
-        <tr key={i}>
-          <td style={first} title={l.sub}>
-            <div style={{ fontWeight: 600, color: T.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{l.label}</div>
-            <div style={{ color: T.text3, fontSize: 9.5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{l.sub}</div>
-          </td>
-          {months.map(m => <td key={m} style={{ ...cell, color: l.m[m] ? T.text2 : T.text3 }}>{money(l.m[m] || 0)}</td>)}
-          <td style={{ ...cell, fontWeight: 600, color: T.text }}>{fmt(l.total)}</td>
-        </tr>
-      ))}
+      {lines.map((l, i) => {
+        const isPayee = mode === "payee";
+        const open = isPayee && openPayee[l.key];
+        return (
+          <Fragment key={i}>
+            <tr onClick={isPayee ? (e) => { e.stopPropagation(); setOpenPayee(s => ({ ...s, [l.key]: !s[l.key] })); } : undefined} style={{ cursor: isPayee ? "pointer" : "default" }}>
+              <td style={first} title={l.sub}>
+                <div style={{ fontWeight: 600, color: T.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{isPayee && <span style={{ color: T.text3, fontSize: 8, marginRight: 4 }}>{open ? "▼" : "▶"}</span>}{l.label}</div>
+                <div style={{ color: T.text3, fontSize: 9.5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{l.sub}</div>
+              </td>
+              {months.map(m => <td key={m} style={{ ...cell, color: l.m[m] ? T.text2 : T.text3 }}>{money(l.m[m] || 0)}</td>)}
+              <td style={{ ...cell, fontWeight: 600, color: T.text }}>{fmt(l.total)}</td>
+            </tr>
+            {open && l.rows.map((r, j) => { const x = txLine(r); return (
+              <tr key={`${i}-${j}`}>
+                <td style={{ ...first, paddingLeft: 44 }} title={x.sub}>
+                  <div style={{ color: T.text3, fontSize: 9.5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{x.sub}</div>
+                </td>
+                {months.map(m => <td key={m} style={{ ...cell, fontSize: 10, color: T.text3 }}>{money(x.m[m] || 0)}</td>)}
+                <td style={{ ...cell, fontSize: 10, color: T.text3 }}>{fmt(x.total)}</td>
+              </tr>
+            ); })}
+          </Fragment>
+        );
+      })}
       <tr>
         <td style={{ ...first, fontWeight: 700, color: T.text, borderTop: `1px solid ${T.border}` }}>Ledger total</td>
         {months.map(m => <td key={m} style={{ ...cell, fontWeight: 700, color: T.text, borderTop: `1px solid ${T.border}` }}>{money(ledgerMonth(m))}</td>)}
