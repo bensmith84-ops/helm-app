@@ -3056,12 +3056,14 @@ function PLExplorer({ isMobile }) {
     const [ly, lm] = last.split("-").map(Number);
     const end = `${last}-${String(new Date(ly, lm, 0).getDate()).padStart(2, "0")}`;
     try {
-      const r = await fetch(supabase.supabaseUrl + "/functions/v1/qbo-account-txns", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ account: acct, start: `${months[0]}-01`, end }),
+      const { data: j, error } = await supabase.functions.invoke("qbo-account-txns", {
+        body: { account: acct, start: `${months[0]}-01`, end },
       });
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      if (error) {
+        let msg = error.message;
+        try { const body = await error.context?.json?.(); if (body?.error) msg = body.error; } catch {}
+        throw new Error(msg);
+      }
       setTxCache(c => ({ ...c, [acct]: { data: j } }));
     } catch (e) {
       setTxCache(c => ({ ...c, [acct]: { error: String(e.message || e) } }));
