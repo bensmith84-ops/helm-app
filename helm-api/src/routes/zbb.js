@@ -285,7 +285,7 @@ module.exports = function (app, { pool }) {
               `INSERT INTO zbb_lines (plan_id, vendor, account_num, account_name, category, kind, baseline, amount, status, source)
                VALUES ($1, $2, $3, $4, $5, $6, $7, 0, 'review', 'qbo')
                ON CONFLICT (plan_id, vendor, account_num) WHERE source = 'qbo'
-               DO UPDATE SET baseline = EXCLUDED.baseline, account_name = EXCLUDED.account_name, category = EXCLUDED.category, updated_at = now()
+               DO UPDATE SET baseline = EXCLUDED.baseline, account_name = EXCLUDED.account_name, updated_at = now() -- keep the line's category: it may have been moved (e.g. to COGS)
                RETURNING (xmax = 0) AS inserted`,
               [plan.id, t.vendor, t.account_num, t.account_name, category,
                 /^605(20|25)$/.test(t.account_num) || category === 'Software and Subscriptions' ? 'software' : 'vendor', total]);
