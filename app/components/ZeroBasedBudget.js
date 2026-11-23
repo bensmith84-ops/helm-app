@@ -431,7 +431,11 @@ function People({ people, ctx, settings, year, savePerson, deletePerson, bulkPeo
         department: find(/department|dept|team/i),
         manager: find(/manager|reports to/i),
         currency: find(/currency/i),
-        salary: find(/salary|annual|comp|pay/i, /currency/i),
+        current: find(/current/i, /currency/i),
+        salary: find(/salary|annual|comp|pay/i, /currency|current/i),
+        status: find(/^status$/i),
+        start: find(/start month/i),
+        note: find(/^notes?$/i),
       };
       if (col.name < 0) col.name = find(/employee|name/i, /manager/i);
       if (col.name < 0 || col.salary < 0) throw new Error("The file needs an employee name column and a salary column.");
@@ -442,6 +446,10 @@ function People({ people, ctx, settings, year, savePerson, deletePerson, bulkPeo
         manager: col.manager >= 0 && r[col.manager] ? String(r[col.manager]).trim() : null,
         currency: col.currency >= 0 && r[col.currency] ? String(r[col.currency]).trim().toUpperCase() : "USD",
         salary: parseMoney(r[col.salary]),
+        ...(col.current >= 0 ? { current_salary: r[col.current] == null || r[col.current] === "" ? null : parseMoney(r[col.current]) } : {}),
+        ...(col.status >= 0 && r[col.status] ? { status: String(r[col.status]).trim().toLowerCase() } : {}),
+        ...(col.start >= 0 && r[col.start] ? { start_month: Number(r[col.start]) || (MONTHS.indexOf(String(r[col.start]).slice(0, 3)) + 1) || 1 } : {}),
+        ...(col.note >= 0 && r[col.note] ? { note: String(r[col.note]) } : {}),
       }));
       if (!rows.length) throw new Error("No employee rows found.");
       setPending({ file: f.name, rows, currencies: [...new Set(rows.map((r) => r.currency))] });
@@ -483,7 +491,7 @@ function People({ people, ctx, settings, year, savePerson, deletePerson, bulkPeo
       {pending && (
         <div style={{ ...card(), padding: 12, marginBottom: 10, borderColor: T.accent }}>
           <div style={{ fontSize: 13, color: T.text, marginBottom: 6 }}>
-            Replace the org chart with <b>{pending.rows.length} people</b> from {pending.file}? Current comp comes in as each person's FY {year} salary, ready to adjust. Any changes already made on people in this plan are replaced.
+            Replace the org chart with <b>{pending.rows.length} people</b> from {pending.file}? {pending.rows.some((r) => r.current_salary != null) ? `Current comp and FY ${year} salary come from their own columns; ${pending.rows.filter((r) => r.status === "new").length} rows are new roles.` : `Current comp comes in as each person's FY ${year} salary, ready to adjust.`} Any changes already made on people in this plan are replaced.
           </div>
           <div style={{ fontSize: 11, color: T.text3, marginBottom: 8 }}>Currencies: {pending.currencies.join(", ")}. Managers not in the file are added at the top without comp.</div>
           <button onClick={async () => { const rows = pending.rows; setPending(null); await importPeople(rows); }} style={{ ...btn(true), marginRight: 8 }}>Replace org chart</button>
