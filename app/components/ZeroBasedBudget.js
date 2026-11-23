@@ -358,20 +358,27 @@ function People({ people, ctx, settings, year, savePerson, deletePerson, bulkPeo
   const [dept, setDept] = useState("");
   const [edit, setEdit] = useState(null);
   const [pending, setPending] = useState(null); // parsed import awaiting confirmation
+  const [creator, setCreator] = useState(null); // { manager } while adding a role
+  const [scratch, setScratch] = useState(false); // confirming "start from scratch"
   const fileRef = useRef(null);
+  const hideRemoved = !!settings.hide_removed;
 
   const byId = useMemo(() => new Map(people.map((p) => [p.id, p])), [people]);
+  const shown = useMemo(() => (hideRemoved ? people.filter((p) => p.status !== "remove") : people), [people, hideRemoved]);
   const kids = useMemo(() => {
+    // With removed people hidden, someone reports to their nearest manager still in the plan.
+    const vis = new Set(shown.map((p) => p.id));
+    const parentOf = (p) => { let m = byId.get(p.manager_id); let g = 0; while (m && !vis.has(m.id) && g++ < 60) m = byId.get(m.manager_id); return m && vis.has(m.id) ? m.id : "root"; };
     const m = new Map();
-    for (const p of people) {
-      const k = p.manager_id && byId.has(p.manager_id) ? p.manager_id : "root";
+    for (const p of shown) {
+      const k = parentOf(p);
       if (!m.has(k)) m.set(k, []);
       m.get(k).push(p);
     }
     const size = (id) => (m.get(id) || []).length;
     for (const v of m.values()) v.sort((a, b) => (size(b.id) - size(a.id)) || a.name.localeCompare(b.name));
     return m;
-  }, [people, byId]);
+  }, [shown, byId]);
   const subtree = useCallback((id) => {
     const out = []; const st = [...(kids.get(id) || [])];
     while (st.length) { const p = st.pop(); out.push(p); st.push(...(kids.get(p.id) || [])); }
@@ -382,9 +389,16 @@ function People({ people, ctx, settings, year, savePerson, deletePerson, bulkPeo
   const match = (p) => (!dept || p.department === dept) && (!q || `${p.name} ${p.title || ""} ${p.department || ""}`.toLowerCase().includes(q.toLowerCase()));
   const set = (p, patch) => savePerson({ ...p, ...patch });
 
-  const addRole = async (manager) => {
-    const r = await savePerson({ name: "New role", title: "", department: manager?.department || "", manager_id: manager?.id || null, status: "new", start_month: 1, end_month: 12, currency: manager?.currency || "USD" });
-    if (r) setEdit(r);
+  const addRole = (manager) => setCreator({ manager: manager || null });
+  const removedCount = people.filter((p) => p.status === "remove").length;
+  const startScratch = async () => {
+    const ids = people.filter((p) => p.status !== "remove" && p.is_existing).map((p) => p.id);
+    const fresh = people.filter((p) => !p.is_existing);
+    if (ids.length) await bulkPeople(ids, "status", { status: "remove" });
+    for (const p of fresh) await deletePerson(p.id);
+    await saveSettings({ hide_removed: true });
+    setScratch(false);
+    setToast("Org chart cleared. Add roles with + New role; fill them with current people or leave them open.");
   };
   const reassign = (id, target) => {
     if (!id || id === target?.id) return;
@@ -442,10 +456,23 @@ function People({ people, ctx, settings, year, savePerson, deletePerson, bulkPeo
           <option value="">All departments</option>{depts.map((d) => <option key={d}>{d}</option>)}
         </select>
         <button onClick={() => addRole(null)} style={btn(true)}>+ New role</button>
+        <button onClick={() => saveSettings({ hide_removed: !hideRemoved })} style={btn(!hideRemoved)} title="Show or hide people removed from the plan">{hideRemoved ? `Show removed (${removedCount})` : "Hide removed"}</button>
+        <button onClick={() => setScratch(true)} style={btn(false)} title="Start the org from zero and add back only the roles you need">Start from scratch</button>
         <button onClick={() => fileRef.current?.click()} style={btn(false)}>Import HRIS file</button>
         <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: "none" }} onChange={(e) => onFile(e.target.files?.[0])} />
       </div>
 
+      {scratch && (
+        <div style={{ ...card(), padding: 12, marginBottom: 10, borderColor: T.accent }}>
+          <div style={{ fontSize: 13, color: T.text, marginBottom: 6 }}>
+            Build the FY {year} org from zero? Everyone currently on the chart is marked <b>removed</b> (and hidden), so the plan starts at $0 and current comp stays as the baseline.
+            Then add roles with <b>+ New role</b> or <b>+</b> on a card, and fill each one with a current person or leave it open as a new hire.
+          </div>
+          <div style={{ fontSize: 11, color: T.text3, marginBottom: 8 }}>{people.filter((p) => !p.is_existing).length ? "Roles added in this plan so far are deleted. " : ""}You can show removed people again at any time, or re-import the HRIS file to go back to the current org.</div>
+          <button onClick={startScratch} style={{ ...btn(true), marginRight: 8 }}>Start from scratch</button>
+          <button onClick={() => setScratch(false)} style={btn(false)}>Cancel</button>
+        </div>
+      )}
       {pending && (
         <div style={{ ...card(), padding: 12, marginBottom: 10, borderColor: T.accent }}>
           <div style={{ fontSize: 13, color: T.text, marginBottom: 6 }}>
@@ -473,10 +500,17 @@ function People({ people, ctx, settings, year, savePerson, deletePerson, bulkPeo
           </select></span>}
       </div>
 
-      {people.length === 0 && <div style={{ ...card(), padding: 16, fontSize: 13, color: T.text3 }}>No people yet. Import the HRIS export to build the org chart.</div>}
-      {people.length > 0 && (view === "chart"
-        ? <BoxChart people={people} kids={kids} subtree={subtree} byId={byId} ctx={ctx} match={match} filtering={!!(q || dept)} set={set} setEdit={setEdit} addRole={addRole} reassign={reassign} />
-        : <PeopleTable people={people.filter(match)} byId={byId} ctx={ctx} set={set} setEdit={setEdit} bulkPeople={bulkPeople} year={year} />)}
+      {shown.length === 0 && (
+        <div style={{ ...card(), padding: 20, fontSize: 13, color: T.text2, textAlign: "center" }}>
+          {people.length ? "No roles in the plan yet." : "No people yet."} Start with the top role, then add the roles that report to it.
+          <div style={{ marginTop: 10 }}><button onClick={() => addRole(null)} style={{ ...btn(true), padding: "6px 14px", fontSize: 12 }}>+ Add the first role</button></div>
+        </div>
+      )}
+      {shown.length > 0 && (view === "chart"
+        ? <BoxChart people={shown} kids={kids} subtree={subtree} byId={byId} ctx={ctx} match={match} filtering={!!(q || dept)} set={set} setEdit={setEdit} addRole={addRole} reassign={reassign} />
+        : <PeopleTable people={shown.filter(match)} byId={byId} ctx={ctx} set={set} setEdit={setEdit} bulkPeople={bulkPeople} year={year} />)}
+      {creator && <RoleCreator manager={creator.manager} people={people} ctx={ctx} year={year} depts={depts} onClose={() => setCreator(null)}
+        onCreate={async (roles) => { for (const r of roles) await savePerson(r); setCreator(null); setToast(roles.length > 1 ? `Added ${roles.length} roles.` : "Role added."); }} />}
       {edit && <PersonEditor person={people.find((p) => p.id === edit.id) || edit} people={people} subtree={subtree} ctx={ctx} year={year}
         onClose={() => setEdit(null)} onSave={async (patch) => { await set(people.find((p) => p.id === edit.id) || edit, patch); }}
         onRemoveTeam={(p) => removeWithTeam(p)} onDelete={async (p) => { await deletePerson(p.id); setEdit(null); }} />}
@@ -689,6 +723,67 @@ function Drawer({ title, onClose, children }) {
 }
 const Field = ({ label, children }) => <label style={{ display: "block", marginBottom: 10 }}><div style={{ fontSize: 11, color: T.text3, marginBottom: 3 }}>{label}</div>{children}</label>;
 const inp = () => ({ width: "100%", boxSizing: "border-box", padding: "7px 9px", fontSize: 13, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text });
+
+// Add a role: an open role (new hire, optionally several of them) or a role filled
+// by someone already on the payroll, who is then kept in the plan in that seat.
+function RoleCreator({ manager, people, ctx, year, depts, onClose, onCreate }) {
+  const [f, setF] = useState({ title: "", department: manager?.department || "", manager_id: manager?.id || "", fill: "", currency: manager?.currency || "USD", salary: "", bonus: "", start_month: 1, count: 1, note: "" });
+  const [busy, setBusy] = useState(false);
+  const put = (k, v) => setF((x) => ({ ...x, [k]: v }));
+  const filler = f.fill ? people.find((p) => p.id === f.fill) : null;
+  const pickFill = (id) => {
+    const p = people.find((x) => x.id === id);
+    setF((x) => ({ ...x, fill: id, ...(p ? { currency: p.currency || "USD", salary: String(Math.round(Number(p.current_salary) || Number(p.salary) || 0)), title: x.title || p.title || "", department: x.department || p.department || "", count: 1 } : {}) }));
+  };
+  const cur = (f.currency || "USD").toUpperCase();
+  const n = filler ? 1 : Math.max(1, Math.min(50, parseInt(f.count, 10) || 1));
+  const each = { status: filler ? "keep" : "new", currency: cur, salary: parseMoney(f.salary), bonus: parseMoney(f.bonus), start_month: Number(f.start_month) || 1, end_month: 12, is_existing: !!filler, current_salary: filler ? Number(filler.current_salary) : 0 };
+  const eachCost = personCost(each, ctx);
+  const candidates = people.filter((p) => p.is_existing && p.id !== manager?.id).sort((a, b) => (a.status === "remove") - (b.status === "remove") || a.name.localeCompare(b.name));
+  const save = async () => {
+    if (!f.title.trim() && !filler) return;
+    setBusy(true);
+    const base = { title: f.title.trim() || filler?.title || "", department: f.department.trim(), manager_id: f.manager_id || null, currency: cur, salary: each.salary, bonus: each.bonus, start_month: each.start_month, end_month: 12, note: f.note };
+    if (filler) await onCreate([{ ...filler, ...base, status: "keep" }]);
+    else await onCreate(Array.from({ length: n }, (_, i) => ({ ...base, name: n > 1 ? `${base.title} #${i + 1}` : base.title, status: "new" })));
+    setBusy(false);
+  };
+  return (
+    <Drawer title={manager ? `New role reporting to ${manager.name}` : "New role"} onClose={onClose}>
+      <Field label="Role title"><input autoFocus style={inp()} value={f.title} onChange={(e) => put("title", e.target.value)} placeholder="e.g. Customer Service Lead" /></Field>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <Field label="Department"><input style={inp()} list="zbb-depts" value={f.department} onChange={(e) => put("department", e.target.value)} /><datalist id="zbb-depts">{depts.map((d) => <option key={d} value={d} />)}</datalist></Field>
+        <Field label="Reports to">
+          <select style={inp()} value={f.manager_id} onChange={(e) => put("manager_id", e.target.value)}>
+            <option value="">— top level —</option>
+            {people.filter((x) => x.status !== "remove" || x.id === f.manager_id).sort((a, b) => a.name.localeCompare(b.name)).map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+          </select>
+        </Field>
+      </div>
+      <Field label="Filled by">
+        <select style={inp()} value={f.fill} onChange={(e) => (e.target.value ? pickFill(e.target.value) : put("fill", ""))}>
+          <option value="">Open role (new hire)</option>
+          {candidates.map((p) => <option key={p.id} value={p.id}>{p.name}{p.title ? ` · ${p.title}` : ""}{p.department ? ` · ${p.department}` : ""}{p.status === "remove" ? " (currently removed)" : " (moves to this role)"}</option>)}
+        </select>
+      </Field>
+      <div style={{ display: "grid", gridTemplateColumns: "80px 1fr 1fr", gap: 10 }}>
+        <Field label="Currency"><input style={inp()} value={f.currency} maxLength={3} onChange={(e) => put("currency", e.target.value.toUpperCase())} /></Field>
+        <Field label={`FY ${year} salary${filler && Number(filler.current_salary) ? ` (now ${local(filler.current_salary, filler.currency)})` : ""}`}><input style={inp()} value={f.salary} onChange={(e) => put("salary", e.target.value)} placeholder="e.g. 85000 or 85k" /></Field>
+        <Field label="Bonus"><input style={inp()} value={f.bonus} onChange={(e) => put("bonus", e.target.value)} /></Field>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <Field label={filler ? "Paid from" : "Start month"}><select style={inp()} value={f.start_month} onChange={(e) => put("start_month", Number(e.target.value))}>{MONTHS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}</select></Field>
+        {!filler && <Field label="Number of roles"><input style={inp()} type="number" min={1} max={50} value={f.count} onChange={(e) => put("count", e.target.value)} /></Field>}
+      </div>
+      <Field label="Why this role (justification)"><textarea style={{ ...inp(), minHeight: 60 }} value={f.note} onChange={(e) => put("note", e.target.value)} /></Field>
+      <div style={{ fontSize: 12, color: T.text2, margin: "4px 0 14px" }}>
+        {n > 1 ? `${n} roles × ` : ""}FY {year} cost <b>{full(eachCost)}</b>{n > 1 ? <> = <b>{full(eachCost * n)}</b></> : ""} ({paidMonths(each)} months, USD, {ctx.load}% taxes &amp; benefits{cur !== "USD" ? `, 1 ${cur} = $${ctx.fx?.[cur] ?? "?"}` : ""}).
+        {cur !== "USD" && !(Number(ctx.fx?.[cur]) > 0) && <span style={{ color: T.red }}> No FX rate for {cur} yet.</span>}
+      </div>
+      <button onClick={save} disabled={busy || (!f.title.trim() && !filler)} style={{ ...btn(true), padding: "7px 14px", fontSize: 12, opacity: busy || (!f.title.trim() && !filler) ? 0.5 : 1 }}>{busy ? "Adding…" : filler ? `Put ${filler.name} in this role` : n > 1 ? `Add ${n} roles` : "Add role"}</button>
+    </Drawer>
+  );
+}
 
 function PersonEditor({ person: p, people, subtree, ctx, year, onClose, onSave, onRemoveTeam, onDelete }) {
   const [f, setF] = useState(p);
