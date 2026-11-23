@@ -520,6 +520,7 @@ function People({ people, ctx, settings, year, savePerson, deletePerson, bulkPeo
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
         <button onClick={() => setView("chart")} style={btn(view === "chart")}>Org chart</button>
         <button onClick={() => setView("table")} style={btn(view === "table")}>Table</button>
+        <button onClick={() => setView("roles")} style={btn(view === "roles")}>Roles &amp; KPIs</button>
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people, titles…" style={{ flex: "1 1 180px", padding: "6px 10px", fontSize: 12, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text }} />
         <select value={dept} onChange={(e) => setDept(e.target.value)} style={{ padding: "6px 8px", fontSize: 12, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text }}>
           <option value="">All departments</option>{depts.map((d) => <option key={d}>{d}</option>)}
@@ -579,13 +580,15 @@ function People({ people, ctx, settings, year, savePerson, deletePerson, bulkPeo
           </div>
         </div>
       )}
-      {shown.length > 0 && (view === "chart"
+      {shown.length > 0 && view === "roles" && <RolesKpis people={shown.filter(match)} byId={byId} setEdit={setEdit} />}
+      {shown.length > 0 && view !== "roles" && (view === "chart"
         ? <BoxChart people={shown} kids={kids} subtree={subtree} byId={byId} ctx={ctx} match={match} filtering={!!(q || dept)} set={set} setEdit={setEdit} addRole={addRole} reassign={reassign} />
         : <PeopleTable people={shown.filter(match)} byId={byId} ctx={ctx} set={set} setEdit={setEdit} bulkPeople={bulkPeople} year={year} />)}
       {creator && <RoleCreator manager={creator.manager} mode={creator.mode} people={people} ctx={ctx} year={year} depts={depts} onClose={() => setCreator(null)}
         onCreate={async (roles) => { for (const r of roles) await savePerson(r); setCreator(null); setToast(roles.length > 1 ? `Added ${roles.length} to the org.` : "Added to the org."); }} />}
       {edit && <PersonEditor person={people.find((p) => p.id === edit.id) || edit} people={people} subtree={subtree} ctx={ctx} year={year}
         onClose={() => setEdit(null)} onSave={async (patch) => { await set(people.find((p) => p.id === edit.id) || edit, patch); }}
+        onSaveOthers={async (list, patch) => { for (const x of list) await set(x, patch); setToast(`Applied to ${list.length} more.`); }}
         onRemoveTeam={(p) => removeWithTeam(p)} onDelete={async (p) => { await deletePerson(p.id); setEdit(null); }} />}
     </div>
   );
@@ -653,6 +656,7 @@ function BoxChart({ people, kids, subtree, byId, ctx, match, filtering, set, set
           {cogs && <span style={{ fontSize: 9.5, fontWeight: 700, color: T.purple, border: `1px solid ${T.purple}55`, borderRadius: 8, padding: "0 5px" }}>COGS</span>}
           {p.currency && p.currency !== "USD" && <span style={{ fontSize: 9.5, color: T.text3 }}>{p.currency}</span>}
           {orphan && <span style={{ fontSize: 9.5, color: T.amber || T.yellow }}>reassign</span>}
+          {(respOf(p).length > 0 || kpisOf(p).length > 0) && <span style={{ fontSize: 9.5, color: T.text3 }} title={[...respOf(p).map((r) => `• ${r}`), ...kpisOf(p).map((k) => `KPI: ${k.name}${k.target ? ` (${k.target})` : ""}`)].join("\n")}>{respOf(p).length} resp · {kpisOf(p).length} KPI</span>}
           <span style={{ flex: 1 }} />
           <button onClick={(e) => { e.stopPropagation(); set(p, gone ? { status: p.is_existing ? "keep" : "new", end_month: 12 } : { status: "remove", end_month: 0 }); }}
             title={gone ? "Restore" : "Remove from the plan"} style={{ ...btn(false, gone ? T.green : T.red), padding: "0 6px", fontSize: 10 }}>{gone ? "Restore" : "Remove"}</button>
@@ -716,6 +720,45 @@ function BoxChart({ people, kids, subtree, byId, ctx, match, filtering, set, set
   );
 }
 
+// Everyone's role in one place: responsibilities and KPIs by department, gaps flagged.
+function RolesKpis({ people, byId, setEdit }) {
+  const [gapsOnly, setGapsOnly] = useState(false);
+  const list = people.filter((p) => !gapsOnly || !respOf(p).length || !kpisOf(p).length);
+  const groups = {};
+  for (const p of list) (groups[p.department || "No department"] ||= []).push(p);
+  const done = people.filter((p) => respOf(p).length && kpisOf(p).length).length;
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 10, fontSize: 12, color: T.text3, flexWrap: "wrap" }}>
+        <span><b style={{ color: T.text }}>{done}</b> of {people.length} have both responsibilities and KPIs.</span>
+        <label style={{ display: "flex", gap: 5, alignItems: "center" }}><input type="checkbox" checked={gapsOnly} onChange={(e) => setGapsOnly(e.target.checked)} /> Only show gaps</label>
+        <span>Click anyone to edit.</span>
+      </div>
+      {Object.keys(groups).sort().map((d) => (
+        <div key={d} style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: T.text2, margin: "0 0 6px", textTransform: "uppercase", letterSpacing: ".04em" }}>{d} <span style={{ color: T.text3, fontWeight: 400 }}>{groups[d].length}</span></div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 8 }}>
+            {groups[d].sort((a, b) => a.name.localeCompare(b.name)).map((p) => {
+              const r = respOf(p); const k = kpisOf(p);
+              return (
+                <div key={p.id} onClick={() => setEdit(p)} style={{ ...card(), padding: "10px 12px", cursor: "pointer", borderTop: `3px solid ${STATUS[p.status].c()}` }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{p.name} {p.status !== "keep" && <Pill status={p.status} small />}</div>
+                  <div style={{ fontSize: 11, color: T.text3, marginBottom: 6 }}>{p.title || "—"}{byId.get(p.manager_id) ? ` · reports to ${byId.get(p.manager_id).name}` : ""}</div>
+                  {r.length ? <ul style={{ margin: "0 0 6px", paddingLeft: 16, fontSize: 12, color: T.text2, lineHeight: 1.45 }}>{r.map((x, i) => <li key={i}>{x}</li>)}</ul>
+                    : <div style={{ fontSize: 11, color: T.amber || T.yellow, marginBottom: 6 }}>No responsibilities yet</div>}
+                  {k.length ? <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{k.map((x, i) => (
+                    <span key={i} style={{ fontSize: 11, color: T.text, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, padding: "1px 7px" }}>{x.name}{x.target ? <span style={{ color: T.accent }}> · {x.target}</span> : ""}</span>
+                  ))}</div> : <div style={{ fontSize: 11, color: T.amber || T.yellow }}>No KPIs yet</div>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function PeopleTable({ people, byId, ctx, set, setEdit, bulkPeople, year }) {
   const [sort, setSort] = useState({ k: "department", d: 1 });
   const [sel, setSel] = useState(() => new Set());
@@ -748,7 +791,7 @@ function PeopleTable({ people, byId, ctx, set, setEdit, bulkPeople, year }) {
             <H k="name">Name</H><H k="title">Title</H><H k="department">Department</H><H k="manager">Manager</H><H k="status">Status</H>
             <th style={th}>Cur.</th><th style={{ ...th, textAlign: "right" }}>Current salary</th><H k="current" right>Current cost</H>
             <th style={{ ...th, textAlign: "right" }}>FY {year} salary</th><H k="change" right>Δ</H><th style={{ ...th, textAlign: "right" }}>Bonus</th>
-            <th style={th}>Months</th><H k="cost" right>FY {year} cost</H>
+            <th style={th}>Months</th><H k="cost" right>FY {year} cost</H><th style={th}>Resp. / KPIs</th>
           </tr></thead>
           <tbody>{rows.map((p) => {
             const c = changePct(p); const cogs = !isOpex(p, ctx);
@@ -768,6 +811,8 @@ function PeopleTable({ people, byId, ctx, set, setEdit, bulkPeople, year }) {
                 <td style={{ ...td, textAlign: "right" }}><MoneyInput value={Number(p.bonus)} onSave={(v) => set(p, { bonus: v })} width={76} placeholder="0" /></td>
                 <td style={{ ...td, color: T.text3, whiteSpace: "nowrap" }}>{paidMonths(p)}</td>
                 <td style={{ ...td, textAlign: "right", color: T.text, fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>{full(personCost(p, ctx))}</td>
+                <td style={{ ...td, color: respOf(p).length || kpisOf(p).length ? T.text2 : T.text3, cursor: "pointer", whiteSpace: "nowrap" }} onClick={() => setEdit(p)}
+                  title={[...respOf(p).map((r) => `• ${r}`), ...kpisOf(p).map((k) => `KPI: ${k.name}${k.target ? ` (${k.target})` : ""}`)].join("\n") || "Click to add"}>{respOf(p).length} / {kpisOf(p).length}</td>
               </tr>
             );
           })}
@@ -796,6 +841,40 @@ function Drawer({ title, onClose, children }) {
 }
 const Field = ({ label, children }) => <label style={{ display: "block", marginBottom: 10 }}><div style={{ fontSize: 11, color: T.text3, marginBottom: 3 }}>{label}</div>{children}</label>;
 const inp = () => ({ width: "100%", boxSizing: "border-box", padding: "7px 9px", fontSize: 13, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text });
+
+// Core responsibilities (a list of lines) and KPIs ({ name, target }) for a person or role.
+const respOf = (p) => (Array.isArray(p?.responsibilities) ? p.responsibilities : []);
+const kpisOf = (p) => (Array.isArray(p?.kpis) ? p.kpis : []);
+function RespKpiEditor({ resp, kpis, onResp, onKpis }) {
+  const small = { ...inp(), padding: "5px 8px", fontSize: 12 };
+  const x = { ...btn(false), padding: "2px 7px" };
+  return (
+    <div style={{ border: `1px solid ${T.border}`, borderRadius: 8, padding: 10, marginBottom: 10 }}>
+      <div style={{ fontSize: 11, color: T.text3, marginBottom: 6 }}>Core responsibilities</div>
+      {resp.map((r, i) => (
+        <div key={i} style={{ display: "flex", gap: 6, marginBottom: 5 }}>
+          <span style={{ color: T.text3, fontSize: 12, paddingTop: 5 }}>•</span>
+          <input style={small} value={r} placeholder="e.g. Own the monthly close and board reporting"
+            onChange={(e) => onResp(resp.map((v, j) => (j === i ? e.target.value : v)))}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); onResp([...resp.slice(0, i + 1), "", ...resp.slice(i + 1)]); } }} />
+          <button onClick={() => onResp(resp.filter((_, j) => j !== i))} style={x} title="Remove">×</button>
+        </div>
+      ))}
+      <button onClick={() => onResp([...resp, ""])} style={{ ...btn(false), padding: "2px 8px", marginBottom: 12 }}>+ Responsibility</button>
+      <div style={{ fontSize: 11, color: T.text3, marginBottom: 6 }}>KPIs</div>
+      {kpis.map((k, i) => (
+        <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 120px auto", gap: 6, marginBottom: 5 }}>
+          <input style={small} value={k.name} placeholder="KPI, e.g. CSAT" onChange={(e) => onKpis(kpis.map((v, j) => (j === i ? { ...v, name: e.target.value } : v)))} />
+          <input style={small} value={k.target} placeholder="Target, e.g. ≥ 92%" onChange={(e) => onKpis(kpis.map((v, j) => (j === i ? { ...v, target: e.target.value } : v)))} />
+          <button onClick={() => onKpis(kpis.filter((_, j) => j !== i))} style={x} title="Remove">×</button>
+        </div>
+      ))}
+      <button onClick={() => onKpis([...kpis, { name: "", target: "" }])} style={{ ...btn(false), padding: "2px 8px" }}>+ KPI</button>
+    </div>
+  );
+}
+const cleanR = (a) => a.map((x) => String(x || "").trim()).filter(Boolean);
+const cleanK = (a) => a.map((k) => ({ name: String(k.name || "").trim(), target: String(k.target || "").trim() })).filter((k) => k.name);
 
 // Add to the org: existing people (several at once, e.g. a whole team, with their
 // current salary or a % change) or new roles with a salary budget (optionally
@@ -838,7 +917,7 @@ function RoleCreator({ manager, mode: startMode, people, ctx, year, depts, onClo
   };
 
   // New role
-  const [f, setF] = useState({ title: "", department: manager?.department || "", currency: manager?.currency || "USD", salary: "", bonus: "", start_month: 1, count: 1, note: "" });
+  const [f, setF] = useState({ title: "", department: manager?.department || "", currency: manager?.currency || "USD", salary: "", bonus: "", start_month: 1, count: 1, note: "", responsibilities: [], kpis: [] });
   const put = (k, v) => setF((x) => ({ ...x, [k]: v }));
   const cur = (f.currency || "USD").toUpperCase();
   const n = Math.max(1, Math.min(50, parseInt(f.count, 10) || 1));
@@ -847,7 +926,7 @@ function RoleCreator({ manager, mode: startMode, people, ctx, year, depts, onClo
   const addNew = async () => {
     if (!f.title.trim()) return;
     setBusy(true);
-    const base = { title: f.title.trim(), department: f.department.trim(), manager_id: managerId || null, currency: cur, salary: each.salary, bonus: each.bonus, start_month: each.start_month, end_month: 12, note: f.note, status: "new" };
+    const base = { title: f.title.trim(), department: f.department.trim(), manager_id: managerId || null, currency: cur, salary: each.salary, bonus: each.bonus, start_month: each.start_month, end_month: 12, note: f.note, status: "new", responsibilities: cleanR(f.responsibilities), kpis: cleanK(f.kpis) };
     await onCreate(Array.from({ length: n }, (_, i) => ({ ...base, name: n > 1 ? `${base.title} #${i + 1}` : base.title })));
     setBusy(false);
   };
@@ -915,6 +994,7 @@ function RoleCreator({ manager, mode: startMode, people, ctx, year, depts, onClo
           <Field label="Number of roles"><input style={inp()} type="number" min={1} max={50} value={f.count} onChange={(e) => put("count", e.target.value)} /></Field>
         </div>
         <Field label="Why this role (justification)"><textarea style={{ ...inp(), minHeight: 60 }} value={f.note} onChange={(e) => put("note", e.target.value)} /></Field>
+        <RespKpiEditor resp={f.responsibilities} kpis={f.kpis} onResp={(v) => put("responsibilities", v)} onKpis={(v) => put("kpis", v)} />
         <div style={{ fontSize: 12, color: T.text2, margin: "4px 0 14px" }}>
           {n > 1 ? `${n} roles × ` : ""}FY {year} budget <b>{full(eachCost)}</b>{n > 1 ? <> = <b>{full(eachCost * n)}</b></> : ""} ({paidMonths(each)} months, USD; taxes &amp; benefits on the separate {ctx.load}% line{cur !== "USD" ? `; 1 ${cur} = $${ctx.fx?.[cur] ?? "?"}` : ""}).
           {cur !== "USD" && !(Number(ctx.fx?.[cur]) > 0) && <span style={{ color: T.red }}> No FX rate for {cur} yet.</span>}
@@ -925,8 +1005,10 @@ function RoleCreator({ manager, mode: startMode, people, ctx, year, depts, onClo
   );
 }
 
-function PersonEditor({ person: p, people, subtree, ctx, year, onClose, onSave, onRemoveTeam, onDelete }) {
+function PersonEditor({ person: p, people, subtree, ctx, year, onClose, onSave, onSaveOthers, onRemoveTeam, onDelete }) {
   const [f, setF] = useState(p);
+  const [toSame, setToSame] = useState(false);
+  const sameTitle = (f.title || "").trim() ? people.filter((x) => x.id !== p.id && x.status !== "remove" && (x.title || "").trim().toLowerCase() === (f.title || "").trim().toLowerCase()) : [];
   useEffect(() => setF(p), [p.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const team = subtree(p.id);
   const banned = new Set([p.id, ...team.map((t) => t.id)]);
@@ -934,7 +1016,9 @@ function PersonEditor({ person: p, people, subtree, ctx, year, onClose, onSave, 
   const cur = (f.currency || "USD").toUpperCase();
   const save = async () => {
     await onSave({ name: f.name, title: f.title, department: f.department, manager_id: f.manager_id || null, status: f.status, currency: cur,
-      current_salary: parseMoney(f.current_salary), salary: parseMoney(f.salary), bonus: parseMoney(f.bonus), start_month: Number(f.start_month) || 1, end_month: Number(f.end_month), note: f.note });
+      current_salary: parseMoney(f.current_salary), salary: parseMoney(f.salary), bonus: parseMoney(f.bonus), start_month: Number(f.start_month) || 1, end_month: Number(f.end_month), note: f.note,
+      responsibilities: cleanR(respOf(f)), kpis: cleanK(kpisOf(f)) });
+    if (toSame && sameTitle.length && onSaveOthers) await onSaveOthers(sameTitle, { responsibilities: cleanR(respOf(f)), kpis: cleanK(kpisOf(f)) });
     onClose();
   };
   const preview = { ...f, currency: cur, salary: parseMoney(f.salary), bonus: parseMoney(f.bonus), current_salary: parseMoney(f.current_salary) };
@@ -980,6 +1064,13 @@ function PersonEditor({ person: p, people, subtree, ctx, year, onClose, onSave, 
           <Field label="Paid through"><select style={inp()} value={f.end_month || 12} onChange={(e) => put("end_month", Number(e.target.value))}>{MONTHS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}</select></Field>
         </div>}
       <Field label="Note / justification"><textarea style={{ ...inp(), minHeight: 70 }} value={f.note || ""} onChange={(e) => put("note", e.target.value)} /></Field>
+      <RespKpiEditor resp={respOf(f)} kpis={kpisOf(f)} onResp={(v) => put("responsibilities", v)} onKpis={(v) => put("kpis", v)} />
+      {sameTitle.length > 0 && (
+        <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12, color: T.text2, margin: "-2px 0 10px" }}>
+          <input type="checkbox" checked={toSame} onChange={(e) => setToSame(e.target.checked)} />
+          Also apply these responsibilities and KPIs to the {sameTitle.length} other{sameTitle.length === 1 ? "" : "s"} titled “{f.title}”
+        </label>
+      )}
       <div style={{ fontSize: 12, color: T.text2, margin: "6px 0 14px", lineHeight: 1.5 }}>
         Current cost <b>{full(personCurrent({ ...preview, status: "keep", is_existing: p.is_existing }, ctx))}</b> · FY {year} cost <b>{full(personCost(preview, ctx))}</b> ({paidMonths(preview)} months, USD base pay; taxes &amp; benefits are on the separate {ctx.load}% line{cur !== "USD" ? `, 1 ${cur} = $${ctx.fx?.[cur] ?? "?"}` : ""}).
         {!isOpex(preview, ctx) && <> Counted as COGS, outside the Opex totals.</>}
@@ -1385,6 +1476,7 @@ async function exportWorkbook({ data, totals, ctx, year, version }) {
     "Current salary (local)": r0(p.current_salary), [`FY ${year} salary (local)`]: r0(p.salary), "Change %": changePct(p) == null ? "" : +changePct(p).toFixed(1),
     [`FY ${year} bonus (local)`]: r0(p.bonus), "USD per unit": fxOf(p, ctx), "Paid from": MONTHS[(p.start_month || 1) - 1], "Paid through": p.end_month ? MONTHS[p.end_month - 1] : "None",
     "Months paid": paidMonths(p), "Current salary USD": r0(personCurrent(p, ctx)), [`FY ${year} pay USD (months paid)`]: r0(personCost(p, ctx)), Note: p.note || "",
+    "Core responsibilities": respOf(p).map((r) => `• ${r}`).join("\n"), KPIs: kpisOf(p).map((k) => `${k.name}${k.target ? `: ${k.target}` : ""}`).join("\n"),
   })), [26, 22, 20, 22, 7, 9, 8, 14, 14, 9, 12, 11, 9, 11, 8, 16, 16, 40]);
   add("Vendors & software", data.lines.slice().sort((a, b) => String(a.category).localeCompare(String(b.category)) || b.baseline - a.baseline).map((l) => ({
     Category: catLabel(l.category), Vendor: l.vendor, Type: l.kind, Account: `${l.account_num || ""} ${l.account_name || ""}`.trim(),
