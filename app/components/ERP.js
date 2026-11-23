@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback, useRef, lazy, Suspense } from "react"
 import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
 import { useAuth } from "../lib/auth";
+import { canSeeZbb } from "../lib/zbbAccess";
 import { useResponsive } from "../lib/responsive";
 
 const FinanceEmbed = lazy(() => import("./Finance"));
@@ -516,6 +517,7 @@ export default function ERPView({ modulePerms = {}, pendingSubView, clearPending
   // (mirrors People.js hasModuleAccess). modulePerms is the raw
   // module_permissions object; {} means full access (admin/owner).
   const subAllowed = (id) => {
+    if (id === "fin_zbb") return canSeeZbb(user?.email || profile?.email);
     if (!modulePerms || Object.keys(modulePerms).length === 0) return true; // full access
     const key = `erp.${id}`;
     if (modulePerms._default_deny === true) {

@@ -15,7 +15,6 @@ const SUB_NAV = [
   { module: "finance", sub: "requests",        label: "Spend Requests",      icon: "💸", aliases: ["spend", "request"] },
   { module: "finance", sub: "budgets",         label: "Budgets",             icon: "📊", aliases: ["budget"] },
   { module: "finance", sub: "budget_planner",  label: "Budget Planner",      icon: "🗒️", aliases: ["planner"] },
-  { module: "finance", sub: "zbb",             label: "Zero-Based Budget",   icon: "🧮", aliases: ["zbb", "zero based", "2027 budget"] },
   { module: "finance", sub: "rules",           label: "Spend Rules",         icon: "⚡", aliases: ["rule", "approval rule"] },
   { module: "finance", sub: "cfo",             label: "CFO Dashboard",       icon: "📈", aliases: ["cfo dashboard"] },
   { module: "finance", sub: "pl_explorer",     label: "P&L Explorer",        icon: "📊", aliases: ["p&l", "pl", "profit"] },
