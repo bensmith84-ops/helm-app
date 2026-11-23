@@ -1,6 +1,7 @@
 
 // POST /qbo-attachments - port of supabase/functions/qbo-attachments
-// 2 actions: get_attachment, sync_attachments. Uses supabase-storage wrapper.
+// 2 actions: get_attachment { qbo_id, entity_type?, bill_id?, refresh? } (any transaction
+// type, default Bill), sync_attachments (bills). Uses supabase-storage wrapper.
 const { uploadToStorage } = require('../lib/supabase-storage');
 const { qboFetch, getQboBase, getActiveConnection, ensureToken } = require('../lib/qbo');
 
@@ -23,6 +24,12 @@ module.exports = function(app, { pool }) {
       const body = req.body || {};
       const { action, bill_id, qbo_id } = body;
 
+      if (action === 'cached_list') {
+        // Attachments already found on non-bill transactions, for Transaction Search.
+        const { rows } = await pool.query(`SELECT entity_type, qbo_id, files FROM qbo_attachment_cache WHERE jsonb_array_length(files) > 0`);
+        return res.json({ items: rows });
+      }
+
       const conn = await getActiveConnection(pool);
       if (!conn) return res.status(400).json({ error: 'QBO not connected' });
 
@@ -31,42 +38,48 @@ module.exports = function(app, { pool }) {
       const base = getQboBase();
 
       if (action === 'get_attachment') {
-        if (!qbo_id) return res.status(400).json({ error: 'qbo_id required' });
-        const query = `SELECT * FROM Attachable WHERE AttachableRef.EntityRef.Type = 'Bill' AND AttachableRef.EntityRef.value = '${qbo_id}'`;
+        // Any transaction type; bills also cache the first file on qbo_bills (the AP view
+        // reads it there), other types in qbo_attachment_cache.
+        const TYPES = ['Bill', 'Purchase', 'JournalEntry', 'Deposit', 'Payment', 'BillPayment', 'Invoice', 'SalesReceipt', 'VendorCredit'];
+        const entityType = TYPES.includes(body.entity_type) ? body.entity_type : 'Bill';
+        const id = String(qbo_id || '');
+        if (!/^\d{1,20}$/.test(id)) return res.status(400).json({ error: 'qbo_id required' });
+        if (entityType !== 'Bill' && !body.refresh) {
+          const { rows: [hit] } = await pool.query(`SELECT files FROM qbo_attachment_cache WHERE entity_type = $1 AND qbo_id = $2`, [entityType, id]);
+          if (hit) return res.json({ attachments: hit.files, count: hit.files.length, cached: true });
+        }
+        const query = `SELECT * FROM Attachable WHERE AttachableRef.EntityRef.Type = '${entityType}' AND AttachableRef.EntityRef.value = '${id}'`;
         const data = await qboFetch(
           `${base}/v3/company/${rid}/query?query=${encodeURIComponent(query)}&minorversion=65`, token
         ).catch(() => null);
         if (!data) return res.json({ error: 'QBO query failed' });
-        const attachables = data?.QueryResponse?.Attachable || [];
-        if (attachables.length === 0) {
-          if (bill_id) await pool.query(`UPDATE qbo_bills SET attachment_url = 'none' WHERE id = $1`, [bill_id]);
-          return res.json({ attachments: [], message: 'No attachments' });
+        const attachables = (data?.QueryResponse?.Attachable || []).filter((a) => a.TempDownloadUri).slice(0, 10);
+        const files = [];
+        for (const att of attachables) {
+          const fileName = att.FileName || `${entityType.toLowerCase()}_${id}.pdf`;
+          const contentType = att.ContentType || 'application/pdf';
+          const storagePath = entityType === 'Bill' ? `${rid}/${id}/${fileName}` : `${rid}/${entityType}/${id}/${fileName}`;
+          const permanentUrl = await downloadAndStore(att.TempDownloadUri, storagePath, contentType);
+          files.push({ file_name: fileName, url: permanentUrl || att.TempDownloadUri, content_type: contentType, stored: !!permanentUrl });
         }
-
-        const att = attachables[0];
-        const fileName = att.FileName || `bill_${qbo_id}.pdf`;
-        const contentType = att.ContentType || 'application/pdf';
-        const storagePath = `${rid}/${qbo_id}/${fileName}`;
-        const permanentUrl = await downloadAndStore(att.TempDownloadUri, storagePath, contentType);
-
-        if (permanentUrl) {
-          if (bill_id) {
-            await pool.query(
-              `UPDATE qbo_bills SET attachment_url = $1, attachment_name = $2, attachment_content_type = $3 WHERE id = $4`,
-              [permanentUrl, fileName, contentType, bill_id]
-            );
+        if (entityType === 'Bill') {
+          const billId = bill_id || (await pool.query(`SELECT id FROM qbo_bills WHERE qbo_id = $1 AND realm_id = $2 LIMIT 1`, [id, rid])).rows[0]?.id;
+          if (billId) {
+            if (files.length) {
+              await pool.query(`UPDATE qbo_bills SET attachment_url = $1, attachment_name = $2, attachment_content_type = $3 WHERE id = $4`,
+                [files[0].url, files[0].file_name, files[0].content_type, billId]);
+            } else {
+              await pool.query(`UPDATE qbo_bills SET attachment_url = 'none' WHERE id = $1`, [billId]);
+            }
           }
-          return res.json({ attachments: [{ file_name: fileName, url: permanentUrl, content_type: contentType }], count: 1, stored: true });
-        }
-
-        // Fallback to temp URL
-        if (bill_id) {
+        } else if (files.every((f) => f.stored)) {
+          // Temporary QBO links expire, so only cache when every file was stored.
           await pool.query(
-            `UPDATE qbo_bills SET attachment_url = $1, attachment_name = $2, attachment_content_type = $3 WHERE id = $4`,
-            [att.TempDownloadUri, fileName, contentType, bill_id]
-          );
+            `INSERT INTO qbo_attachment_cache (entity_type, qbo_id, files, fetched_at) VALUES ($1, $2, $3, now())
+             ON CONFLICT (entity_type, qbo_id) DO UPDATE SET files = EXCLUDED.files, fetched_at = now()`,
+            [entityType, id, JSON.stringify(files.map(({ stored, ...f }) => f))]);
         }
-        return res.json({ attachments: [{ file_name: fileName, url: att.TempDownloadUri, content_type: contentType }], count: 1, stored: false });
+        return res.json({ attachments: files.map(({ stored, ...f }) => f), count: files.length, message: files.length ? undefined : 'No attachments' });
       }
 
       if (action === 'sync_attachments') {

@@ -582,6 +582,45 @@ function TransactionSearch({ isMobile }) {
   const [sortDir, setSortDir] = useState("desc");
   const [minAmt, setMinAmt] = useState("");
   const [maxAmt, setMaxAmt] = useState("");
+  const [docsOnly, setDocsOnly] = useState(false);
+  const [docs, setDocs] = useState({}); // key -> { loading } | { files: [...] } | { error }
+
+  // Invoices and receipts attached in QuickBooks. Bills usually have theirs stored already
+  // (attachment_url, shared with AP / AR); anything else is looked up on demand.
+  const ENTITY = { bill: "Bill", purchase: "Purchase", deposit: "Deposit", pmt_received: "Payment", pmt_made: "BillPayment", journal: "JournalEntry" };
+  const docKey = (t) => `${t.txn_type}:${t.qbo_id}`;
+  const storedFiles = (t) => (t.txn_type === "bill" && t.attachment_url && t.attachment_url !== "none" ? [{ file_name: t.attachment_name || "Invoice", url: t.attachment_url }] : null);
+  const findDocs = async (t) => {
+    const k = docKey(t);
+    const again = !!docs[k];
+    setDocs((d) => ({ ...d, [k]: { loading: true } }));
+    try {
+      const { data, error } = await supabase.functions.invoke("qbo-attachments", { body: { action: "get_attachment", entity_type: ENTITY[t.txn_type], qbo_id: t.qbo_id, bill_id: t.id, refresh: again } });
+      if (error || data?.error) throw new Error(data?.error || error.message);
+      setDocs((d) => ({ ...d, [k]: { files: data.attachments || [] } }));
+      if (t.txn_type === "bill" && data.attachments?.[0]) setAllTxns((all) => all.map((x) => (x === t ? { ...x, attachment_url: data.attachments[0].url, attachment_name: data.attachments[0].file_name } : x)));
+    } catch (e) { setDocs((d) => ({ ...d, [k]: { error: e.message } })); }
+  };
+  const DocCell = ({ t }) => {
+    const files = storedFiles(t) || docs[docKey(t)]?.files;
+    const st = docs[docKey(t)];
+    if (!t.qbo_id || !ENTITY[t.txn_type]) return <span style={{ fontSize: 10, color: T.text3 }}>-</span>;
+    if (st?.loading) return <span style={{ fontSize: 10, color: T.text3 }}>…</span>;
+    if (files && files.length) return (
+      <span style={{ display: "inline-flex", gap: 4 }}>
+        {files.map((f, j) => (
+          <a key={j} href={f.url} target="_blank" rel="noopener noreferrer" title={f.file_name || "View document"} style={{ fontSize: 13, textDecoration: "none" }}>📄</a>
+        ))}
+      </span>
+    );
+    const none = (files && !files.length) || (t.txn_type === "bill" && t.attachment_url === "none");
+    return (
+      <button onClick={() => findDocs(t)} title={st?.error ? `Couldn't check: ${st.error}` : none ? "No attachment found in QuickBooks. Click to check again." : "Look for an invoice or receipt attached in QuickBooks"}
+        style={{ padding: "1px 6px", fontSize: 10, borderRadius: 4, border: `1px solid ${T.border}`, background: "transparent", color: st?.error ? T.red : T.text3, cursor: "pointer", whiteSpace: "nowrap" }}>
+        {st?.error ? "retry" : none ? "none" : "find"}
+      </button>
+    );
+  };
 
   useEffect(() => {
     (async () => {
@@ -601,11 +640,11 @@ function TransactionSearch({ isMobile }) {
         return all;
       };
       const [r1, r2, r3, r4, r5] = await Promise.all([
-        fetchAll("qbo_bills", "vendor_name,total_amount,balance,txn_date,due_date,memo,gl_accounts,payment_status"),
-        fetchAll("qbo_purchases", "vendor_name,total_amount,txn_date,memo,gl_accounts,payment_type"),
-        fetchAll("qbo_deposits", "total_amount,txn_date,deposit_to,memo"),
-        fetchAll("qbo_payments", "payment_type,customer_name,vendor_name,total_amount,txn_date,memo,deposit_to"),
-        fetchAll("qbo_journal_entries", "total_amount,txn_date,memo,doc_number"),
+        fetchAll("qbo_bills", "id,qbo_id,vendor_name,total_amount,balance,txn_date,due_date,memo,gl_accounts,payment_status,attachment_url,attachment_name"),
+        fetchAll("qbo_purchases", "qbo_id,vendor_name,total_amount,txn_date,memo,gl_accounts,payment_type"),
+        fetchAll("qbo_deposits", "qbo_id,total_amount,txn_date,deposit_to,memo"),
+        fetchAll("qbo_payments", "qbo_id,payment_type,customer_name,vendor_name,total_amount,txn_date,memo,deposit_to"),
+        fetchAll("qbo_journal_entries", "qbo_id,total_amount,txn_date,memo,doc_number"),
       ]);
       const txns = [
         ...r1.map(t => ({ ...t, txn_type: "bill", entity: t.vendor_name, direction: "out" })),
@@ -617,6 +656,14 @@ function TransactionSearch({ isMobile }) {
       ];
       setAllTxns(txns);
       setLoading(false);
+      // Receipts already found on card charges, journals, deposits and payments.
+      try {
+        const { data } = await supabase.functions.invoke("qbo-attachments", { body: { action: "cached_list" } });
+        const TYPE_OF = { Purchase: "purchase", Deposit: "deposit", Payment: "pmt_received", BillPayment: "pmt_made", JournalEntry: "journal" };
+        const m = {};
+        for (const it of data?.items || []) if (TYPE_OF[it.entity_type]) m[`${TYPE_OF[it.entity_type]}:${it.qbo_id}`] = { files: it.files };
+        setDocs((d) => ({ ...m, ...d }));
+      } catch {}
     })();
   }, []);
 
@@ -632,9 +679,11 @@ function TransactionSearch({ isMobile }) {
       (t.memo || "").toLowerCase().includes(q) ||
       (t.gl_accounts || "").toLowerCase().includes(q) ||
       (t.doc_number || "").toLowerCase().includes(q) ||
+      (t.attachment_name || "").toLowerCase().includes(q) ||
       String(t.total_amount || "").includes(q)
     );
   }
+  if (docsOnly) filtered = filtered.filter(t => storedFiles(t) || docs[docKey(t)]?.files?.length);
   if (minAmt) filtered = filtered.filter(t => Number(t.total_amount) >= Number(minAmt));
   if (maxAmt) filtered = filtered.filter(t => Number(t.total_amount) <= Number(maxAmt));
 
@@ -681,7 +730,7 @@ function TransactionSearch({ isMobile }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div>
         <div style={{ fontSize: 20, fontWeight: 900, color: T.text }}>Transaction Search</div>
-        <div style={{ fontSize: 12, color: T.text3 }}>{allTxns.length.toLocaleString()} total transactions · Search bills, card charges, deposits, payments, journal entries</div>
+        <div style={{ fontSize: 12, color: T.text3 }}>{allTxns.length.toLocaleString()} total transactions · Search bills, card charges, deposits, payments, journal entries · 📄 opens the invoice or receipt from QuickBooks; "find" checks QuickBooks for one</div>
       </div>
 
       {/* Search + filters */}
@@ -702,6 +751,9 @@ function TransactionSearch({ isMobile }) {
         </select>
         <input value={minAmt} onChange={e => setMinAmt(e.target.value)} placeholder="Min $" type="number" style={{ width: 80, padding: "8px 10px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 11 }} />
         <input value={maxAmt} onChange={e => setMaxAmt(e.target.value)} placeholder="Max $" type="number" style={{ width: 80, padding: "8px 10px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 11 }} />
+        <label style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, color: T.text2, cursor: "pointer" }} title="Only transactions with an invoice or receipt on file">
+          <input type="checkbox" checked={docsOnly} onChange={e => setDocsOnly(e.target.checked)} /> 📄 With invoice
+        </label>
       </div>
 
       {/* Summary by category */}
@@ -735,6 +787,7 @@ function TransactionSearch({ isMobile }) {
               <th style={{ padding: "8px 10px", textAlign: "left", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Memo</th>
               <th style={{ padding: "8px 10px", textAlign: "left", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>GL</th>
               <th onClick={() => toggleSort("amount")} style={{ padding: "8px 10px", textAlign: "right", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", cursor: "pointer" }}>Amount {sortBy === "amount" ? (sortDir === "asc" ? "↑" : "↓") : ""}</th>
+              <th style={{ padding: "8px 10px", textAlign: "center", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", width: 64 }} title="Invoice or receipt attached in QuickBooks">Invoice</th>
             </tr>
           </thead>
           <tbody>
@@ -769,6 +822,7 @@ function TransactionSearch({ isMobile }) {
                   <td style={{ padding: "6px 10px", fontSize: 11, fontWeight: 600, textAlign: "right", color: t.direction === "in" ? T.green : t.direction === "out" ? T.text : T.text2 }}>
                     {t.direction === "in" ? "+" : t.direction === "out" ? "" : ""}{fmt(Number(t.total_amount))}
                   </td>
+                  <td style={{ padding: "6px 10px", textAlign: "center" }}><DocCell t={t} /></td>
                 </tr>
               );
             })}
