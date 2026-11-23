@@ -63,9 +63,13 @@ function loadXLSX() {
 // ctx = { load (%), fx: {CUR: USD per unit}, cogs: Set(departments outside Opex) }
 const fxOf = (p, ctx) => (p.currency && p.currency !== "USD" ? Number(ctx.fx?.[p.currency]) || 0 : 1);
 const paidMonths = (p) => (p.status === "remove" ? Math.max(0, Number(p.end_month) || 0) : Math.max(0, (Number(p.end_month) || 12) - (Number(p.start_month) || 1) + 1));
-const personCost = (p, ctx) => ((Number(p.salary) || 0) + (Number(p.bonus) || 0)) * fxOf(p, ctx) * (1 + ctx.load / 100) * paidMonths(p) / 12;
-// Current run rate: today's salary (from the HRIS export), loaded, in USD. New roles have none.
-const personCurrent = (p, ctx) => (p.status === "new" || !p.is_existing ? 0 : (Number(p.current_salary) || 0) * fxOf(p, ctx) * (1 + ctx.load / 100));
+// Person costs are pay only (salary + bonus, USD, for the months paid). Payroll taxes and
+// benefits are a separate budget line: ctx.load % of total headcount cost (taxLine below).
+const personCost = (p, ctx) => ((Number(p.salary) || 0) + (Number(p.bonus) || 0)) * fxOf(p, ctx) * paidMonths(p) / 12;
+// Current run rate: today's salary (from the HRIS export) in USD. New roles have none.
+const personCurrent = (p, ctx) => (p.status === "new" || !p.is_existing ? 0 : (Number(p.current_salary) || 0) * fxOf(p, ctx));
+const taxLine = (headcountCost, ctx) => headcountCost * (Number(ctx.load) || 0) / 100;
+const TAX_NOTE = (load) => `Calculated at ${load}% of total headcount cost (salary + bonus); set the rate in the header.`;
 const isOpex = (p, ctx) => !ctx.cogs.has(p.department || "");
 const changePct = (p) => (Number(p.current_salary) > 0 ? ((Number(p.salary) || 0) / Number(p.current_salary) - 1) * 100 : null);
 const catLabel = (c) => (c === "People Costs" ? "Other people costs (hiring, training, perks, fees)" : c);
@@ -198,7 +202,9 @@ export default function ZeroBasedBudget({ isMobile }) {
     const vBase = shown.reduce((s, c) => s + c.baseline, 0);
     const vPlan = shown.reduce((s, c) => s + c.plan, 0);
     const review = data.lines.filter((l) => l.status === "review" && visible(l.category)).length;
-    return { list, shown, vBase, vPlan, payBase, salBase, loadBase, pplPlan, pplCurrent, cogsPlan, cogsCurrent, cogsN: cogsPeople.length, head, missingPay, missingFx, review, actualLoad: salBase ? (loadBase / salBase) * 100 : null };
+    const taxPlan = taxLine(pplPlan, ctx);
+    const taxCurrent = pplCurrent ? taxLine(pplCurrent, ctx) : 0;
+    return { list, shown, vBase, vPlan, payBase, salBase, loadBase, pplPlan, pplCurrent, taxPlan, taxCurrent, cogsPlan, cogsCurrent, cogsN: cogsPeople.length, load: ctx.load, head, missingPay, missingFx, review, actualLoad: salBase ? (loadBase / salBase) * 100 : null };
   }, [data, hidden, ctx]);
 
   const exportExcel = async () => {
@@ -212,8 +218,8 @@ export default function ZeroBasedBudget({ isMobile }) {
 
   const noActuals = !plan.actuals_refreshed_at;
   const pplBase = totals.pplCurrent || totals.payBase;
-  const totalBase = totals.vBase + pplBase;
-  const totalPlan = totals.vPlan + totals.pplPlan;
+  const totalBase = totals.vBase + pplBase + totals.taxCurrent;
+  const totalPlan = totals.vPlan + totals.pplPlan + totals.taxPlan;
 
   const TABS = [
     { id: "summary", label: "Summary" },
@@ -262,7 +268,7 @@ export default function ZeroBasedBudget({ isMobile }) {
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(5, minmax(0, 1fr))", gap: 10, marginBottom: 14 }}>
         <Tile label="Baseline Opex" value={money(totalBase)} sub="current comp + trailing vendor actuals" />
         <Tile label={`FY ${year} plan`} value={money(totalPlan)} sub={`${signed(totalPlan - totalBase)} vs baseline`} tone={totalPlan <= totalBase ? T.green : T.red} />
-        <Tile label="People (Opex)" value={money(totals.pplPlan)} sub={`${totals.head.keep + totals.head.add} heads · ${totals.head.remove} removed · ${totals.head.add} new · now ${money(totals.pplCurrent)}`} />
+        <Tile label="Salaries (Opex)" value={money(totals.pplPlan)} sub={`${totals.head.keep + totals.head.add} heads · ${totals.head.remove} removed · ${totals.head.add} new · + ${money(totals.taxPlan)} taxes & benefits`} />
         <Tile label="Vendors & software" value={money(totals.vPlan)} sub={`baseline ${money(totals.vBase)}`} />
         <Tile label="Still to decide" value={String(totals.review)} sub={totals.missingPay ? `${totals.missingPay} people without salary` : "vendor lines counting as $0"} tone={totals.review ? T.amber || T.yellow : T.green} />
       </div>
@@ -306,7 +312,8 @@ function Tile({ label, value, sub, tone }) {
 // ── Summary ─────────────────────────────────────────────────────────────────
 function Summary({ totals, year }) {
   const rows = [
-    { category: "People (salary, bonus, taxes & benefits)", baseline: totals.pplCurrent || totals.payBase, plan: totals.pplPlan, people: true },
+    { category: "Salaries & bonus", baseline: totals.pplCurrent || totals.payBase, plan: totals.pplPlan, people: true },
+    { category: "Payroll taxes & benefits", baseline: totals.taxCurrent, plan: totals.taxPlan, tax: true },
     ...totals.shown,
   ];
   const tb = rows.reduce((s, r) => s + r.baseline, 0); const tp = rows.reduce((s, r) => s + r.plan, 0);
@@ -332,7 +339,7 @@ function Summary({ totals, year }) {
                   <div style={{ height: 6, borderRadius: 3, background: T.accent, width: `${(r.plan / max) * 100}%`, marginTop: 3, minWidth: r.plan ? 2 : 0 }} />
                 </td>
                 <td style={{ padding: "8px", fontSize: 11, color: T.text3, whiteSpace: "nowrap" }}>
-                  {r.people ? "see org chart" : <>{r.keep + r.change} kept · {r.remove} removed · {r.newN} new{r.review ? <b style={{ color: T.amber || T.yellow }}> · {r.review} to decide</b> : ""}</>}
+                  {r.tax ? TAX_NOTE(totals.load) : r.people ? "see org chart" : <>{r.keep + r.change} kept · {r.remove} removed · {r.newN} new{r.review ? <b style={{ color: T.amber || T.yellow }}> · {r.review} to decide</b> : ""}</>}
                 </td>
               </tr>
             );
@@ -344,8 +351,8 @@ function Summary({ totals, year }) {
         </tbody>
       </table>
       <div style={{ padding: "8px 10px", fontSize: 11, color: T.text3, borderTop: `1px solid ${T.border}` }}>
-        Grey bar: baseline. Coloured bar: FY {year} plan. People baseline is current comp from the HRIS import, loaded for taxes and benefits (QuickBooks pay accounts 60010–60059 over the baseline window: {full(totals.payBase)}).
-        {totals.cogsN > 0 && <> {totals.cogsN} people in COGS departments are outside these totals (now {money(totals.cogsCurrent)}, plan {money(totals.cogsPlan)}).</>} Vendor lines still "to decide" count as $0.
+        Grey bar: baseline. Coloured bar: FY {year} plan. Salaries baseline is current base salary from the HRIS import; payroll taxes and benefits are {TAX_NOTE(totals.load).toLowerCase()} (QuickBooks pay accounts 60010–60059 over the baseline window, all-in: {full(totals.payBase)}).
+        {totals.cogsN > 0 && <> {totals.cogsN} people in COGS departments are outside these totals (salaries now {money(totals.cogsCurrent)}, plan {money(totals.cogsPlan)}).</>} Vendor lines still "to decide" count as $0.
       </div>
     </div>
   );
@@ -485,7 +492,7 @@ function People({ people, ctx, settings, year, savePerson, deletePerson, bulkPeo
       )}
 
       <div style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center", fontSize: 11, color: T.text3, marginBottom: 10 }}>
-        <span>Opex people: now <b style={{ color: T.text2 }}>{full(nowOpex)}</b> → FY {year} <b style={{ color: T.text }}>{full(planOpex)}</b> <span style={{ color: planOpex <= nowOpex ? T.green : T.red }}>({signed(planOpex - nowOpex)})</span>, loaded {ctx.load}%.</span>
+        <span>Opex salaries: now <b style={{ color: T.text2 }}>{full(nowOpex)}</b> → FY {year} <b style={{ color: T.text }}>{full(planOpex)}</b> <span style={{ color: planOpex <= nowOpex ? T.green : T.red }}>({signed(planOpex - nowOpex)})</span>. Taxes &amp; benefits ({ctx.load}%) are a separate budget line: {full(taxLine(planOpex, ctx))}.</span>
         {currencies.length > 0 && <span style={{ display: "inline-flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>FX (USD per unit):
           {currencies.map((c) => (
             <label key={c} style={{ display: "inline-flex", gap: 4, alignItems: "center" }}>{c}
@@ -570,9 +577,9 @@ function BoxChart({ people, kids, subtree, byId, ctx, match, filtering, set, set
           {[p.title, p.department].filter(Boolean).join(" · ") || "—"}
         </div>
         <div style={{ display: "flex", alignItems: "baseline", gap: 4, marginTop: 4, fontSize: 11, fontVariantNumeric: "tabular-nums" }}>
-          <span style={{ color: T.text3 }} title={`Current ${local(p.current_salary, p.currency)} salary, loaded`}>{p.is_existing ? money(cur) : "new"}</span>
+          <span style={{ color: T.text3 }} title={`Current salary ${local(p.current_salary, p.currency)}`}>{p.is_existing ? money(cur) : "new"}</span>
           <span style={{ color: T.text3 }}>→</span>
-          <span style={{ color: T.text, fontWeight: 700 }} title={`FY plan ${local(p.salary, p.currency)} salary${Number(p.bonus) ? ` + ${local(p.bonus, p.currency)} bonus` : ""}, ${paidMonths(p)} months, loaded`}>{money(plan)}</span>
+          <span style={{ color: T.text, fontWeight: 700 }} title={`FY plan ${local(p.salary, p.currency)} salary${Number(p.bonus) ? ` + ${local(p.bonus, p.currency)} bonus` : ""}, ${paidMonths(p)} months`}>{money(plan)}</span>
           {pct != null && Math.abs(pct) >= 0.05 && !gone && <span style={{ color: pct > 0 ? T.red : T.green, fontSize: 10 }}>{pct > 0 ? "+" : ""}{pct.toFixed(1)}%</span>}
         </div>
         <div style={{ display: "flex", gap: 4, marginTop: 5, alignItems: "center", flexWrap: "wrap" }}>
@@ -631,7 +638,7 @@ function BoxChart({ people, kids, subtree, byId, ctx, match, filtering, set, set
         <button onClick={() => setZoom((z) => Math.min(1.3, +(z + 0.1).toFixed(2)))} style={btn(false)}>+</button>
         <button onClick={() => { setOpen(new Set(people.map((p) => p.id))); setClosed(new Set()); center(); }} style={btn(false)}>Expand all</button>
         <button onClick={() => { setOpen(new Set()); setClosed(new Set(people.filter((p) => (kids.get(p.id) || []).length).map((p) => p.id))); center(); }} style={btn(false)}>Collapse all</button>
-        <span style={{ marginLeft: 6 }}>Card: current loaded cost → FY plan cost (USD). Click to edit; drag a card onto another to change who they report to.</span>
+        <span style={{ marginLeft: 6 }}>Card: current salary → FY plan salary (USD, for the months paid). Click to edit; drag a card onto another to change who they report to.</span>
         <span onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); reassign(drag, null); setDrag(null); }} style={{ border: `1px dashed ${T.border}`, padding: "0 6px", borderRadius: 4 }}>drop here for top level</span>
       </div>
       <div ref={scroller} style={{ overflow: "auto", maxHeight: "75vh", padding: 16 }}>
@@ -666,7 +673,7 @@ function PeopleTable({ people, byId, ctx, set, setEdit, bulkPeople, year }) {
           <button onClick={() => bulkPeople(ids, "status", { status: "remove" })} style={btn(false, T.red)}>Remove</button>
           <button onClick={() => bulkPeople(ids, "status", { status: "keep" })} style={btn(false, T.green)}>Keep</button>
           <button onClick={() => setSel(new Set())} style={btn(false)}>Clear</button>
-        </> : <span>Tick people to adjust comp in bulk (e.g. a merit increase on current salary) or remove them. Salaries are in each person's pay currency; costs are USD, loaded.</span>}
+        </> : <span>Tick people to adjust comp in bulk (e.g. a merit increase on current salary) or remove them. Salaries are in each person's pay currency; costs are USD base pay, before taxes and benefits (a separate budget line).</span>}
       </div>
       <div style={{ overflowX: "auto", maxHeight: "72vh" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
@@ -777,7 +784,7 @@ function RoleCreator({ manager, people, ctx, year, depts, onClose, onCreate }) {
       </div>
       <Field label="Why this role (justification)"><textarea style={{ ...inp(), minHeight: 60 }} value={f.note} onChange={(e) => put("note", e.target.value)} /></Field>
       <div style={{ fontSize: 12, color: T.text2, margin: "4px 0 14px" }}>
-        {n > 1 ? `${n} roles × ` : ""}FY {year} cost <b>{full(eachCost)}</b>{n > 1 ? <> = <b>{full(eachCost * n)}</b></> : ""} ({paidMonths(each)} months, USD, {ctx.load}% taxes &amp; benefits{cur !== "USD" ? `, 1 ${cur} = $${ctx.fx?.[cur] ?? "?"}` : ""}).
+        {n > 1 ? `${n} roles × ` : ""}FY {year} cost <b>{full(eachCost)}</b>{n > 1 ? <> = <b>{full(eachCost * n)}</b></> : ""} ({paidMonths(each)} months, USD base pay; taxes &amp; benefits are added on the separate {ctx.load}% line{cur !== "USD" ? `, 1 ${cur} = $${ctx.fx?.[cur] ?? "?"}` : ""}).
         {cur !== "USD" && !(Number(ctx.fx?.[cur]) > 0) && <span style={{ color: T.red }}> No FX rate for {cur} yet.</span>}
       </div>
       <button onClick={save} disabled={busy || (!f.title.trim() && !filler)} style={{ ...btn(true), padding: "7px 14px", fontSize: 12, opacity: busy || (!f.title.trim() && !filler) ? 0.5 : 1 }}>{busy ? "Adding…" : filler ? `Put ${filler.name} in this role` : n > 1 ? `Add ${n} roles` : "Add role"}</button>
@@ -841,7 +848,7 @@ function PersonEditor({ person: p, people, subtree, ctx, year, onClose, onSave, 
         </div>}
       <Field label="Note / justification"><textarea style={{ ...inp(), minHeight: 70 }} value={f.note || ""} onChange={(e) => put("note", e.target.value)} /></Field>
       <div style={{ fontSize: 12, color: T.text2, margin: "6px 0 14px", lineHeight: 1.5 }}>
-        Current cost <b>{full(personCurrent({ ...preview, status: "keep", is_existing: p.is_existing }, ctx))}</b> · FY {year} cost <b>{full(personCost(preview, ctx))}</b> ({paidMonths(preview)} months, USD, {ctx.load}% taxes &amp; benefits{cur !== "USD" ? `, 1 ${cur} = $${ctx.fx?.[cur] ?? "?"}` : ""}).
+        Current cost <b>{full(personCurrent({ ...preview, status: "keep", is_existing: p.is_existing }, ctx))}</b> · FY {year} cost <b>{full(personCost(preview, ctx))}</b> ({paidMonths(preview)} months, USD base pay; taxes &amp; benefits are on the separate {ctx.load}% line{cur !== "USD" ? `, 1 ${cur} = $${ctx.fx?.[cur] ?? "?"}` : ""}).
         {!isOpex(preview, ctx) && <> Counted as COGS, outside the Opex totals.</>}
       </div>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -1090,6 +1097,7 @@ function Removed({ people, lines, ctx }) {
   const cut = removedLines(lines);
   const reduced = reducedLines(lines);
   const pSave = goneOpex.reduce((s, p) => s + p.saving, 0);
+  const taxSave = taxLine(pSave, ctx);
   const cogsSave = gone.filter((p) => !p.opex).reduce((s, p) => s + p.saving, 0);
   const vSave = cut.reduce((s, l) => s + Number(l.baseline), 0);
   const rSave = reduced.reduce((s, l) => s + l.saving, 0);
@@ -1118,8 +1126,8 @@ function Removed({ people, lines, ctx }) {
   return (
     <div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginBottom: 12 }}>
-        <Tile label="Total removed (Opex)" value={money(pSave + vSave + rSave)} sub="vs current run rate" tone={T.green} />
-        <Tile label="People" value={money(pSave)} sub={`${goneOpex.length} Opex roles${cogsSave ? ` · ${money(cogsSave)} more in COGS` : ""}${noSalary ? ` · ${noSalary} without comp` : ""}`} />
+        <Tile label="Total removed (Opex)" value={money(pSave + taxSave + vSave + rSave)} sub="vs current run rate, incl. taxes & benefits" tone={T.green} />
+        <Tile label="Salaries" value={money(pSave)} sub={`${goneOpex.length} Opex roles · + ${money(taxSave)} taxes & benefits (${ctx.load}%)${cogsSave ? ` · ${money(cogsSave)} more in COGS` : ""}${noSalary ? ` · ${noSalary} without comp` : ""}`} />
         <Tile label="Vendors cut" value={money(vSave)} sub={`${cut.length} vendors`} />
         <Tile label="Vendors reduced" value={money(rSave)} sub={`${reduced.length} renegotiated or downsized`} />
       </div>
@@ -1129,7 +1137,7 @@ function Removed({ people, lines, ctx }) {
         </div>
       )}
       <Section title="People removed" total={pSave} empty="Nobody removed yet. Use Remove on the org chart.">
-        {gone.length ? tbl(["Name", "Title", "Department", "Current salary", "Paid through", "Saving (USD, loaded)"], gone.map((p) => (
+        {gone.length ? tbl(["Name", "Title", "Department", "Current salary", "Paid through", "Saving (USD salary)"], gone.map((p) => (
           <tr key={p.id}>{td(p.name, false, true)}{td(p.title)}{td(<>{p.department}{!p.opex && <span style={{ color: T.purple, fontSize: 10, fontWeight: 700 }}> COGS</span>}</>)}{td(Number(p.current_salary) ? local(p.current_salary, p.currency) : "—")}{td(p.end_month ? MONTHS[p.end_month - 1] : "Before Jan")}{td(Number(p.current_salary) > 0 ? full(p.saving) : "no comp entered", true, true)}</tr>
         ))) : null}
       </Section>
@@ -1160,9 +1168,10 @@ async function exportWorkbook({ data, totals, ctx, year }) {
   };
   const pplBase = totals.pplCurrent || totals.payBase;
   add("Summary", [
-    { Category: "People (salary, bonus, taxes & benefits)", Baseline: r0(pplBase), [`FY ${year}`]: r0(totals.pplPlan), Change: r0(totals.pplPlan - pplBase) },
+    { Category: "Salaries & bonus", Baseline: r0(pplBase), [`FY ${year}`]: r0(totals.pplPlan), Change: r0(totals.pplPlan - pplBase) },
+    { Category: "Payroll taxes & benefits", Baseline: r0(totals.taxCurrent), [`FY ${year}`]: r0(totals.taxPlan), Change: r0(totals.taxPlan - totals.taxCurrent), Note: TAX_NOTE(ctx.load) },
     ...totals.shown.map((c) => ({ Category: catLabel(c.category), Baseline: r0(c.baseline), [`FY ${year}`]: r0(c.plan), Change: r0(c.plan - c.baseline), Kept: c.keep + c.change, Removed: c.remove, New: c.newN, "To decide": c.review })),
-    { Category: "Total Opex", Baseline: r0(pplBase + totals.vBase), [`FY ${year}`]: r0(totals.pplPlan + totals.vPlan), Change: r0(totals.pplPlan + totals.vPlan - pplBase - totals.vBase) },
+    { Category: "Total Opex", Baseline: r0(pplBase + totals.taxCurrent + totals.vBase), [`FY ${year}`]: r0(totals.pplPlan + totals.taxPlan + totals.vPlan), Change: r0(totals.pplPlan + totals.taxPlan + totals.vPlan - pplBase - totals.taxCurrent - totals.vBase) },
     {},
     { Category: "People in COGS departments (not in totals)", Baseline: r0(totals.cogsCurrent), [`FY ${year}`]: r0(totals.cogsPlan), Change: r0(totals.cogsPlan - totals.cogsCurrent) },
     { Category: `Assumptions: taxes & benefits load ${ctx.load}%; FX ${Object.entries(ctx.fx || {}).filter(([k]) => k !== "USD").map(([k, v]) => `1 ${k} = $${v}`).join(", ")}; COGS departments: ${[...ctx.cogs].join(", ") || "none"}` },
@@ -1172,7 +1181,7 @@ async function exportWorkbook({ data, totals, ctx, year }) {
     Bucket: isOpex(p, ctx) ? "Opex" : "COGS", Status: STATUS[p.status]?.label || p.status, Currency: p.currency || "USD",
     "Current salary (local)": r0(p.current_salary), [`FY ${year} salary (local)`]: r0(p.salary), "Change %": changePct(p) == null ? "" : +changePct(p).toFixed(1),
     [`FY ${year} bonus (local)`]: r0(p.bonus), "USD per unit": fxOf(p, ctx), "Paid from": MONTHS[(p.start_month || 1) - 1], "Paid through": p.end_month ? MONTHS[p.end_month - 1] : "None",
-    "Months paid": paidMonths(p), "Current cost USD (loaded)": r0(personCurrent(p, ctx)), [`FY ${year} cost USD (loaded)`]: r0(personCost(p, ctx)), Note: p.note || "",
+    "Months paid": paidMonths(p), "Current salary USD": r0(personCurrent(p, ctx)), [`FY ${year} pay USD (months paid)`]: r0(personCost(p, ctx)), Note: p.note || "",
   })), [26, 22, 20, 22, 7, 9, 8, 14, 14, 9, 12, 11, 9, 11, 8, 16, 16, 40]);
   add("Vendors & software", data.lines.slice().sort((a, b) => String(a.category).localeCompare(String(b.category)) || b.baseline - a.baseline).map((l) => ({
     Category: catLabel(l.category), Vendor: l.vendor, Type: l.kind, Account: `${l.account_num || ""} ${l.account_name || ""}`.trim(),
