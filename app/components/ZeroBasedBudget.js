@@ -110,6 +110,50 @@ const btn = (active, color) => ({
 const card = () => ({ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10 });
 const th = { padding: "6px 8px", fontSize: 10, fontWeight: 700, color: "var(--zbb-th)", textTransform: "uppercase", letterSpacing: ".04em", textAlign: "left", whiteSpace: "nowrap" };
 
+// Plan totals for one version (used by the page and by Compare versions).
+function computeTotals(data, hidden, ctx) {
+    if (!data) return null;
+    const visible = (c) => c !== COGS && !hidden.includes(c || "");
+    // Non-pay baseline follows each line's category, so a vendor moved to another bucket
+    // (or to COGS) takes its baseline with it. Before actuals are pulled there are no lines.
+    const base = {}; let payBase = 0; let salBase = 0; let loadBase = 0;
+    const fromLines = data.lines.some((l) => l.source === "qbo");
+    for (const a of data.baseline) {
+      if (PAY_ACCT.test(a.account_num)) { payBase += a.total; if (SALARY_ACCT.test(a.account_num)) salBase += a.total; if (LOAD_ACCT.test(a.account_num)) loadBase += a.total; continue; }
+      if (!fromLines) base[a.category] = (base[a.category] || 0) + a.total;
+    }
+    if (fromLines) for (const l of data.lines) { const c = l.category || "Non-Fixed and Other"; base[c] = (base[c] || 0) + (Number(l.baseline) || 0); }
+    const cats = {};
+    const ensure = (c) => cats[c] || (cats[c] = { category: c, baseline: 0, plan: 0, review: 0, keep: 0, change: 0, remove: 0, newN: 0, removed: 0, added: 0 });
+    for (const [c, v] of Object.entries(base)) ensure(c).baseline = v;
+    for (const l of data.lines) {
+      const e = ensure(l.category || "Non-Fixed and Other");
+      e.plan += lineAmount(l);
+      if (l.status === "review") e.review++; else if (l.status === "new") { e.newN++; e.added += lineAmount(l); } else e[l.status]++;
+      if (l.status === "remove") e.removed += Number(l.baseline) || 0;
+    }
+    const opex = data.people.filter((p) => isOpex(p, ctx));
+    const cogsPeople = data.people.filter((p) => !isOpex(p, ctx));
+    const pplPlan = opex.reduce((s, p) => s + personCost(p, ctx), 0);
+    const pplCurrent = opex.reduce((s, p) => s + personCurrent(p, ctx), 0);
+    const cogsPlan = cogsPeople.reduce((s, p) => s + personCost(p, ctx), 0);
+    const cogsCurrent = cogsPeople.reduce((s, p) => s + personCurrent(p, ctx), 0);
+    const head = { keep: opex.filter((p) => p.status === "keep").length, remove: opex.filter((p) => p.status === "remove").length, add: opex.filter((p) => p.status === "new").length };
+    const missingPay = data.people.filter((p) => p.status !== "remove" && !(Number(p.salary) > 0)).length;
+    const missingFx = [...new Set(data.people.map((p) => p.currency).filter((c) => c && c !== "USD" && !(Number(ctx.fx?.[c]) > 0)))];
+    const list = Object.values(cats).filter((c) => c.category !== "People Costs" || c.baseline || c.plan).sort((a, b) => b.baseline - a.baseline);
+    const shown = list.filter((c) => visible(c.category));
+    const vBase = shown.reduce((s, c) => s + c.baseline, 0);
+    const vPlan = shown.reduce((s, c) => s + c.plan, 0);
+    const review = data.lines.filter((l) => l.status === "review" && visible(l.category)).length;
+    const cogsLines = data.lines.filter((l) => l.category === COGS);
+    const movedCogs = { n: cogsLines.length, baseline: cogsLines.reduce((s, l) => s + (Number(l.baseline) || 0), 0), plan: cogsLines.reduce((s, l) => s + lineAmount(l), 0) };
+    const taxPlan = taxLine(pplPlan, ctx);
+    const taxCurrent = pplCurrent ? taxLine(pplCurrent, ctx) : 0;
+    return { movedCogs, list, shown, vBase, vPlan, payBase, salBase, loadBase, pplPlan, pplCurrent, taxPlan, taxCurrent, cogsPlan, cogsCurrent, cogsN: cogsPeople.length, load: ctx.load, head, missingPay, missingFx, review, actualLoad: salBase ? (loadBase / salBase) * 100 : null };
+}
+const ctxOf = (settings = {}) => ({ load: Number(settings.load_pct ?? 18), fx: settings.fx || { USD: 1 }, cogs: new Set(settings.cogs_departments || ["KY Plant"]) });
+
 export default function ZeroBasedBudget({ isMobile }) {
   const [year, setYear] = useState(new Date().getFullYear() + (new Date().getMonth() >= 6 ? 1 : 0));
   const [data, setData] = useState(null);
@@ -118,11 +162,31 @@ export default function ZeroBasedBudget({ isMobile }) {
   const [tab, setTab] = useState("summary");
   const [toast, setToast] = useState("");
 
-  const load = useCallback(async () => {
+  // Versions: several named plans per year. The one in view is remembered per year in this browser.
+  const vKey = (y) => `zbb.version.${y}`;
+  const [planId, setPlanId] = useState(() => { try { return localStorage.getItem(vKey(year)) || null; } catch { return null; } });
+  const [verUi, setVerUi] = useState(null); // { kind: "copy" | "rename" | "delete", name }
+  const load = useCallback(async (pid) => {
     setErr(null);
-    try { setData(await call({ action: "load", year })); } catch (e) { setErr(e.message); }
-  }, [year]);
+    try {
+      const d = await call({ action: "load", year, plan_id: pid === undefined ? planId : pid });
+      setData(d); setPlanId(d.plan.id);
+      try { localStorage.setItem(vKey(year), d.plan.id); } catch {}
+    } catch (e) { setErr(e.message); }
+  }, [year]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { setData(null); load(); }, [load]);
+  const switchVersion = (id) => { setData(null); setVerUi(null); if (tab === "compare") setTab("summary"); load(id); };
+  const versionAction = async () => {
+    const v = verUi; if (!v) return;
+    try {
+      if (v.kind === "copy") { const r = await call({ action: "copy_version", plan_id: data.plan.id, name: v.name }); switchVersion(r.plan.id); setToast(`Created "${r.plan.name}".`); }
+      if (v.kind === "rename") { const r = await call({ action: "rename_version", plan_id: data.plan.id, name: v.name }); setVerUi(null); await load(r.plan.id); }
+      if (v.kind === "delete") {
+        const gone = data.plan.name; await call({ action: "delete_version", plan_id: data.plan.id });
+        const next = data.versions.find((x) => x.id !== data.plan.id); switchVersion(next?.id || null); setToast(`Deleted "${gone}".`);
+      }
+    } catch (e) { setToast(e.message); }
+  };
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(""), 4000); return () => clearTimeout(t); }, [toast]);
 
   const plan = data?.plan;
@@ -172,51 +236,11 @@ export default function ZeroBasedBudget({ isMobile }) {
   const wrap = (fn) => async (...a) => { try { return await fn(...a); } catch (e) { setToast(e.message); } };
 
   // ── Totals ───────────────────────────────────────────────────────────────
-  const totals = useMemo(() => {
-    if (!data) return null;
-    const visible = (c) => c !== COGS && !hidden.includes(c || "");
-    // Non-pay baseline follows each line's category, so a vendor moved to another bucket
-    // (or to COGS) takes its baseline with it. Before actuals are pulled there are no lines.
-    const base = {}; let payBase = 0; let salBase = 0; let loadBase = 0;
-    const fromLines = data.lines.some((l) => l.source === "qbo");
-    for (const a of data.baseline) {
-      if (PAY_ACCT.test(a.account_num)) { payBase += a.total; if (SALARY_ACCT.test(a.account_num)) salBase += a.total; if (LOAD_ACCT.test(a.account_num)) loadBase += a.total; continue; }
-      if (!fromLines) base[a.category] = (base[a.category] || 0) + a.total;
-    }
-    if (fromLines) for (const l of data.lines) { const c = l.category || "Non-Fixed and Other"; base[c] = (base[c] || 0) + (Number(l.baseline) || 0); }
-    const cats = {};
-    const ensure = (c) => cats[c] || (cats[c] = { category: c, baseline: 0, plan: 0, review: 0, keep: 0, change: 0, remove: 0, newN: 0, removed: 0, added: 0 });
-    for (const [c, v] of Object.entries(base)) ensure(c).baseline = v;
-    for (const l of data.lines) {
-      const e = ensure(l.category || "Non-Fixed and Other");
-      e.plan += lineAmount(l);
-      if (l.status === "review") e.review++; else if (l.status === "new") { e.newN++; e.added += lineAmount(l); } else e[l.status]++;
-      if (l.status === "remove") e.removed += Number(l.baseline) || 0;
-    }
-    const opex = data.people.filter((p) => isOpex(p, ctx));
-    const cogsPeople = data.people.filter((p) => !isOpex(p, ctx));
-    const pplPlan = opex.reduce((s, p) => s + personCost(p, ctx), 0);
-    const pplCurrent = opex.reduce((s, p) => s + personCurrent(p, ctx), 0);
-    const cogsPlan = cogsPeople.reduce((s, p) => s + personCost(p, ctx), 0);
-    const cogsCurrent = cogsPeople.reduce((s, p) => s + personCurrent(p, ctx), 0);
-    const head = { keep: opex.filter((p) => p.status === "keep").length, remove: opex.filter((p) => p.status === "remove").length, add: opex.filter((p) => p.status === "new").length };
-    const missingPay = data.people.filter((p) => p.status !== "remove" && !(Number(p.salary) > 0)).length;
-    const missingFx = [...new Set(data.people.map((p) => p.currency).filter((c) => c && c !== "USD" && !(Number(ctx.fx?.[c]) > 0)))];
-    const list = Object.values(cats).filter((c) => c.category !== "People Costs" || c.baseline || c.plan).sort((a, b) => b.baseline - a.baseline);
-    const shown = list.filter((c) => visible(c.category));
-    const vBase = shown.reduce((s, c) => s + c.baseline, 0);
-    const vPlan = shown.reduce((s, c) => s + c.plan, 0);
-    const review = data.lines.filter((l) => l.status === "review" && visible(l.category)).length;
-    const cogsLines = data.lines.filter((l) => l.category === COGS);
-    const movedCogs = { n: cogsLines.length, baseline: cogsLines.reduce((s, l) => s + (Number(l.baseline) || 0), 0), plan: cogsLines.reduce((s, l) => s + lineAmount(l), 0) };
-    const taxPlan = taxLine(pplPlan, ctx);
-    const taxCurrent = pplCurrent ? taxLine(pplCurrent, ctx) : 0;
-    return { movedCogs, list, shown, vBase, vPlan, payBase, salBase, loadBase, pplPlan, pplCurrent, taxPlan, taxCurrent, cogsPlan, cogsCurrent, cogsN: cogsPeople.length, load: ctx.load, head, missingPay, missingFx, review, actualLoad: salBase ? (loadBase / salBase) * 100 : null };
-  }, [data, hidden, ctx]);
+  const totals = useMemo(() => computeTotals(data, hidden, ctx), [data, hidden, ctx]);
 
   const exportExcel = async () => {
     setBusy("Building the Excel file…");
-    try { await exportWorkbook({ data, totals, ctx, year }); } catch (e) { setToast(e.message); }
+    try { await exportWorkbook({ data, totals, ctx, year, version: plan?.name }); } catch (e) { setToast(e.message); }
     setBusy("");
   };
 
@@ -233,6 +257,7 @@ export default function ZeroBasedBudget({ isMobile }) {
     { id: "people", label: `Org chart (${data.people.length})` },
     { id: "lines", label: `Vendors & software${totals.review ? ` · ${totals.review} to decide` : ""}` },
     { id: "removed", label: "Removed" },
+    ...((data.versions || []).length > 1 ? [{ id: "compare", label: `Compare versions (${data.versions.length})` }] : []),
   ];
 
   return (
@@ -243,10 +268,30 @@ export default function ZeroBasedBudget({ isMobile }) {
           <div style={{ fontSize: 11, fontWeight: 700, color: T.text3, letterSpacing: ".06em", textTransform: "uppercase" }}>Zero-based budget · Opex · private to you</div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 2 }}>
             <h2 style={{ margin: 0, fontSize: 20, color: T.text }}>FY {year}</h2>
-            <select value={year} onChange={(e) => setYear(Number(e.target.value))} style={{ fontSize: 12, padding: "3px 6px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text }}>
+            <select value={year} onChange={(e) => { const y = Number(e.target.value); let id = null; try { id = localStorage.getItem(vKey(y)); } catch {} setPlanId(id); setYear(y); }} style={{ fontSize: 12, padding: "3px 6px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text }}>
               {[0, 1, 2].map((d) => { const y = new Date().getFullYear() + d; return <option key={y} value={y}>{y}</option>; })}
             </select>
+            <span style={{ fontSize: 11, color: T.text3, marginLeft: 6 }}>Version</span>
+            <select value={plan.id} onChange={(e) => switchVersion(e.target.value)} style={{ fontSize: 12, padding: "3px 6px", borderRadius: 6, border: `1px solid ${T.accent}`, background: T.surface2, color: T.text, maxWidth: 260 }}>
+              {(data.versions || []).map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+            </select>
+            <button onClick={() => setVerUi({ kind: "copy", name: `${plan.name} (copy)` })} style={btn(false)} title="Duplicate this version to try a different scenario">Duplicate</button>
+            <button onClick={() => setVerUi({ kind: "rename", name: plan.name })} style={btn(false)}>Rename</button>
+            {(data.versions || []).length > 1 && <button onClick={() => setVerUi({ kind: "delete" })} style={btn(false, T.red)}>Delete</button>}
           </div>
+          {verUi && (
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: 8, padding: "8px 10px", borderRadius: 8, border: `1px solid ${verUi.kind === "delete" ? T.red : T.accent}`, background: T.surface, fontSize: 12, color: T.text2 }}>
+              {verUi.kind === "delete"
+                ? <span>Delete <b style={{ color: T.text }}>{plan.name}</b> and everything in it (org chart, comp, vendor decisions)? This can't be undone; other versions are not affected.</span>
+                : <>
+                  <span>{verUi.kind === "copy" ? `New version, copied from "${plan.name}":` : "Version name:"}</span>
+                  <input autoFocus value={verUi.name} onChange={(e) => setVerUi({ ...verUi, name: e.target.value })} onKeyDown={(e) => { if (e.key === "Enter") versionAction(); if (e.key === "Escape") setVerUi(null); }}
+                    style={{ flex: "1 1 220px", padding: "5px 8px", fontSize: 12, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text }} />
+                </>}
+              <button onClick={versionAction} style={btn(true, verUi.kind === "delete" ? T.red : null)}>{verUi.kind === "copy" ? "Create version" : verUi.kind === "rename" ? "Save" : "Delete version"}</button>
+              <button onClick={() => setVerUi(null)} style={btn(false)}>Cancel</button>
+            </div>
+          )}
           <div style={{ fontSize: 12, color: T.text3, marginTop: 4 }}>
             Every line starts at zero. Vendor baseline is QuickBooks actuals {settings.base_start ? `${settings.base_start.slice(0, 7)} to ${settings.base_end.slice(0, 7)}` : ""}
             {plan.actuals_refreshed_at ? ` (pulled ${new Date(plan.actuals_refreshed_at).toLocaleDateString()})` : " (not pulled yet)"}; people baseline is current comp.
@@ -299,6 +344,7 @@ export default function ZeroBasedBudget({ isMobile }) {
       {tab === "people" && <People people={data.people} ctx={ctx} settings={settings} year={year} savePerson={wrap(savePerson)} deletePerson={wrap(deletePerson)}
         bulkPeople={wrap(bulkPeople)} importPeople={wrap(importPeople)} saveSettings={wrap(saveSettings)} isMobile={isMobile} totals={totals} setToast={setToast} />}
       {tab === "lines" && <Lines lines={data.lines.filter((l) => l.category === COGS || !hidden.includes(l.category || ""))} planId={plan.id} categories={data.categories} saveLine={wrap(saveLine)} deleteLine={wrap(deleteLine)} isMobile={isMobile} setToast={setToast} allLines={data.lines} />}
+      {tab === "compare" && <CompareVersions year={year} versions={data.versions || []} currentId={plan.id} onOpen={(id) => { setTab("summary"); switchVersion(id); }} />}
       {tab === "removed" && <Removed people={data.people} lines={data.lines.filter((l) => l.category !== COGS && !hidden.includes(l.category || ""))} ctx={ctx} />}
 
       {toast && <div style={{ position: "fixed", bottom: 20, right: 20, maxWidth: 420, padding: "10px 14px", borderRadius: 8, background: T.surface3 || T.surface2, color: T.text, border: `1px solid ${T.border}`, fontSize: 12, zIndex: 50, boxShadow: "0 6px 20px rgba(0,0,0,.25)" }}>{toast}</div>}
@@ -1242,8 +1288,77 @@ function Removed({ people, lines, ctx }) {
   );
 }
 
+// ── Compare versions ────────────────────────────────────────────────────────
+function CompareVersions({ year, versions, currentId, onOpen }) {
+  const [rows, setRows] = useState(null);
+  const [err, setErr] = useState(null);
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        const out = [];
+        for (const v of versions) {
+          const d = await call({ action: "load", year, plan_id: v.id });
+          const st = d.plan.settings || {};
+          const ctx = ctxOf(st);
+          const t = computeTotals(d, st.hidden_categories || DEFAULT_HIDDEN, ctx);
+          const heads = d.people.filter((p) => p.status !== "remove" && isOpex(p, ctx)).length;
+          out.push({ v: d.plan, t, heads, removed: d.people.filter((p) => p.status === "remove" && isOpex(p, ctx)).length, added: d.people.filter((p) => p.status === "new" && isOpex(p, ctx)).length });
+        }
+        if (live) setRows(out);
+      } catch (e) { if (live) setErr(e.message); }
+    })();
+    return () => { live = false; };
+  }, [year, versions.map((v) => v.id).join()]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (err) return <div style={{ color: T.red, fontSize: 13 }}>{err}</div>;
+  if (!rows) return <div style={{ color: T.text3, fontSize: 13 }}>Loading every version…</div>;
+  const cats = [...new Set(rows.flatMap((r) => r.t.shown.map((c) => c.category)))];
+  const catOf = (r, c) => r.t.shown.find((x) => x.category === c)?.plan || 0;
+  const total = (r) => r.t.pplPlan + r.t.taxPlan + r.t.vPlan;
+  const base = rows[0] ? (rows[0].t.pplCurrent || rows[0].t.payBase) + rows[0].t.taxCurrent + rows[0].t.vBase : 0;
+  const line = [
+    { label: "Opex heads (plan)", f: (r) => String(r.heads), raw: (r) => r.heads },
+    { label: "Removed / new roles", f: (r) => `${r.removed} / ${r.added}`, raw: null },
+    { label: "Salaries & bonus", f: (r) => full(r.t.pplPlan), raw: (r) => r.t.pplPlan },
+    { label: "Payroll taxes & benefits", f: (r) => `${full(r.t.taxPlan)} (${r.t.load}%)`, raw: (r) => r.t.taxPlan },
+    ...cats.map((c) => ({ label: catLabel(c), f: (r) => full(catOf(r, c)), raw: (r) => catOf(r, c) })),
+    { label: "Total Opex", f: (r) => full(total(r)), raw: total, strong: true },
+    { label: "vs baseline", f: (r) => signed(total(r) - base), raw: null, tone: true },
+    { label: "Vendor lines to decide", f: (r) => String(r.t.review), raw: null },
+  ];
+  const minTotal = Math.min(...rows.map(total));
+  const td = { padding: "7px 10px", borderTop: `1px solid ${T.border}`, textAlign: "right", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" };
+  return (
+    <div style={{ ...card(), overflowX: "auto" }}>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+        <thead><tr>
+          <th style={th}>FY {year}</th>
+          {rows.map((r) => (
+            <th key={r.v.id} style={{ ...th, textAlign: "right", color: r.v.id === currentId ? T.accent : "var(--zbb-th)" }}>
+              <button onClick={() => onOpen(r.v.id)} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: "inherit", font: "inherit", textTransform: "inherit", letterSpacing: "inherit" }} title="Open this version">{r.v.name}{r.v.id === currentId ? " (open)" : ""}</button>
+            </th>
+          ))}
+        </tr></thead>
+        <tbody>{line.map((l) => (
+          <tr key={l.label}>
+            <td style={{ ...td, textAlign: "left", color: T.text, fontWeight: l.strong ? 700 : 600 }}>{l.label}</td>
+            {rows.map((r) => {
+              const v = l.f(r);
+              const tone = l.tone ? (total(r) - base <= 0 ? T.green : T.red) : l.strong && total(r) === minTotal && rows.length > 1 ? T.green : l.strong ? T.text : T.text2;
+              return <td key={r.v.id} style={{ ...td, color: tone, fontWeight: l.strong ? 700 : 400 }}>{v}</td>;
+            })}
+          </tr>
+        ))}</tbody>
+      </table>
+      <div style={{ padding: "8px 10px", fontSize: 11, color: T.text3, borderTop: `1px solid ${T.border}` }}>
+        Each version uses its own settings (taxes &amp; benefits rate, FX, COGS departments, categories shown). Baseline {full(base)} is current comp plus trailing vendor actuals from the first version. Lowest total in green. Click a version name to open it.
+      </div>
+    </div>
+  );
+}
+
 // ── Excel export ────────────────────────────────────────────────────────────
-async function exportWorkbook({ data, totals, ctx, year }) {
+async function exportWorkbook({ data, totals, ctx, year, version }) {
   const X = await loadXLSX();
   const wb = X.utils.book_new();
   const byId = new Map(data.people.map((p) => [p.id, p]));
@@ -1261,6 +1376,7 @@ async function exportWorkbook({ data, totals, ctx, year }) {
     { Category: "Total Opex", Baseline: r0(pplBase + totals.taxCurrent + totals.vBase), [`FY ${year}`]: r0(totals.pplPlan + totals.taxPlan + totals.vPlan), Change: r0(totals.pplPlan + totals.taxPlan + totals.vPlan - pplBase - totals.taxCurrent - totals.vBase) },
     {},
     { Category: "People in COGS departments (not in totals)", Baseline: r0(totals.cogsCurrent), [`FY ${year}`]: r0(totals.cogsPlan), Change: r0(totals.cogsPlan - totals.cogsCurrent) },
+    { Category: `Version: ${version || ""}` },
     { Category: `Assumptions: taxes & benefits load ${ctx.load}%; FX ${Object.entries(ctx.fx || {}).filter(([k]) => k !== "USD").map(([k, v]) => `1 ${k} = $${v}`).join(", ")}; COGS departments: ${[...ctx.cogs].join(", ") || "none"}` },
   ], [48, 14, 14, 14, 8, 9, 6, 10]);
   add("People", data.people.slice().sort((a, b) => String(a.department || "").localeCompare(String(b.department || "")) || a.name.localeCompare(b.name)).map((p) => ({
@@ -1288,5 +1404,5 @@ async function exportWorkbook({ data, totals, ctx, year }) {
     row.Total = r0(a.total);
     return row;
   }), [9, 34, 26, ...months.map(() => 11), 13]);
-  X.writeFile(wb, `Zero-Based Budget FY${year} ${new Date().toISOString().slice(0, 10)}.xlsx`);
+  X.writeFile(wb, `Zero-Based Budget FY${year}${version ? ` - ${String(version).replace(/[\\/:*?"<>|]/g, "")}` : ""} ${new Date().toISOString().slice(0, 10)}.xlsx`);
 }
