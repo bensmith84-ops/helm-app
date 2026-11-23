@@ -215,6 +215,7 @@ module.exports = function (app, { pool }) {
           next.fx.USD = 1;
         }
         if (Array.isArray(s.cogs_departments)) next.cogs_departments = s.cogs_departments.map((x) => String(x).slice(0, 80)).slice(0, 30);
+        if (typeof s.hide_removed === 'boolean') next.hide_removed = s.hide_removed;
         if (Array.isArray(s.hidden_categories)) next.hidden_categories = s.hidden_categories.map((x) => String(x).slice(0, 80)).slice(0, 30);
         const { rows: [p] } = await pool.query(`UPDATE zbb_plans SET settings = $1, updated_at = now() WHERE id = $2 RETURNING *`, [next, plan.id]);
         return res.json({ plan: p });
