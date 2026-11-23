@@ -45,6 +45,11 @@ const int = (v, lo, hi, d) => {
 
 // Words that start a journal-entry memo without naming a vendor.
 const STOP = new Set(['move', 'bill', 'bills', 'to', 'the', 'prepaid', 'accrual', 'accruals', 'reclass', 'reverse', 'reversal', 'adjustment', 'adj', 'jan', 'feb', 'mar', 'apr', 'may', 'jun', 'june', 'jul', 'july', 'aug', 'august', 'sep', 'sept', 'september', 'oct', 'october', 'nov', 'november', 'dec', 'december', 'january', 'february', 'march', 'april', 'rent', 'to', 'record', 'true', 'up']);
+// Responsibilities: up to 30 short lines. KPIs: up to 20 { name, target }.
+const cleanResp = (a) => (Array.isArray(a) ? a : []).map((x) => String(x == null ? '' : x).trim().slice(0, 300)).filter(Boolean).slice(0, 30);
+const cleanKpis = (a) => (Array.isArray(a) ? a : [])
+  .map((k) => ({ name: String(k?.name == null ? '' : k.name).trim().slice(0, 200), target: String(k?.target == null ? '' : k.target).trim().slice(0, 120) }))
+  .filter((k) => k.name).slice(0, 20);
 const firstWord = (s) => (String(s || '').toLowerCase().match(/[a-z0-9]+/) || [''])[0];
 
 // Profit and Loss Detail -> [{ acct, acctName, date, type, name, memo, amount }]
@@ -223,9 +228,9 @@ module.exports = function (app, { pool }) {
           await client.query(
             `WITH m AS MATERIALIZED (SELECT id AS old, gen_random_uuid() AS new FROM zbb_people WHERE plan_id = $1)
              INSERT INTO zbb_people (id, plan_id, profile_id, name, title, department, manager_id, status, salary, bonus, start_month, end_month,
-                                     note, sort_order, currency, current_salary, is_existing, source)
+                                     note, sort_order, currency, current_salary, is_existing, source, responsibilities, kpis)
              SELECT m.new, $2, p.profile_id, p.name, p.title, p.department, mm.new, p.status, p.salary, p.bonus, p.start_month, p.end_month,
-                    p.note, p.sort_order, p.currency, p.current_salary, p.is_existing, p.source
+                    p.note, p.sort_order, p.currency, p.current_salary, p.is_existing, p.source, p.responsibilities, p.kpis
                FROM zbb_people p JOIN m ON m.old = p.id LEFT JOIN m mm ON mm.old = p.manager_id
               WHERE p.plan_id = $1`, [src.id, plan.id]);
           await client.query(
@@ -458,19 +463,22 @@ module.exports = function (app, { pool }) {
         const cur = CUR_RE.test(String(p.currency || '')) ? p.currency : 'USD';
         const vals = [str(p.name, 120) || 'New role', str(p.title, 120), str(p.department, 80), manager, status,
           Math.max(0, num(p.salary)), Math.max(0, num(p.bonus)), int(p.start_month, 1, 12, 1), int(p.end_month, 0, 12, 12), str(p.note, 1000),
-          cur, Math.max(0, num(p.current_salary))];
+          cur, Math.max(0, num(p.current_salary)),
+          JSON.stringify(cleanResp(p.responsibilities)), JSON.stringify(cleanKpis(p.kpis))];
         if (UUID_RE.test(String(p.id || ''))) {
           if (manager === p.id) return res.status(400).json({ error: 'someone cannot report to themselves' });
           const { rows: [r] } = await pool.query(
             `UPDATE zbb_people SET name=$1, title=$2, department=$3, manager_id=$4, status=$5, salary=$6, bonus=$7,
-                    start_month=$8, end_month=$9, note=$10, currency=$11, current_salary=$12, updated_at=now()
-              WHERE id=$13 AND plan_id=$14 RETURNING *`, [...vals, p.id, plan.id]);
+                    start_month=$8, end_month=$9, note=$10, currency=$11, current_salary=$12,
+                    responsibilities=$13::jsonb, kpis=$14::jsonb, updated_at=now()
+              WHERE id=$15 AND plan_id=$16 RETURNING *`, [...vals, p.id, plan.id]);
           if (!r) return res.status(404).json({ error: 'person not found' });
           return res.json({ person: r });
         }
         const { rows: [r] } = await pool.query(
-          `INSERT INTO zbb_people (plan_id, name, title, department, manager_id, status, salary, bonus, start_month, end_month, note, currency, current_salary, source)
-           VALUES ($13, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'manual') RETURNING *`, [...vals, plan.id]);
+          `INSERT INTO zbb_people (plan_id, name, title, department, manager_id, status, salary, bonus, start_month, end_month, note, currency, current_salary,
+                                   responsibilities, kpis, source)
+           VALUES ($15, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14::jsonb, 'manual') RETURNING *`, [...vals, plan.id]);
         return res.json({ person: r });
       }
 
