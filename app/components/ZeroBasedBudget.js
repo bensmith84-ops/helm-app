@@ -72,7 +72,8 @@ const taxLine = (headcountCost, ctx) => headcountCost * (Number(ctx.load) || 0) 
 const TAX_NOTE = (load) => `Calculated at ${load}% of total headcount cost (salary + bonus); set the rate in the header.`;
 const isOpex = (p, ctx) => !ctx.cogs.has(p.department || "");
 const changePct = (p) => (Number(p.current_salary) > 0 ? ((Number(p.salary) || 0) / Number(p.current_salary) - 1) * 100 : null);
-const catLabel = (c) => (c === "People Costs" ? "Other people costs (hiring, training, perks, fees)" : c);
+const COGS = "COGS"; // lines moved out of Opex: listed, but outside the Opex baseline and plan
+const catLabel = (c) => (c === "People Costs" ? "Other people costs (hiring, training, perks, fees)" : c === COGS ? "COGS (moved out of Opex)" : c);
 const lineAmount = (l) => (l.status === "keep" || l.status === "change" || l.status === "new" ? Number(l.amount) || 0 : 0);
 
 const STATUS = {
@@ -173,12 +174,16 @@ export default function ZeroBasedBudget({ isMobile }) {
   // ── Totals ───────────────────────────────────────────────────────────────
   const totals = useMemo(() => {
     if (!data) return null;
-    const visible = (c) => !hidden.includes(c || "");
+    const visible = (c) => c !== COGS && !hidden.includes(c || "");
+    // Non-pay baseline follows each line's category, so a vendor moved to another bucket
+    // (or to COGS) takes its baseline with it. Before actuals are pulled there are no lines.
     const base = {}; let payBase = 0; let salBase = 0; let loadBase = 0;
+    const fromLines = data.lines.some((l) => l.source === "qbo");
     for (const a of data.baseline) {
       if (PAY_ACCT.test(a.account_num)) { payBase += a.total; if (SALARY_ACCT.test(a.account_num)) salBase += a.total; if (LOAD_ACCT.test(a.account_num)) loadBase += a.total; continue; }
-      base[a.category] = (base[a.category] || 0) + a.total;
+      if (!fromLines) base[a.category] = (base[a.category] || 0) + a.total;
     }
+    if (fromLines) for (const l of data.lines) { const c = l.category || "Non-Fixed and Other"; base[c] = (base[c] || 0) + (Number(l.baseline) || 0); }
     const cats = {};
     const ensure = (c) => cats[c] || (cats[c] = { category: c, baseline: 0, plan: 0, review: 0, keep: 0, change: 0, remove: 0, newN: 0, removed: 0, added: 0 });
     for (const [c, v] of Object.entries(base)) ensure(c).baseline = v;
@@ -202,9 +207,11 @@ export default function ZeroBasedBudget({ isMobile }) {
     const vBase = shown.reduce((s, c) => s + c.baseline, 0);
     const vPlan = shown.reduce((s, c) => s + c.plan, 0);
     const review = data.lines.filter((l) => l.status === "review" && visible(l.category)).length;
+    const cogsLines = data.lines.filter((l) => l.category === COGS);
+    const movedCogs = { n: cogsLines.length, baseline: cogsLines.reduce((s, l) => s + (Number(l.baseline) || 0), 0), plan: cogsLines.reduce((s, l) => s + lineAmount(l), 0) };
     const taxPlan = taxLine(pplPlan, ctx);
     const taxCurrent = pplCurrent ? taxLine(pplCurrent, ctx) : 0;
-    return { list, shown, vBase, vPlan, payBase, salBase, loadBase, pplPlan, pplCurrent, taxPlan, taxCurrent, cogsPlan, cogsCurrent, cogsN: cogsPeople.length, load: ctx.load, head, missingPay, missingFx, review, actualLoad: salBase ? (loadBase / salBase) * 100 : null };
+    return { movedCogs, list, shown, vBase, vPlan, payBase, salBase, loadBase, pplPlan, pplCurrent, taxPlan, taxCurrent, cogsPlan, cogsCurrent, cogsN: cogsPeople.length, load: ctx.load, head, missingPay, missingFx, review, actualLoad: salBase ? (loadBase / salBase) * 100 : null };
   }, [data, hidden, ctx]);
 
   const exportExcel = async () => {
@@ -291,8 +298,8 @@ export default function ZeroBasedBudget({ isMobile }) {
       {tab === "summary" && <Summary totals={totals} year={year} />}
       {tab === "people" && <People people={data.people} ctx={ctx} settings={settings} year={year} savePerson={wrap(savePerson)} deletePerson={wrap(deletePerson)}
         bulkPeople={wrap(bulkPeople)} importPeople={wrap(importPeople)} saveSettings={wrap(saveSettings)} isMobile={isMobile} totals={totals} setToast={setToast} />}
-      {tab === "lines" && <Lines lines={data.lines.filter((l) => !hidden.includes(l.category || ""))} planId={plan.id} categories={data.categories} saveLine={wrap(saveLine)} deleteLine={wrap(deleteLine)} isMobile={isMobile} setToast={setToast} allLines={data.lines} />}
-      {tab === "removed" && <Removed people={data.people} lines={data.lines.filter((l) => !hidden.includes(l.category || ""))} ctx={ctx} />}
+      {tab === "lines" && <Lines lines={data.lines.filter((l) => l.category === COGS || !hidden.includes(l.category || ""))} planId={plan.id} categories={data.categories} saveLine={wrap(saveLine)} deleteLine={wrap(deleteLine)} isMobile={isMobile} setToast={setToast} allLines={data.lines} />}
+      {tab === "removed" && <Removed people={data.people} lines={data.lines.filter((l) => l.category !== COGS && !hidden.includes(l.category || ""))} ctx={ctx} />}
 
       {toast && <div style={{ position: "fixed", bottom: 20, right: 20, maxWidth: 420, padding: "10px 14px", borderRadius: 8, background: T.surface3 || T.surface2, color: T.text, border: `1px solid ${T.border}`, fontSize: 12, zIndex: 50, boxShadow: "0 6px 20px rgba(0,0,0,.25)" }}>{toast}</div>}
     </div>
@@ -352,7 +359,8 @@ function Summary({ totals, year }) {
       </table>
       <div style={{ padding: "8px 10px", fontSize: 11, color: T.text3, borderTop: `1px solid ${T.border}` }}>
         Grey bar: baseline. Coloured bar: FY {year} plan. Salaries baseline is current base salary from the HRIS import; payroll taxes and benefits are {TAX_NOTE(totals.load).toLowerCase()} (QuickBooks pay accounts 60010–60059 over the baseline window, all-in: {full(totals.payBase)}).
-        {totals.cogsN > 0 && <> {totals.cogsN} people in COGS departments are outside these totals (salaries now {money(totals.cogsCurrent)}, plan {money(totals.cogsPlan)}).</>} Vendor lines still "to decide" count as $0.
+        {totals.cogsN > 0 && <> {totals.cogsN} people in COGS departments are outside these totals (salaries now {money(totals.cogsCurrent)}, plan {money(totals.cogsPlan)}).</>}
+        {totals.movedCogs.n > 0 && <> {totals.movedCogs.n} vendor {totals.movedCogs.n === 1 ? "line has" : "lines have"} been moved to COGS and sit outside Opex (baseline {money(totals.movedCogs.baseline)}, plan {money(totals.movedCogs.plan)}).</>} Vendor lines still "to decide" count as $0.
       </div>
     </div>
   );
@@ -880,7 +888,7 @@ function Lines({ lines, allLines, planId, categories, saveLine, deleteLine, isMo
   const shown = lines.filter((l) => (filter === "all" || l.status === filter) && (!q || `${l.vendor} ${l.account_name || ""} ${l.note || ""}`.toLowerCase().includes(q.toLowerCase())));
   const groups = {};
   for (const l of shown) (groups[l.category || "Non-Fixed and Other"] ||= []).push(l);
-  const order = Object.keys(groups).sort((a, b) => groups[b].reduce((s, l) => s + Number(l.baseline), 0) - groups[a].reduce((s, l) => s + Number(l.baseline), 0));
+  const order = Object.keys(groups).sort((a, b) => (a === COGS) - (b === COGS) || groups[b].reduce((s, l) => s + Number(l.baseline), 0) - groups[a].reduce((s, l) => s + Number(l.baseline), 0));
 
   const decide = (l, status) => saveLine({ ...l, status, amount: status === "keep" ? Number(l.baseline) || Number(l.amount) : status === "change" ? Number(l.amount) || Number(l.baseline) : l.amount });
   const keepRest = async (cat) => { for (const l of groups[cat].filter((x) => x.status === "review")) await decide(l, "keep"); };
@@ -906,7 +914,7 @@ function Lines({ lines, allLines, planId, categories, saveLine, deleteLine, isMo
           <div key={cat} style={{ ...card(), marginBottom: 10, overflow: "hidden" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", cursor: "pointer", flexWrap: "wrap" }} onClick={() => setClosed((s) => { const n = new Set(s); n.has(cat) ? n.delete(cat) : n.add(cat); return n; })}>
               <span style={{ color: T.text3, fontSize: 11 }}>{isClosed ? "▸" : "▾"}</span>
-              <span style={{ fontWeight: 700, fontSize: 13, color: T.text, flex: 1 }}>{catLabel(cat)} <span style={{ fontWeight: 400, color: T.text3, fontSize: 11 }}>{ls.length} lines</span></span>
+              <span style={{ fontWeight: 700, fontSize: 13, color: cat === COGS ? T.purple : T.text, flex: 1 }}>{catLabel(cat)} <span style={{ fontWeight: 400, color: T.text3, fontSize: 11 }}>{ls.length} lines{cat === COGS ? " · not in Opex totals; edit a line to move it back" : ""}</span></span>
               <span style={{ fontSize: 12, color: T.text3 }}>baseline {money(b)}</span>
               <span style={{ fontSize: 12, color: T.text, fontWeight: 600 }}>plan {money(p)}</span>
               <span style={{ fontSize: 12, color: p - b <= 0 ? T.green : T.red, width: 70, textAlign: "right" }}>{signed(p - b)}</span>
@@ -1059,13 +1067,13 @@ function LineEditor({ line, categories, onClose, onSave, onDelete }) {
   const [f, setF] = useState(line);
   const put = (k, v) => setF((x) => ({ ...x, [k]: v }));
   const seatsTotal = f.seats && f.unit_cost ? parseMoney(f.seats) * parseMoney(f.unit_cost) : null;
-  const cats = [...new Set([...(categories || []).map((c) => c.name), ...Object.keys(CAT_ACCOUNT)])].filter((c) => c !== "COGS" && c !== "People Costs");
+  const cats = [...new Set([...(categories || []).map((c) => c.name), ...Object.keys(CAT_ACCOUNT)])].filter((c) => c !== COGS && c !== "People Costs").concat(COGS);
   return (
     <Drawer title={line.id ? line.vendor : "New line"} onClose={onClose}>
       <Field label="Vendor / tool"><input style={inp()} value={f.vendor || ""} onChange={(e) => put("vendor", e.target.value)} /></Field>
       <Field label="Category">
         <select style={inp()} value={f.category || ""} onChange={(e) => { const c = e.target.value; setF((x) => ({ ...x, category: c, ...(CAT_ACCOUNT[c] && !line.account_num ? { account_num: CAT_ACCOUNT[c][0], account_name: CAT_ACCOUNT[c][1] } : {}) })); }}>
-          {cats.map((c) => <option key={c}>{c}</option>)}
+          {cats.map((c) => <option key={c} value={c}>{c === COGS ? "COGS (move out of Opex)" : c}</option>)}
         </select>
       </Field>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 10 }}>
