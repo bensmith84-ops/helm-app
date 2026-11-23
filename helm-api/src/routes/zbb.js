@@ -10,7 +10,8 @@
 //                                               month, and adds a "review" line for every vendor not yet listed
 //   save_settings   { plan_id, settings }
 //   import_people   { plan_id, rows }        -> replaces the org chart with an HRIS export
-//                                               (name, title, department, manager, currency, salary)
+//                                               (name, title, department, manager, currency, salary;
+//                                               optional current_salary, status, start_month, note)
 //   bulk_people     { plan_id, ids, op, ... } -> op raise {pct} | reset | status {status}
 //   save_person     { plan_id, person }      -> insert (no id) or update
 //   delete_person   { id }                   -> only people added in the plan; existing staff are marked removed
@@ -314,6 +315,11 @@ module.exports = function (app, { pool }) {
             name: str(r.name, 120), title: str(r.title, 120), department: str(r.department, 80), manager: str(r.manager, 120),
             currency: CUR_RE.test(String(r.currency || '').toUpperCase()) ? String(r.currency).toUpperCase() : 'USD',
             salary: Math.max(0, num(r.salary)),
+            // Optional: current comp (else the salary), status (keep | new | remove), start month, note.
+            current: r.current_salary == null || r.current_salary === '' ? null : Math.max(0, num(r.current_salary)),
+            status: ['keep', 'new', 'remove'].includes(String(r.status || '').toLowerCase()) ? String(r.status).toLowerCase() : null,
+            start_month: int(r.start_month, 1, 12, 1),
+            note: str(r.note, 1000),
           }))
           .filter((r) => r.name);
         if (!rows.length) return res.status(400).json({ error: 'No rows with an employee name were found.' });
@@ -326,10 +332,14 @@ module.exports = function (app, { pool }) {
           await client.query(`DELETE FROM zbb_people WHERE plan_id = $1`, [plan.id]);
           const ids = new Map();
           const insert = async (r, note) => {
+            const status = r.status || 'keep';
+            const existing = status !== 'new';
+            const current = existing ? (r.current != null ? r.current : r.salary) : 0;
             const { rows: [x] } = await client.query(
-              `INSERT INTO zbb_people (plan_id, profile_id, name, title, department, status, currency, current_salary, salary, is_existing, source, note)
-               VALUES ($1, $2, $3, $4, $5, 'keep', $6, $7, $7, true, 'hris', $8) RETURNING id`,
-              [plan.id, profBy.get(r.name.toLowerCase()) || null, r.name, r.title, r.department, r.currency, r.salary, note || null]);
+              `INSERT INTO zbb_people (plan_id, profile_id, name, title, department, status, currency, current_salary, salary, is_existing, source, note, start_month, end_month)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'hris', $11, $12, $13) RETURNING id`,
+              [plan.id, profBy.get(r.name.toLowerCase()) || null, r.name, r.title, r.department, status, r.currency, current, r.salary, existing,
+                note || r.note || null, status === 'new' ? (r.start_month || 1) : 1, status === 'remove' ? 0 : 12]);
             ids.set(r.name.toLowerCase(), x.id);
           };
           for (const r of rows) if (!ids.has(r.name.toLowerCase())) await insert(r);
