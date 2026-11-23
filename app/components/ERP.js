@@ -97,7 +97,7 @@ const postJournalEntry = async (source, refType, refId, description, lines, enti
   return je;
 };
 
-const FINANCE_EMBED_VIEWS = new Set(["cfo_dash","pl_explorer","cash_flow","balance_sheet","vendor_intel","ap_aging","txn_search","revenue","fin_requests","fin_budgets","fin_budget_planner","fin_rules","fin_audit"]);
+const FINANCE_EMBED_VIEWS = new Set(["cfo_dash","pl_explorer","cash_flow","balance_sheet","vendor_intel","ap_aging","txn_search","revenue","fin_requests","fin_budgets","fin_budget_planner","fin_zbb","fin_rules","fin_audit"]);
 
 const ERP_NAV = [
   { type: "header", label: "Overview" },
@@ -126,6 +126,7 @@ const ERP_NAV = [
   { id: "revenue", label: "Revenue", icon: "💰" },
   { id: "fin_budgets", label: "Budgets", icon: "💵" },
   { id: "fin_budget_planner", label: "Budget Planner", icon: "🧭" },
+  { id: "fin_zbb", label: "Zero-Based Budget", icon: "🧮" },
   { id: "fin_requests", label: "Spend Requests", icon: "📋" },
   { id: "fin_rules", label: "Approval Rules", icon: "⚡" },
   { id: "fin_audit", label: "Audit Log", icon: "🗂" },
@@ -753,9 +754,9 @@ export default function ERPView({ modulePerms = {}, pendingSubView, clearPending
           {view === "reports" && <ReportsView products={products} variants={variants} suppliers={suppliers} purchaseOrders={purchaseOrders} poItems={poItems} inventory={inventory} lots={lots} orders={orders} orderItems={orderItems} customers={customers} workOrders={workOrders} facilities={facilities} entities={entities} supplierItems={supplierItems} boms={boms} bomItems={bomItems} isMobile={isMobile} />}
           {view === "3pl_billing" && <Suspense fallback={<div style={{ padding: 40, textAlign: "center", color: T.text3, fontSize: 13 }}>Loading 3PL Billing…</div>}><ThreePLBillingView /></Suspense>}
           {/* Finance module views (embedded from Finance.js) */}
-          {["cfo_dash", "pl_explorer", "cash_flow", "balance_sheet", "vendor_intel", "ap_aging", "txn_search", "revenue", "fin_requests", "fin_budgets", "fin_budget_planner", "fin_rules", "fin_audit"].some(v => view === v) && (
+          {["cfo_dash", "pl_explorer", "cash_flow", "balance_sheet", "vendor_intel", "ap_aging", "txn_search", "revenue", "fin_requests", "fin_budgets", "fin_budget_planner", "fin_zbb", "fin_rules", "fin_audit"].some(v => view === v) && (
             <Suspense fallback={<div style={{ padding: 40, textAlign: "center", color: T.text3, fontSize: 13 }}>Loading Finance…</div>}>
-              <FinanceEmbed initialView={{ cfo_dash: "cfo", pl_explorer: "pl_explorer", cash_flow: "cash_flow", balance_sheet: "balance_sheet", vendor_intel: "vendors", ap_aging: "ap_aging", txn_search: "txn_search", revenue: "revenue", fin_requests: "requests", fin_budgets: "budgets", fin_budget_planner: "budget_planner", fin_rules: "rules", fin_audit: "audit" }[view] || "cfo"} embedded={true} modulePerms={modulePerms} />
+              <FinanceEmbed initialView={{ cfo_dash: "cfo", pl_explorer: "pl_explorer", cash_flow: "cash_flow", balance_sheet: "balance_sheet", vendor_intel: "vendors", ap_aging: "ap_aging", txn_search: "txn_search", revenue: "revenue", fin_requests: "requests", fin_budgets: "budgets", fin_budget_planner: "budget_planner", fin_zbb: "zbb", fin_rules: "rules", fin_audit: "audit" }[view] || "cfo"} embedded={true} modulePerms={modulePerms} />
             </Suspense>
           )}
         </div>
