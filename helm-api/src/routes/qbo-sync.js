@@ -15,6 +15,7 @@ const {
   qboFetch, bulkUpsert: libBulkUpsert, extractGL, sectionFromLabel,
   getQboBase, getActiveConnection, ensureToken,
 } = require('../lib/qbo');
+const { indexAttachables } = require('../lib/qbo-attachment-index');
 
 // Supabase bu(): batches of 200, errors prefixed with the table name.
 async function bulkUpsert(pool, table, rows, columns, conflictTarget) {
@@ -198,6 +199,12 @@ module.exports = function(app, { pool }) {
             ['org_id','realm_id','qbo_id','vendor_ref','vendor_name','txn_date','due_date','total_amount','balance','currency','memo','payment_status','gl_accounts','line_items','synced_at'],
             'realm_id, qbo_id');
         } catch (e) { E.push(`bills: ${e?.message}`); }
+      }
+
+      if (what === 'all' || what === 'attachments') {
+        // Which transactions have attachments (all types), in one paged scan.
+        try { R.attachment_index = await indexAttachables(pool, base, rid, token); }
+        catch (e) { E.push(`attachment index: ${e?.message}`); }
       }
 
       if (what === 'all' || what === 'bills' || what === 'attachments') {

@@ -1,6 +1,6 @@
 
 // POST /qbo-attachments - port of supabase/functions/qbo-attachments
-// 2 actions: get_attachment { qbo_id, entity_type?, bill_id?, refresh? } (any transaction
+// Actions: cached_list, reindex (rebuild qbo_attachment_index), get_attachment { qbo_id, entity_type?, bill_id?, refresh? } (any transaction
 // type, default Bill), sync_attachments (bills). Uses supabase-storage wrapper.
 const { uploadToStorage } = require('../lib/supabase-storage');
 const { qboFetch, getQboBase, getActiveConnection, ensureToken } = require('../lib/qbo');
@@ -25,9 +25,15 @@ module.exports = function(app, { pool }) {
       const { action, bill_id, qbo_id } = body;
 
       if (action === 'cached_list') {
-        // Attachments already found on non-bill transactions, for Transaction Search.
-        const { rows } = await pool.query(`SELECT entity_type, qbo_id, files FROM qbo_attachment_cache WHERE jsonb_array_length(files) > 0`);
-        return res.json({ items: rows });
+        // For Transaction Search: files already stored for non-bill transactions, plus
+        // every transaction the attachment index says has a file (not downloaded yet).
+        const { rows: cached } = await pool.query(`SELECT entity_type, qbo_id, files FROM qbo_attachment_cache WHERE jsonb_array_length(files) > 0`);
+        const { rows: indexed } = await pool.query(
+          `SELECT entity_type, qbo_id, jsonb_agg(jsonb_build_object('file_name', file_name, 'content_type', content_type)) AS files
+             FROM qbo_attachment_index GROUP BY 1, 2`);
+        const { rows: [meta] } = await pool.query(`SELECT max(indexed_at) AS indexed_at FROM qbo_attachment_index`);
+        const seen = new Set(cached.map((c) => `${c.entity_type}:${c.qbo_id}`));
+        return res.json({ items: [...cached, ...indexed.filter((x) => !seen.has(`${x.entity_type}:${x.qbo_id}`))], indexed_at: meta?.indexed_at || null });
       }
 
       const conn = await getActiveConnection(pool);
@@ -36,6 +42,11 @@ module.exports = function(app, { pool }) {
       const rid = conn.realm_id;
       const token = await ensureToken(pool, conn);
       const base = getQboBase();
+
+      if (action === 'reindex') {
+        const { indexAttachables } = require('../lib/qbo-attachment-index');
+        return res.json(await indexAttachables(pool, base, rid, token));
+      }
 
       if (action === 'get_attachment') {
         // Any transaction type; bills also cache the first file on qbo_bills (the AP view
