@@ -132,6 +132,7 @@ require('./routes/shopify-store-token')(app, helpers);
 require('./routes/qbo-callback')(app, helpers);
 require('./routes/qbo-sync')(app, helpers);
 require('./routes/qbo-account-txns')(app, helpers);
+require('./routes/zbb')(app, helpers);
 require('./routes/qbo-auto-sync')(app, helpers);
 require('./routes/qbo-push')(app, helpers);
 require('./routes/qbo-attachments')(app, helpers);

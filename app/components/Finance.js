@@ -5,6 +5,7 @@ import { T } from "../tokens";
 import { useAuth } from "../lib/auth";
 import { useResponsive } from "../lib/responsive";
 import BudgetPlanner from "./BudgetPlanner";
+import ZeroBasedBudget from "./ZeroBasedBudget";
 import { notifySlack, notifySlackUpdate } from "../lib/slack";
 import { getBudgetSnapshot } from "../lib/budgetSnapshot";
 
@@ -308,6 +309,7 @@ export default function FinanceView({ initialView, embedded, modulePerms = {}, p
     { id: "revenue",       label: "Revenue",       icon: "💰" },
     { id: "budgets",       label: "Budgets",       icon: "💰" },
     { id: "budget_planner",label: "Budget Planner", icon: "🧭" },
+    { id: "zbb",           label: "Zero-Based Budget", icon: "🧮" },
     { id: "requests",      label: "Requests",      icon: "📋" },
     { id: "rules",         label: "Rules",          icon: "⚡" },
     { id: "audit",         label: "Audit Log",      icon: "🗂" },
@@ -357,6 +359,7 @@ export default function FinanceView({ initialView, embedded, modulePerms = {}, p
         {view === "revenue" && <RevenueAnalytics isMobile={isMobile} />}
         {view === "budgets" && <BudgetsView isMobile={isMobile} glCategories={glCategories} requests={requests} departments={departments} activeBudget={activeBudget} setActiveBudget={setActiveBudget} activeBudgetName={activeBudgetName} setActiveBudgetName={setActiveBudgetName} budgetVersions={budgetVersions} setBudgetVersions={setBudgetVersions} user={user} modulePerms={modulePerms} />}
         {view === "budget_planner" && <BudgetPlanner />}
+        {view === "zbb" && <ZeroBasedBudget isMobile={isMobile} />}
         {view === "requests" && <RequestsView isMobile={isMobile} requests={requests} addRequest={addRequest} updateRequest={updateRequest} deleteRequest={deleteRequest} members={members} departments={departments} glCodes={glCodes} glCategories={glCategories} rules={rules} activeBudget={activeBudget} myMembership={myMembership} mySpendLimit={mySpendLimit} isAdmin={isAdmin} isApprover={isApprover} user={user} profile={profile} addAuditEntry={addAuditEntry} getDeptSpend={getDeptSpend} />}
         {view === "rules" && <RulesView isMobile={isMobile} rules={rules} setRules={setRules} glCodes={glCodes} departments={departments} members={members} user={user} />}
         {view === "audit" && <AuditLogView isMobile={isMobile} auditLog={auditLog} />}
