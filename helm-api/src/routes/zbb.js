@@ -1,6 +1,6 @@
 // POST /zbb - zero-based Opex budget (Finance > Zero-Based Budget).
 //
-// Owners and admins only: the plan holds salaries. The tables are not exposed
+// Restricted to named people (ZBB_ALLOWED_EMAILS, default Ben Smith): the plan holds salaries. The tables are not exposed
 // through /rest/v1 (see migrations/032_zbb.sql), so everything goes through here.
 //
 // Body: { action, ... }
@@ -9,6 +9,9 @@
 //                                               window (Opex 6xxxx accounts), stores it by vendor x account x
 //                                               month, and adds a "review" line for every vendor not yet listed
 //   save_settings   { plan_id, settings }
+//   import_people   { plan_id, rows }        -> replaces the org chart with an HRIS export
+//                                               (name, title, department, manager, currency, salary)
+//   bulk_people     { plan_id, ids, op, ... } -> op raise {pct} | reset | status {status}
 //   save_person     { plan_id, person }      -> insert (no id) or update
 //   delete_person   { id }                   -> only people added in the plan; existing staff are marked removed
 //   save_line       { plan_id, line }
@@ -19,6 +22,11 @@ const Anthropic = require('@anthropic-ai/sdk');
 const { qboFetch, getQboBase, getActiveConnection, ensureToken } = require('../lib/qbo');
 
 const ORG = 'a0000000-0000-0000-0000-000000000001';
+const ALLOWED = (process.env.ZBB_ALLOWED_EMAILS || 'ben.smith@earthbreeze.com')
+  .split(',').map((e) => e.trim().toLowerCase()).filter(Boolean);
+// USD per unit of each pay currency (Nov 2026 mid-market); editable per plan.
+const DEFAULT_FX = { USD: 1, PHP: 0.01563, COP: 0.000319, CAD: 0.7163 };
+const CUR_RE = /^[A-Z]{3}$/;
 const LEVEL = { owner: 5, admin: 4, manager: 3, member: 2, guest: 1 };
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const UUID_RE = /^[0-9a-f-]{36}$/i;
@@ -131,10 +139,14 @@ module.exports = function (app, { pool }) {
   app.post('/zbb', async (req, res) => {
     try {
       const role = req.helmMember?.role;
-      if (!role || req.helmMember?.is_external || (LEVEL[role] || 0) < LEVEL.admin) {
-        return res.status(403).json({ error: 'The zero-based budget is open to Helm owners and admins only.' });
-      }
       const uid = req.helmMember?.profile_id || null;
+      if (!role || !uid || req.helmMember?.is_external || (LEVEL[role] || 0) < LEVEL.admin) {
+        return res.status(403).json({ error: 'You do not have access to the zero-based budget.' });
+      }
+      const { rows: [me] } = await pool.query(`SELECT lower(email) AS email FROM profiles WHERE id = $1`, [uid]);
+      if (!me || !ALLOWED.includes(me.email)) {
+        return res.status(403).json({ error: 'You do not have access to the zero-based budget.' });
+      }
       const b = req.body || {};
       const action = b.action;
 
@@ -148,7 +160,7 @@ module.exports = function (app, { pool }) {
         const year = int(b.year, 2020, 2100, new Date().getFullYear() + 1);
         let { rows: [plan] } = await pool.query(`SELECT * FROM zbb_plans WHERE org_id = $1 AND year = $2`, [ORG, year]);
         if (!plan) {
-          const def = { base_start: `${year - 2}-11-01`, base_end: `${year - 1}-10-31`, load_pct: 18 };
+          const def = { base_start: `${year - 2}-11-01`, base_end: `${year - 1}-10-31`, load_pct: 18, fx: DEFAULT_FX, cogs_departments: ['KY Plant'] };
           ({ rows: [plan] } = await pool.query(
             `INSERT INTO zbb_plans (org_id, year, name, settings, created_by) VALUES ($1, $2, $3, $4, $5)
              ON CONFLICT (org_id, year) DO UPDATE SET updated_at = now() RETURNING *`,
@@ -172,6 +184,7 @@ module.exports = function (app, { pool }) {
             }
           }
         }
+        if (!plan.settings.fx) plan.settings = { ...plan.settings, fx: DEFAULT_FX, cogs_departments: plan.settings.cogs_departments || ['KY Plant'] };
         const [people, lines, actuals, cats] = await Promise.all([
           pool.query(`SELECT * FROM zbb_people WHERE plan_id = $1 ORDER BY sort_order, name`, [plan.id]),
           pool.query(`SELECT * FROM zbb_lines WHERE plan_id = $1 ORDER BY category, baseline DESC, vendor`, [plan.id]),
@@ -196,6 +209,12 @@ module.exports = function (app, { pool }) {
         if (s.load_pct != null) next.load_pct = Math.min(100, Math.max(0, num(s.load_pct)));
         if (DATE_RE.test(s.base_start || '')) next.base_start = s.base_start;
         if (DATE_RE.test(s.base_end || '')) next.base_end = s.base_end;
+        if (s.fx && typeof s.fx === 'object') {
+          next.fx = {};
+          for (const [k, v] of Object.entries(s.fx)) if (CUR_RE.test(k) && num(v) > 0) next.fx[k] = num(v);
+          next.fx.USD = 1;
+        }
+        if (Array.isArray(s.cogs_departments)) next.cogs_departments = s.cogs_departments.map((x) => String(x).slice(0, 80)).slice(0, 30);
         if (Array.isArray(s.hidden_categories)) next.hidden_categories = s.hidden_categories.map((x) => String(x).slice(0, 80)).slice(0, 30);
         const { rows: [p] } = await pool.query(`UPDATE zbb_plans SET settings = $1, updated_at = now() WHERE id = $2 RETURNING *`, [next, plan.id]);
         return res.json({ plan: p });
@@ -286,26 +305,100 @@ module.exports = function (app, { pool }) {
         }
       }
 
+      if (action === 'import_people') {
+        const plan = await planById(b.plan_id);
+        if (!plan) return res.status(404).json({ error: 'plan not found' });
+        const rows = (Array.isArray(b.rows) ? b.rows : []).slice(0, 2000)
+          .map((r) => ({
+            name: str(r.name, 120), title: str(r.title, 120), department: str(r.department, 80), manager: str(r.manager, 120),
+            currency: CUR_RE.test(String(r.currency || '').toUpperCase()) ? String(r.currency).toUpperCase() : 'USD',
+            salary: Math.max(0, num(r.salary)),
+          }))
+          .filter((r) => r.name);
+        if (!rows.length) return res.status(400).json({ error: 'No rows with an employee name were found.' });
+        const { rows: profs } = await pool.query(
+          `SELECT p.id, lower(p.display_name) AS n FROM profiles p JOIN org_memberships om ON om.user_id = p.id AND om.org_id = $1`, [ORG]);
+        const profBy = new Map(profs.map((x) => [x.n, x.id]));
+        const client = await pool.connect();
+        try {
+          await client.query('BEGIN');
+          await client.query(`DELETE FROM zbb_people WHERE plan_id = $1`, [plan.id]);
+          const ids = new Map();
+          const insert = async (r, note) => {
+            const { rows: [x] } = await client.query(
+              `INSERT INTO zbb_people (plan_id, profile_id, name, title, department, status, currency, current_salary, salary, is_existing, source, note)
+               VALUES ($1, $2, $3, $4, $5, 'keep', $6, $7, $7, true, 'hris', $8) RETURNING id`,
+              [plan.id, profBy.get(r.name.toLowerCase()) || null, r.name, r.title, r.department, r.currency, r.salary, note || null]);
+            ids.set(r.name.toLowerCase(), x.id);
+          };
+          for (const r of rows) if (!ids.has(r.name.toLowerCase())) await insert(r);
+          // Managers who are not in the export (e.g. the CEO) become top-level placeholders.
+          for (const m of new Set(rows.map((r) => r.manager).filter(Boolean))) {
+            if (!ids.has(m.toLowerCase())) await insert({ name: m, currency: 'USD', salary: 0 }, 'Not in the HRIS export: add comp if it belongs in this budget');
+          }
+          for (const r of rows) {
+            const me = ids.get(r.name.toLowerCase()); const mg = r.manager && ids.get(r.manager.toLowerCase());
+            if (mg && mg !== me) await client.query(`UPDATE zbb_people SET manager_id = $1 WHERE id = $2`, [mg, me]);
+          }
+          const fx = { ...DEFAULT_FX, ...(plan.settings.fx || {}) };
+          await client.query(`UPDATE zbb_plans SET settings = $2, updated_at = now() WHERE id = $1`,
+            [plan.id, { ...plan.settings, fx, cogs_departments: plan.settings.cogs_departments || ['KY Plant'], people_imported_at: new Date().toISOString() }]);
+          await client.query('COMMIT');
+        } catch (e) {
+          await client.query('ROLLBACK').catch(() => {});
+          throw e;
+        } finally {
+          client.release();
+        }
+        const { rows: people } = await pool.query(`SELECT * FROM zbb_people WHERE plan_id = $1 ORDER BY name`, [plan.id]);
+        const missingFx = [...new Set(rows.map((r) => r.currency))].filter((c) => !({ ...DEFAULT_FX, ...(plan.settings.fx || {}) })[c]);
+        return res.json({ people, imported: rows.length, missing_fx: missingFx });
+      }
+
+      if (action === 'bulk_people') {
+        const plan = await planById(b.plan_id);
+        if (!plan) return res.status(404).json({ error: 'plan not found' });
+        const ids = (Array.isArray(b.ids) ? b.ids : []).filter((x) => UUID_RE.test(String(x))).slice(0, 2000);
+        if (!ids.length) return res.status(400).json({ error: 'no people selected' });
+        let q;
+        if (b.op === 'raise') {
+          const pct = Math.min(200, Math.max(-100, num(b.pct)));
+          q = pool.query(`UPDATE zbb_people SET salary = round(current_salary * (1 + $3::numeric / 100)), updated_at = now()
+                           WHERE plan_id = $1 AND id = ANY($2::uuid[]) RETURNING *`, [plan.id, ids, pct]);
+        } else if (b.op === 'reset') {
+          q = pool.query(`UPDATE zbb_people SET salary = current_salary, updated_at = now()
+                           WHERE plan_id = $1 AND id = ANY($2::uuid[]) AND current_salary > 0 RETURNING *`, [plan.id, ids]);
+        } else if (b.op === 'status' && ['keep', 'remove'].includes(b.status)) {
+          q = pool.query(`UPDATE zbb_people SET status = CASE WHEN $3 = 'keep' AND NOT is_existing THEN 'new' ELSE $3 END,
+                                 end_month = CASE WHEN $3 = 'remove' THEN 0 ELSE 12 END, updated_at = now()
+                           WHERE plan_id = $1 AND id = ANY($2::uuid[]) RETURNING *`, [plan.id, ids, b.status]);
+        } else return res.status(400).json({ error: 'unknown bulk operation' });
+        const { rows } = await q;
+        return res.json({ people: rows });
+      }
+
       if (action === 'save_person') {
         const plan = await planById(b.plan_id);
         if (!plan) return res.status(404).json({ error: 'plan not found' });
         const p = b.person || {};
         const status = ['keep', 'remove', 'new'].includes(p.status) ? p.status : 'keep';
         const manager = UUID_RE.test(String(p.manager_id || '')) ? p.manager_id : null;
+        const cur = CUR_RE.test(String(p.currency || '')) ? p.currency : 'USD';
         const vals = [str(p.name, 120) || 'New role', str(p.title, 120), str(p.department, 80), manager, status,
-          Math.max(0, num(p.salary)), Math.max(0, num(p.bonus)), int(p.start_month, 1, 12, 1), int(p.end_month, 0, 12, 12), str(p.note, 1000)];
+          Math.max(0, num(p.salary)), Math.max(0, num(p.bonus)), int(p.start_month, 1, 12, 1), int(p.end_month, 0, 12, 12), str(p.note, 1000),
+          cur, Math.max(0, num(p.current_salary))];
         if (UUID_RE.test(String(p.id || ''))) {
           if (manager === p.id) return res.status(400).json({ error: 'someone cannot report to themselves' });
           const { rows: [r] } = await pool.query(
             `UPDATE zbb_people SET name=$1, title=$2, department=$3, manager_id=$4, status=$5, salary=$6, bonus=$7,
-                    start_month=$8, end_month=$9, note=$10, updated_at=now()
-              WHERE id=$11 AND plan_id=$12 RETURNING *`, [...vals, p.id, plan.id]);
+                    start_month=$8, end_month=$9, note=$10, currency=$11, current_salary=$12, updated_at=now()
+              WHERE id=$13 AND plan_id=$14 RETURNING *`, [...vals, p.id, plan.id]);
           if (!r) return res.status(404).json({ error: 'person not found' });
           return res.json({ person: r });
         }
         const { rows: [r] } = await pool.query(
-          `INSERT INTO zbb_people (plan_id, name, title, department, manager_id, status, salary, bonus, start_month, end_month, note)
-           VALUES ($11, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`, [...vals, plan.id]);
+          `INSERT INTO zbb_people (plan_id, name, title, department, manager_id, status, salary, bonus, start_month, end_month, note, currency, current_salary, source)
+           VALUES ($13, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'manual') RETURNING *`, [...vals, plan.id]);
         return res.json({ person: r });
       }
 
@@ -314,7 +407,7 @@ module.exports = function (app, { pool }) {
         const { rows: [p] } = await pool.query(
           `SELECT z.* FROM zbb_people z JOIN zbb_plans pl ON pl.id = z.plan_id AND pl.org_id = $2 WHERE z.id = $1`, [b.id, ORG]);
         if (!p) return res.status(404).json({ error: 'not found' });
-        if (p.profile_id) return res.status(400).json({ error: 'Existing staff are marked as removed rather than deleted, so the saving shows.' });
+        if (p.is_existing || p.profile_id) return res.status(400).json({ error: 'Existing staff are marked as removed rather than deleted, so the saving shows.' });
         await pool.query(`UPDATE zbb_people SET manager_id = $2 WHERE manager_id = $1`, [p.id, p.manager_id]);
         await pool.query(`DELETE FROM zbb_people WHERE id = $1`, [p.id]);
         return res.json({ ok: true });

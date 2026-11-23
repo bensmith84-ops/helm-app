@@ -1,11 +1,14 @@
 "use client";
 // Finance > Zero-Based Budget: a zero-based Opex plan for one year.
-// People: an org chart seeded from Helm, where each person is kept, removed or
-// added, with salary, bonus and the months they are paid. Vendors and software:
-// every Opex vendor from QuickBooks (baseline = trailing actuals) starts "to
-// decide" and counts as zero until kept or changed; new tools are searched in
-// QuickBooks or priced from their public pricing pages. Removed: what was cut.
-// Data lives behind POST /zbb (owners/admins), not /rest/v1, because of salaries.
+// People: an org chart imported from the HRIS export (current comp in each
+// person's pay currency), where each person is kept, removed or added and their
+// plan-year salary, bonus and paid months are set; FX rates convert to USD and
+// departments marked COGS (the KY plant) sit outside the Opex totals.
+// Vendors and software: every Opex vendor from QuickBooks (baseline = trailing
+// actuals) starts "to decide" and counts as zero until kept or changed; new
+// tools are searched in QuickBooks or priced from public pricing pages.
+// Removed: what was cut. Export: the whole plan as an Excel workbook.
+// Data lives behind POST /zbb (named people only), not /rest/v1, because of salaries.
 import { useState, useEffect, useMemo, useCallback, useRef, Fragment } from "react";
 import { T } from "../tokens";
 import { supabase } from "../lib/supabase";
@@ -23,8 +26,9 @@ const money = (n) => {
 };
 const full = (n) => `$${Math.round(Number(n) || 0).toLocaleString("en-US")}`;
 const signed = (n) => (n > 0 ? "+" : "") + money(n);
+const local = (n, cur) => (cur && cur !== "USD" ? `${cur} ${Math.round(Number(n) || 0).toLocaleString("en-US")}` : full(n));
 const parseMoney = (s) => {
-  let t = String(s ?? "").replace(/[$,\s]/g, "");
+  let t = String(s ?? "").replace(/[$,\s]/g, "").replace(/^[A-Z]{3}/i, "");
   const k = /k$/i.test(t); const m = /m$/i.test(t); t = t.replace(/[km]$/i, "");
   const n = parseFloat(t);
   return Number.isFinite(n) ? n * (k ? 1e3 : m ? 1e6 : 1) : 0;
@@ -40,10 +44,30 @@ async function call(body) {
   return data;
 }
 
-// Paid months in the plan year and cost of a person.
+// SheetJS from its CDN, as the 3PL billing import does.
+let xlsxPromise = null;
+function loadXLSX() {
+  if (typeof window !== "undefined" && window.XLSX) return Promise.resolve(window.XLSX);
+  if (xlsxPromise) return xlsxPromise;
+  xlsxPromise = new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = "https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js";
+    s.onload = () => resolve(window.XLSX);
+    s.onerror = () => { xlsxPromise = null; reject(new Error("Could not load the Excel library")); };
+    document.head.appendChild(s);
+  });
+  return xlsxPromise;
+}
+
+// ── People cost model ─────────────────────────────────────────────────────────
+// ctx = { load (%), fx: {CUR: USD per unit}, cogs: Set(departments outside Opex) }
+const fxOf = (p, ctx) => (p.currency && p.currency !== "USD" ? Number(ctx.fx?.[p.currency]) || 0 : 1);
 const paidMonths = (p) => (p.status === "remove" ? Math.max(0, Number(p.end_month) || 0) : Math.max(0, (Number(p.end_month) || 12) - (Number(p.start_month) || 1) + 1));
-const personCost = (p, load) => ((Number(p.salary) || 0) + (Number(p.bonus) || 0)) * (1 + load / 100) * paidMonths(p) / 12;
-const personBase = (p, load) => (p.status === "new" ? 0 : ((Number(p.salary) || 0) + (Number(p.bonus) || 0)) * (1 + load / 100));
+const personCost = (p, ctx) => ((Number(p.salary) || 0) + (Number(p.bonus) || 0)) * fxOf(p, ctx) * (1 + ctx.load / 100) * paidMonths(p) / 12;
+// Current run rate: today's salary (from the HRIS export), loaded, in USD. New roles have none.
+const personCurrent = (p, ctx) => (p.status === "new" || !p.is_existing ? 0 : (Number(p.current_salary) || 0) * fxOf(p, ctx) * (1 + ctx.load / 100));
+const isOpex = (p, ctx) => !ctx.cogs.has(p.department || "");
+const changePct = (p) => (Number(p.current_salary) > 0 ? ((Number(p.salary) || 0) / Number(p.current_salary) - 1) * 100 : null);
 const catLabel = (c) => (c === "People Costs" ? "Other people costs (hiring, training, perks, fees)" : c);
 const lineAmount = (l) => (l.status === "keep" || l.status === "change" || l.status === "new" ? Number(l.amount) || 0 : 0);
 
@@ -94,12 +118,13 @@ export default function ZeroBasedBudget({ isMobile }) {
     try { setData(await call({ action: "load", year })); } catch (e) { setErr(e.message); }
   }, [year]);
   useEffect(() => { setData(null); load(); }, [load]);
-  useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(""), 3500); return () => clearTimeout(t); }, [toast]);
+  useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(""), 4000); return () => clearTimeout(t); }, [toast]);
 
   const plan = data?.plan;
   const settings = plan?.settings || {};
   const load_pct = Number(settings.load_pct ?? 18);
   const hidden = settings.hidden_categories || DEFAULT_HIDDEN;
+  const ctx = useMemo(() => ({ load: load_pct, fx: settings.fx || { USD: 1 }, cogs: new Set(settings.cogs_departments || ["KY Plant"]) }), [load_pct, settings.fx, settings.cogs_departments]);
 
   const savePerson = async (person) => {
     const r = await call({ action: "save_person", plan_id: plan.id, person });
@@ -112,6 +137,16 @@ export default function ZeroBasedBudget({ isMobile }) {
       const gone = d.people.find((p) => p.id === id);
       return { ...d, people: d.people.filter((p) => p.id !== id).map((p) => (p.manager_id === id ? { ...p, manager_id: gone?.manager_id || null } : p)) };
     });
+  };
+  const bulkPeople = async (ids, op, extra = {}) => {
+    const r = await call({ action: "bulk_people", plan_id: plan.id, ids, op, ...extra });
+    const by = new Map(r.people.map((p) => [p.id, p]));
+    setData((d) => ({ ...d, people: d.people.map((p) => by.get(p.id) || p) }));
+  };
+  const importPeople = async (rows) => {
+    const r = await call({ action: "import_people", plan_id: plan.id, rows });
+    await load();
+    setToast(`Imported ${r.imported} people.${r.missing_fx?.length ? ` Add FX rates for ${r.missing_fx.join(", ")}.` : ""}`);
   };
   const saveLine = async (line) => {
     const r = await call({ action: "save_line", plan_id: plan.id, line });
@@ -149,24 +184,35 @@ export default function ZeroBasedBudget({ isMobile }) {
       if (l.status === "review") e.review++; else if (l.status === "new") { e.newN++; e.added += lineAmount(l); } else e[l.status]++;
       if (l.status === "remove") e.removed += Number(l.baseline) || 0;
     }
-    const people = data.people;
-    const pplPlan = people.reduce((s, p) => s + personCost(p, load_pct), 0);
-    const pplBaseEntered = people.reduce((s, p) => s + personBase(p, load_pct), 0);
-    const head = { keep: people.filter((p) => p.status === "keep").length, remove: people.filter((p) => p.status === "remove").length, add: people.filter((p) => p.status === "new").length };
-    const missingPay = people.filter((p) => p.status !== "remove" && !(Number(p.salary) > 0)).length;
+    const opex = data.people.filter((p) => isOpex(p, ctx));
+    const cogsPeople = data.people.filter((p) => !isOpex(p, ctx));
+    const pplPlan = opex.reduce((s, p) => s + personCost(p, ctx), 0);
+    const pplCurrent = opex.reduce((s, p) => s + personCurrent(p, ctx), 0);
+    const cogsPlan = cogsPeople.reduce((s, p) => s + personCost(p, ctx), 0);
+    const cogsCurrent = cogsPeople.reduce((s, p) => s + personCurrent(p, ctx), 0);
+    const head = { keep: opex.filter((p) => p.status === "keep").length, remove: opex.filter((p) => p.status === "remove").length, add: opex.filter((p) => p.status === "new").length };
+    const missingPay = data.people.filter((p) => p.status !== "remove" && !(Number(p.salary) > 0)).length;
+    const missingFx = [...new Set(data.people.map((p) => p.currency).filter((c) => c && c !== "USD" && !(Number(ctx.fx?.[c]) > 0)))];
     const list = Object.values(cats).filter((c) => c.category !== "People Costs" || c.baseline || c.plan).sort((a, b) => b.baseline - a.baseline);
     const shown = list.filter((c) => visible(c.category));
     const vBase = shown.reduce((s, c) => s + c.baseline, 0);
     const vPlan = shown.reduce((s, c) => s + c.plan, 0);
     const review = data.lines.filter((l) => l.status === "review" && visible(l.category)).length;
-    return { list, shown, vBase, vPlan, payBase, salBase, loadBase, pplPlan, pplBaseEntered, head, missingPay, review, actualLoad: salBase ? (loadBase / salBase) * 100 : null };
-  }, [data, hidden, load_pct]);
+    return { list, shown, vBase, vPlan, payBase, salBase, loadBase, pplPlan, pplCurrent, cogsPlan, cogsCurrent, cogsN: cogsPeople.length, head, missingPay, missingFx, review, actualLoad: salBase ? (loadBase / salBase) * 100 : null };
+  }, [data, hidden, ctx]);
+
+  const exportExcel = async () => {
+    setBusy("Building the Excel file…");
+    try { await exportWorkbook({ data, totals, ctx, year }); } catch (e) { setToast(e.message); }
+    setBusy("");
+  };
 
   if (err && !data) return <div style={{ padding: 24, color: T.red, fontSize: 13 }}>{err}</div>;
   if (!data) return <div style={{ padding: 24, color: T.text3, fontSize: 13 }}>Loading the zero-based budget…</div>;
 
   const noActuals = !plan.actuals_refreshed_at;
-  const totalBase = totals.vBase + totals.payBase;
+  const pplBase = totals.pplCurrent || totals.payBase;
+  const totalBase = totals.vBase + pplBase;
   const totalPlan = totals.vPlan + totals.pplPlan;
 
   const TABS = [
@@ -177,11 +223,11 @@ export default function ZeroBasedBudget({ isMobile }) {
   ];
 
   return (
-    <div style={{ "--zbb-th": T.text3, maxWidth: 1400 }}>
+    <div style={{ "--zbb-th": T.text3, maxWidth: 1500 }}>
       {/* Header */}
       <div style={{ display: "flex", alignItems: "flex-end", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
         <div style={{ flex: "1 1 320px", minWidth: 0 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: T.text3, letterSpacing: ".06em", textTransform: "uppercase" }}>Zero-based budget · Opex</div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: T.text3, letterSpacing: ".06em", textTransform: "uppercase" }}>Zero-based budget · Opex · private to you</div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 2 }}>
             <h2 style={{ margin: 0, fontSize: 20, color: T.text }}>FY {year}</h2>
             <select value={year} onChange={(e) => setYear(Number(e.target.value))} style={{ fontSize: 12, padding: "3px 6px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text }}>
@@ -189,8 +235,8 @@ export default function ZeroBasedBudget({ isMobile }) {
             </select>
           </div>
           <div style={{ fontSize: 12, color: T.text3, marginTop: 4 }}>
-            Every line starts at zero. Baseline is QuickBooks actuals {settings.base_start ? `${settings.base_start.slice(0, 7)} to ${settings.base_end.slice(0, 7)}` : ""}
-            {plan.actuals_refreshed_at ? ` (pulled ${new Date(plan.actuals_refreshed_at).toLocaleDateString()})` : " (not pulled yet)"}.
+            Every line starts at zero. Vendor baseline is QuickBooks actuals {settings.base_start ? `${settings.base_start.slice(0, 7)} to ${settings.base_end.slice(0, 7)}` : ""}
+            {plan.actuals_refreshed_at ? ` (pulled ${new Date(plan.actuals_refreshed_at).toLocaleDateString()})` : " (not pulled yet)"}; people baseline is current comp.
           </div>
         </div>
         <label style={{ fontSize: 11, color: T.text3, display: "flex", alignItems: "center", gap: 6 }} title="Payroll taxes, benefits and 401k on top of salary and bonus">
@@ -200,6 +246,7 @@ export default function ZeroBasedBudget({ isMobile }) {
             style={{ width: 58, padding: "4px 6px", fontSize: 12, borderRadius: 5, border: `1px solid ${T.border}`, background: T.surface2, color: T.text }} />%
           {totals.actualLoad != null && <span style={{ color: T.text3 }}>(QBO actual {totals.actualLoad.toFixed(1)}%)</span>}
         </label>
+        <button onClick={exportExcel} disabled={!!busy} style={{ ...btn(false), padding: "7px 12px", fontSize: 12 }}>Export to Excel</button>
         <button onClick={refresh} disabled={!!busy} style={{ ...btn(true), padding: "7px 12px", fontSize: 12 }}>{busy || (noActuals ? "Pull QuickBooks actuals" : "Refresh actuals")}</button>
       </div>
 
@@ -209,12 +256,13 @@ export default function ZeroBasedBudget({ isMobile }) {
           Start by pulling QuickBooks actuals. That loads every Opex (6xxxx) account by vendor for the baseline window and lists each vendor here to keep, change or remove. It takes about a minute.
         </div>
       )}
+      {totals.missingFx.length > 0 && <div style={{ padding: "8px 12px", marginBottom: 10, borderRadius: 8, background: T.yellowDim || T.surface2, color: T.amber || T.yellow, fontSize: 12 }}>No FX rate for {totals.missingFx.join(", ")}: those people count as $0 until you add one on the Org chart tab.</div>}
 
       {/* Tiles */}
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(5, minmax(0, 1fr))", gap: 10, marginBottom: 14 }}>
-        <Tile label="Baseline Opex" value={money(totalBase)} sub="trailing actuals, shown categories" />
+        <Tile label="Baseline Opex" value={money(totalBase)} sub="current comp + trailing vendor actuals" />
         <Tile label={`FY ${year} plan`} value={money(totalPlan)} sub={`${signed(totalPlan - totalBase)} vs baseline`} tone={totalPlan <= totalBase ? T.green : T.red} />
-        <Tile label="People" value={money(totals.pplPlan)} sub={`${totals.head.keep + totals.head.add} ${totals.head.keep + totals.head.add === 1 ? "head" : "heads"} · ${totals.head.remove} removed · ${totals.head.add} new`} />
+        <Tile label="People (Opex)" value={money(totals.pplPlan)} sub={`${totals.head.keep + totals.head.add} heads · ${totals.head.remove} removed · ${totals.head.add} new · now ${money(totals.pplCurrent)}`} />
         <Tile label="Vendors & software" value={money(totals.vPlan)} sub={`baseline ${money(totals.vBase)}`} />
         <Tile label="Still to decide" value={String(totals.review)} sub={totals.missingPay ? `${totals.missingPay} people without salary` : "vendor lines counting as $0"} tone={totals.review ? T.amber || T.yellow : T.green} />
       </div>
@@ -235,9 +283,10 @@ export default function ZeroBasedBudget({ isMobile }) {
       </div>
 
       {tab === "summary" && <Summary totals={totals} year={year} />}
-      {tab === "people" && <OrgChart people={data.people} load={load_pct} savePerson={wrap(savePerson)} deletePerson={wrap(deletePerson)} isMobile={isMobile} payBase={totals.payBase} />}
+      {tab === "people" && <People people={data.people} ctx={ctx} settings={settings} year={year} savePerson={wrap(savePerson)} deletePerson={wrap(deletePerson)}
+        bulkPeople={wrap(bulkPeople)} importPeople={wrap(importPeople)} saveSettings={wrap(saveSettings)} isMobile={isMobile} totals={totals} setToast={setToast} />}
       {tab === "lines" && <Lines lines={data.lines.filter((l) => !hidden.includes(l.category || ""))} planId={plan.id} categories={data.categories} saveLine={wrap(saveLine)} deleteLine={wrap(deleteLine)} isMobile={isMobile} setToast={setToast} allLines={data.lines} />}
-      {tab === "removed" && <Removed people={data.people} lines={data.lines.filter((l) => !hidden.includes(l.category || ""))} load={load_pct} />}
+      {tab === "removed" && <Removed people={data.people} lines={data.lines.filter((l) => !hidden.includes(l.category || ""))} ctx={ctx} />}
 
       {toast && <div style={{ position: "fixed", bottom: 20, right: 20, maxWidth: 420, padding: "10px 14px", borderRadius: 8, background: T.surface3 || T.surface2, color: T.text, border: `1px solid ${T.border}`, fontSize: 12, zIndex: 50, boxShadow: "0 6px 20px rgba(0,0,0,.25)" }}>{toast}</div>}
     </div>
@@ -257,7 +306,7 @@ function Tile({ label, value, sub, tone }) {
 // ── Summary ─────────────────────────────────────────────────────────────────
 function Summary({ totals, year }) {
   const rows = [
-    { category: "People (salary, bonus, taxes & benefits)", baseline: totals.payBase, plan: totals.pplPlan, people: true },
+    { category: "People (salary, bonus, taxes & benefits)", baseline: totals.pplCurrent || totals.payBase, plan: totals.pplPlan, people: true },
     ...totals.shown,
   ];
   const tb = rows.reduce((s, r) => s + r.baseline, 0); const tp = rows.reduce((s, r) => s + r.plan, 0);
@@ -295,21 +344,21 @@ function Summary({ totals, year }) {
         </tbody>
       </table>
       <div style={{ padding: "8px 10px", fontSize: 11, color: T.text3, borderTop: `1px solid ${T.border}` }}>
-        Grey bar: baseline actuals. Coloured bar: FY {year} plan. Vendor lines still "to decide" count as $0, as zero-based budgeting intends. The people baseline is QuickBooks pay accounts (60010–60059); the plan is the org chart.
+        Grey bar: baseline. Coloured bar: FY {year} plan. People baseline is current comp from the HRIS import, loaded for taxes and benefits (QuickBooks pay accounts 60010–60059 over the baseline window: {full(totals.payBase)}).
+        {totals.cogsN > 0 && <> {totals.cogsN} people in COGS departments are outside these totals (now {money(totals.cogsCurrent)}, plan {money(totals.cogsPlan)}).</>} Vendor lines still "to decide" count as $0.
       </div>
     </div>
   );
 }
 
-// ── Org chart ───────────────────────────────────────────────────────────────
-function OrgChart({ people, load, savePerson, deletePerson, isMobile, payBase }) {
+// ── People: org chart + table ───────────────────────────────────────────────
+function People({ people, ctx, settings, year, savePerson, deletePerson, bulkPeople, importPeople, saveSettings, isMobile, totals, setToast }) {
   const [view, setView] = useState("chart");
   const [q, setQ] = useState("");
   const [dept, setDept] = useState("");
-  const [open, setOpen] = useState(() => new Set());
   const [edit, setEdit] = useState(null);
-  const [drag, setDrag] = useState(null);
-  const [allOpen, setAllOpen] = useState(true);
+  const [pending, setPending] = useState(null); // parsed import awaiting confirmation
+  const fileRef = useRef(null);
 
   const byId = useMemo(() => new Map(people.map((p) => [p.id, p])), [people]);
   const kids = useMemo(() => {
@@ -319,8 +368,8 @@ function OrgChart({ people, load, savePerson, deletePerson, isMobile, payBase })
       if (!m.has(k)) m.set(k, []);
       m.get(k).push(p);
     }
-    for (const v of m.values()) v.sort((a, b) => (kidsCount(b) - kidsCount(a)) || a.name.localeCompare(b.name));
-    function kidsCount(p) { return people.filter((x) => x.manager_id === p.id).length; }
+    const size = (id) => (m.get(id) || []).length;
+    for (const v of m.values()) v.sort((a, b) => (size(b.id) - size(a.id)) || a.name.localeCompare(b.name));
     return m;
   }, [people, byId]);
   const subtree = useCallback((id) => {
@@ -329,134 +378,298 @@ function OrgChart({ people, load, savePerson, deletePerson, isMobile, payBase })
     return out;
   }, [kids]);
   const depts = [...new Set(people.map((p) => p.department).filter(Boolean))].sort();
+  const currencies = [...new Set(people.map((p) => p.currency).filter((c) => c && c !== "USD"))].sort();
   const match = (p) => (!dept || p.department === dept) && (!q || `${p.name} ${p.title || ""} ${p.department || ""}`.toLowerCase().includes(q.toLowerCase()));
-  const filtering = !!(q || dept);
-  const visibleIds = useMemo(() => {
-    if (!filtering) return null;
-    const s = new Set();
-    for (const p of people) if (match(p)) { let c = p; let guard = 0; while (c && guard++ < 50) { s.add(c.id); c = byId.get(c.manager_id); } }
-    return s;
-  }, [people, q, dept, byId]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const isOpen = (id) => (filtering ? true : allOpen ? !open.has(id) : open.has(id));
-  const toggle = (id) => setOpen((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const set = (p, patch) => savePerson({ ...p, ...patch });
 
-  const removeWithTeam = (p) => {
-    const team = subtree(p.id);
-    set(p, { status: "remove", end_month: 0 });
-    if (team.length) team.forEach((t) => t.status !== "remove" && set(t, { status: "remove", end_month: 0 }));
-  };
   const addRole = async (manager) => {
-    const r = await savePerson({ name: "New role", title: "", department: manager?.department || "", manager_id: manager?.id || null, status: "new", start_month: 1, end_month: 12 });
+    const r = await savePerson({ name: "New role", title: "", department: manager?.department || "", manager_id: manager?.id || null, status: "new", start_month: 1, end_month: 12, currency: manager?.currency || "USD" });
     if (r) setEdit(r);
   };
-  const onDrop = (target) => {
-    if (!drag || drag === target?.id) return;
-    if (target && subtree(drag).some((x) => x.id === target.id)) return; // no cycles
-    const p = byId.get(drag); if (p) set(p, { manager_id: target ? target.id : null });
-    setDrag(null);
+  const reassign = (id, target) => {
+    if (!id || id === target?.id) return;
+    if (target && subtree(id).some((x) => x.id === target.id)) { setToast("Can't report to someone in their own team."); return; }
+    const p = byId.get(id); if (p) set(p, { manager_id: target ? target.id : null });
+  };
+  const removeWithTeam = (p) => bulkPeople([p.id, ...subtree(p.id).map((t) => t.id)], "status", { status: "remove" });
+
+  const onFile = async (f) => {
+    if (!f) return;
+    try {
+      const X = await loadXLSX();
+      const wb = X.read(await f.arrayBuffer(), { type: "array" });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const grid = X.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null });
+      const hi = grid.findIndex((r) => (r || []).some((c) => /employee|name/i.test(String(c || ""))));
+      if (hi < 0) throw new Error("Couldn't find a header row with an Employee or Name column.");
+      const H = grid[hi].map((c) => String(c || "").trim());
+      const find = (re, not) => H.findIndex((h) => re.test(h) && !(not && not.test(h)));
+      const col = {
+        name: find(/^employee$|employee name|^name$|full name/i),
+        title: find(/position|title|role/i),
+        department: find(/department|dept|team/i),
+        manager: find(/manager|reports to/i),
+        currency: find(/currency/i),
+        salary: find(/salary|annual|comp|pay/i, /currency/i),
+      };
+      if (col.name < 0) col.name = find(/employee|name/i, /manager/i);
+      if (col.name < 0 || col.salary < 0) throw new Error("The file needs an employee name column and a salary column.");
+      const rows = grid.slice(hi + 1).filter((r) => r && r[col.name]).map((r) => ({
+        name: String(r[col.name]).trim(),
+        title: col.title >= 0 && r[col.title] ? String(r[col.title]).trim() : null,
+        department: col.department >= 0 && r[col.department] ? String(r[col.department]).trim() : null,
+        manager: col.manager >= 0 && r[col.manager] ? String(r[col.manager]).trim() : null,
+        currency: col.currency >= 0 && r[col.currency] ? String(r[col.currency]).trim().toUpperCase() : "USD",
+        salary: parseMoney(r[col.salary]),
+      }));
+      if (!rows.length) throw new Error("No employee rows found.");
+      setPending({ file: f.name, rows, currencies: [...new Set(rows.map((r) => r.currency))] });
+    } catch (e) { setToast(e.message); }
+    if (fileRef.current) fileRef.current.value = "";
   };
 
-  const renderNode = (p, depth) => {
-    if (visibleIds && !visibleIds.has(p.id)) return null;
-    const ch = kids.get(p.id) || [];
-    const team = ch.length ? subtree(p.id) : [];
-    const teamCost = team.reduce((s, x) => s + personCost(x, load), 0);
-    const gone = p.status === "remove";
-    const mgr = byId.get(p.manager_id);
-    const orphan = mgr && mgr.status === "remove" && !gone;
-    const c = STATUS[p.status].c();
-    return (
-      <div key={p.id} style={{ marginLeft: depth ? (isMobile ? 12 : 22) : 0, borderLeft: depth ? `1px dashed ${T.border}` : "none", paddingLeft: depth ? 10 : 0 }}>
-        <div draggable onDragStart={() => setDrag(p.id)} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); onDrop(p); }}
-          style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: isMobile ? "wrap" : "nowrap", padding: "6px 8px", margin: "4px 0", borderRadius: 8,
-            border: `1px solid ${orphan ? (T.amber || T.yellow) : T.border}`, borderLeft: `3px solid ${c}`, background: drag === p.id ? T.accentDim : T.surface, opacity: gone ? 0.62 : 1 }}>
-          <button onClick={() => toggle(p.id)} disabled={!ch.length} style={{ width: 18, border: "none", background: "none", color: T.text3, cursor: ch.length ? "pointer" : "default", fontSize: 11, padding: 0 }}>{ch.length ? (isOpen(p.id) ? "▾" : "▸") : "·"}</button>
-          <div style={{ flex: "1 1 200px", minWidth: 0, cursor: "pointer" }} onClick={() => setEdit(p)}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: T.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-              <span style={{ textDecoration: gone ? "line-through" : "none" }}>{p.name}</span> {p.status !== "keep" && <Pill status={p.status} small />}
-            </div>
-            <div style={{ fontSize: 11, color: T.text3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-              {[p.title, p.department].filter(Boolean).join(" · ") || "No title"}
-              {ch.length ? ` · ${team.filter((x) => x.status !== "remove").length}/${team.length} in team, ${money(teamCost)}` : ""}
-              {orphan ? " · manager removed, reassign" : ""}
-              {p.status === "new" ? ` · from ${MONTHS[(p.start_month || 1) - 1]}` : ""}
-              {gone && p.end_month ? ` · paid through ${MONTHS[p.end_month - 1]}` : ""}
-            </div>
-          </div>
-          <span style={{ fontSize: 10, color: T.text3 }}>Salary</span>
-          <MoneyInput value={Number(p.salary)} onSave={(v) => set(p, { salary: v })} width={86} />
-          <span style={{ fontSize: 12, color: T.text2, width: 70, textAlign: "right", fontVariantNumeric: "tabular-nums" }} title="Plan cost: (salary + bonus) × load × months paid">{money(personCost(p, load))}</span>
-          {gone
-            ? <button onClick={() => set(p, { status: p.profile_id ? "keep" : "new", end_month: 12 })} style={btn(false)}>Restore</button>
-            : <button onClick={() => set(p, { status: "remove", end_month: 0 })} style={btn(false, T.red)} title="Remove from the plan">Remove</button>}
-          <button onClick={() => addRole(p)} style={btn(false)} title="Add a new role reporting to this person">+ Report</button>
-        </div>
-        {ch.length > 0 && isOpen(p.id) && ch.map((k) => renderNode(k, depth + 1))}
-      </div>
-    );
-  };
-
-  const roots = kids.get("root") || [];
-  const missing = people.filter((p) => p.status !== "remove" && !(Number(p.salary) > 0)).length;
-  const planTotal = people.reduce((s, p) => s + personCost(p, load), 0);
+  const opexPeople = people.filter((p) => isOpex(p, ctx));
+  const planOpex = opexPeople.reduce((s, p) => s + personCost(p, ctx), 0);
+  const nowOpex = opexPeople.reduce((s, p) => s + personCurrent(p, ctx), 0);
 
   return (
     <div>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people, titles…" style={{ flex: "1 1 200px", padding: "6px 10px", fontSize: 12, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text }} />
+        <button onClick={() => setView("chart")} style={btn(view === "chart")}>Org chart</button>
+        <button onClick={() => setView("table")} style={btn(view === "table")}>Table</button>
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people, titles…" style={{ flex: "1 1 180px", padding: "6px 10px", fontSize: 12, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text }} />
         <select value={dept} onChange={(e) => setDept(e.target.value)} style={{ padding: "6px 8px", fontSize: 12, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text }}>
           <option value="">All departments</option>{depts.map((d) => <option key={d}>{d}</option>)}
         </select>
-        <button onClick={() => setView("chart")} style={btn(view === "chart")}>Chart</button>
-        <button onClick={() => setView("table")} style={btn(view === "table")}>Table</button>
-        {view === "chart" && <button onClick={() => { setAllOpen((v) => !v); setOpen(new Set()); }} style={btn(false)}>{allOpen ? "Collapse all" : "Expand all"}</button>}
         <button onClick={() => addRole(null)} style={btn(true)}>+ New role</button>
+        <button onClick={() => fileRef.current?.click()} style={btn(false)}>Import HRIS file</button>
+        <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: "none" }} onChange={(e) => onFile(e.target.files?.[0])} />
       </div>
-      <div style={{ fontSize: 11, color: T.text3, marginBottom: 8 }}>
-        Plan {full(planTotal)} vs QuickBooks pay baseline {full(payBase)}. {missing ? <b style={{ color: T.amber || T.yellow }}>{missing} people still need a salary. </b> : ""}
-        Click a person to edit. Drag a person onto someone else to change who they report to{view === "chart" ? <>, or <span onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); onDrop(null); }} style={{ border: `1px dashed ${T.border}`, padding: "0 6px", borderRadius: 4 }}>drop here for top level</span></> : ""}.
+
+      {pending && (
+        <div style={{ ...card(), padding: 12, marginBottom: 10, borderColor: T.accent }}>
+          <div style={{ fontSize: 13, color: T.text, marginBottom: 6 }}>
+            Replace the org chart with <b>{pending.rows.length} people</b> from {pending.file}? Current comp comes in as each person's FY {year} salary, ready to adjust. Any changes already made on people in this plan are replaced.
+          </div>
+          <div style={{ fontSize: 11, color: T.text3, marginBottom: 8 }}>Currencies: {pending.currencies.join(", ")}. Managers not in the file are added at the top without comp.</div>
+          <button onClick={async () => { const rows = pending.rows; setPending(null); await importPeople(rows); }} style={{ ...btn(true), marginRight: 8 }}>Replace org chart</button>
+          <button onClick={() => setPending(null)} style={btn(false)}>Cancel</button>
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center", fontSize: 11, color: T.text3, marginBottom: 10 }}>
+        <span>Opex people: now <b style={{ color: T.text2 }}>{full(nowOpex)}</b> → FY {year} <b style={{ color: T.text }}>{full(planOpex)}</b> <span style={{ color: planOpex <= nowOpex ? T.green : T.red }}>({signed(planOpex - nowOpex)})</span>, loaded {ctx.load}%.</span>
+        {currencies.length > 0 && <span style={{ display: "inline-flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>FX (USD per unit):
+          {currencies.map((c) => (
+            <label key={c} style={{ display: "inline-flex", gap: 4, alignItems: "center" }}>{c}
+              <input defaultValue={ctx.fx?.[c] ?? ""} key={`${c}${ctx.fx?.[c]}`} onBlur={(e) => { const v = Number(e.target.value); if (v > 0 && v !== Number(ctx.fx?.[c])) saveSettings({ fx: { ...ctx.fx, [c]: v } }); }}
+                style={{ width: 74, padding: "2px 5px", fontSize: 11, borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface2, color: T.text }} />
+            </label>
+          ))}</span>}
+        {depts.length > 0 && <span style={{ display: "inline-flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>COGS, not Opex:
+          {depts.map((d) => { const on = ctx.cogs.has(d); return on || /plant|manufactur|production/i.test(d) ? <button key={d} onClick={() => saveSettings({ cogs_departments: on ? [...ctx.cogs].filter((x) => x !== d) : [...ctx.cogs, d] })} style={{ ...btn(on, T.purple), padding: "1px 7px" }}>{d}</button> : null; })}
+          <select value="" onChange={(e) => e.target.value && saveSettings({ cogs_departments: [...ctx.cogs, e.target.value] })} style={{ fontSize: 11, padding: "1px 4px", borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3 }}>
+            <option value="">+ dept</option>{depts.filter((d) => !ctx.cogs.has(d)).map((d) => <option key={d}>{d}</option>)}
+          </select></span>}
       </div>
-      {view === "chart"
-        ? <div style={{ ...card(), padding: 10 }}>{roots.map((p) => renderNode(p, 0))}</div>
-        : <PeopleTable people={people.filter(match)} byId={byId} load={load} set={set} setEdit={setEdit} />}
-      {edit && <PersonEditor person={people.find((p) => p.id === edit.id) || edit} people={people} subtree={subtree} load={load}
+
+      {people.length === 0 && <div style={{ ...card(), padding: 16, fontSize: 13, color: T.text3 }}>No people yet. Import the HRIS export to build the org chart.</div>}
+      {people.length > 0 && (view === "chart"
+        ? <BoxChart people={people} kids={kids} subtree={subtree} byId={byId} ctx={ctx} match={match} filtering={!!(q || dept)} set={set} setEdit={setEdit} addRole={addRole} reassign={reassign} />
+        : <PeopleTable people={people.filter(match)} byId={byId} ctx={ctx} set={set} setEdit={setEdit} bulkPeople={bulkPeople} year={year} />)}
+      {edit && <PersonEditor person={people.find((p) => p.id === edit.id) || edit} people={people} subtree={subtree} ctx={ctx} year={year}
         onClose={() => setEdit(null)} onSave={async (patch) => { await set(people.find((p) => p.id === edit.id) || edit, patch); }}
         onRemoveTeam={(p) => removeWithTeam(p)} onDelete={async (p) => { await deletePerson(p.id); setEdit(null); }} />}
     </div>
   );
 }
 
-function PeopleTable({ people, byId, load, set, setEdit }) {
-  const [sort, setSort] = useState({ k: "department", d: 1 });
-  const rows = [...people].sort((a, b) => {
-    const va = sort.k === "cost" ? personCost(a, load) : sort.k === "salary" ? Number(a.salary) : String(a[sort.k] || "");
-    const vb = sort.k === "cost" ? personCost(b, load) : sort.k === "salary" ? Number(b.salary) : String(b[sort.k] || "");
-    return (va > vb ? 1 : va < vb ? -1 : a.name.localeCompare(b.name)) * sort.d;
-  });
-  const H = ({ k, children, right }) => <th onClick={() => setSort((s) => ({ k, d: s.k === k ? -s.d : 1 }))} style={{ ...th, cursor: "pointer", textAlign: right ? "right" : "left" }}>{children}{sort.k === k ? (sort.d > 0 ? " ▲" : " ▼") : ""}</th>;
+// Classic top-down org chart. Large groups of individual contributors stack
+// vertically under their manager so the chart stays readable.
+function BoxChart({ people, kids, subtree, byId, ctx, match, filtering, set, setEdit, addRole, reassign }) {
+  const [open, setOpen] = useState(() => new Set());
+  const [closed, setClosed] = useState(() => new Set());
+  const [zoom, setZoom] = useState(0.9);
+  const [drag, setDrag] = useState(null);
+  const scroller = useRef(null);
+  // Keep the top of the chart in view: centre horizontally after layout changes.
+  const center = () => setTimeout(() => { const el = scroller.current; if (el) el.scrollLeft = Math.max(0, (el.scrollWidth - el.clientWidth) / 2); }, 30);
+  useEffect(() => { center(); }, [zoom, people.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  const depthOf = useMemo(() => {
+    const d = new Map();
+    const walk = (id, n) => { for (const k of kids.get(id) || []) { d.set(k.id, n); walk(k.id, n + 1); } };
+    walk("root", 0);
+    return d;
+  }, [kids]);
+  const visible = useMemo(() => {
+    if (!filtering) return null;
+    const s = new Set();
+    for (const p of people) if (match(p)) { let c = p; let g = 0; while (c && g++ < 60) { s.add(c.id); c = byId.get(c.manager_id); } }
+    return s;
+  }, [people, filtering, match, byId]);
+  const isOpen = (id) => (filtering ? true : closed.has(id) ? false : open.has(id) || (depthOf.get(id) ?? 0) < 2);
+  const toggle = (id) => {
+    if (isOpen(id)) { setClosed((s) => new Set(s).add(id)); setOpen((s) => { const n = new Set(s); n.delete(id); return n; }); }
+    else { setOpen((s) => new Set(s).add(id)); setClosed((s) => { const n = new Set(s); n.delete(id); return n; }); }
+  };
+  const lc = T.border;
+
+  const Card = (p, compact) => {
+    const gone = p.status === "remove";
+    const c = STATUS[p.status].c();
+    const team = (kids.get(p.id) || []).length ? subtree(p.id) : [];
+    const cur = personCurrent(p, ctx); const plan = personCost(p, ctx);
+    const pct = changePct(p);
+    const mgr = byId.get(p.manager_id);
+    const orphan = mgr && mgr.status === "remove" && !gone;
+    const cogs = !isOpex(p, ctx);
+    const hit = filtering && match(p);
+    return (
+      <div draggable onDragStart={(e) => { e.stopPropagation(); setDrag(p.id); }} onDragOver={(e) => e.preventDefault()}
+        onDrop={(e) => { e.preventDefault(); e.stopPropagation(); reassign(drag, p); setDrag(null); }}
+        onClick={() => setEdit(p)}
+        style={{ display: "inline-block", width: compact ? 196 : 178, textAlign: "left", verticalAlign: "top", cursor: "pointer", borderRadius: 8, padding: "7px 9px",
+          background: drag === p.id ? T.accentDim : T.surface, border: `1px solid ${hit ? T.accent : orphan ? (T.amber || T.yellow) : T.border}`, borderTop: `3px solid ${c}`,
+          opacity: gone ? 0.55 : 1, boxShadow: "0 1px 2px rgba(0,0,0,.06)" }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: T.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", textDecoration: gone ? "line-through" : "none" }} title={p.name}>{p.name}</div>
+        <div style={{ fontSize: 10.5, color: T.text3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={[p.title, p.department].filter(Boolean).join(" · ")}>
+          {[p.title, p.department].filter(Boolean).join(" · ") || "—"}
+        </div>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 4, marginTop: 4, fontSize: 11, fontVariantNumeric: "tabular-nums" }}>
+          <span style={{ color: T.text3 }} title={`Current ${local(p.current_salary, p.currency)} salary, loaded`}>{p.is_existing ? money(cur) : "new"}</span>
+          <span style={{ color: T.text3 }}>→</span>
+          <span style={{ color: T.text, fontWeight: 700 }} title={`FY plan ${local(p.salary, p.currency)} salary${Number(p.bonus) ? ` + ${local(p.bonus, p.currency)} bonus` : ""}, ${paidMonths(p)} months, loaded`}>{money(plan)}</span>
+          {pct != null && Math.abs(pct) >= 0.05 && !gone && <span style={{ color: pct > 0 ? T.red : T.green, fontSize: 10 }}>{pct > 0 ? "+" : ""}{pct.toFixed(1)}%</span>}
+        </div>
+        <div style={{ display: "flex", gap: 4, marginTop: 5, alignItems: "center", flexWrap: "wrap" }}>
+          {p.status !== "keep" && <Pill status={p.status} small />}
+          {cogs && <span style={{ fontSize: 9.5, fontWeight: 700, color: T.purple, border: `1px solid ${T.purple}55`, borderRadius: 8, padding: "0 5px" }}>COGS</span>}
+          {p.currency && p.currency !== "USD" && <span style={{ fontSize: 9.5, color: T.text3 }}>{p.currency}</span>}
+          {orphan && <span style={{ fontSize: 9.5, color: T.amber || T.yellow }}>reassign</span>}
+          <span style={{ flex: 1 }} />
+          <button onClick={(e) => { e.stopPropagation(); set(p, gone ? { status: p.is_existing ? "keep" : "new", end_month: 12 } : { status: "remove", end_month: 0 }); }}
+            title={gone ? "Restore" : "Remove from the plan"} style={{ ...btn(false, gone ? T.green : T.red), padding: "0 6px", fontSize: 10 }}>{gone ? "Restore" : "Remove"}</button>
+          <button onClick={(e) => { e.stopPropagation(); addRole(p); }} title="Add a new role reporting to this person" style={{ ...btn(false), padding: "0 6px", fontSize: 10 }}>+</button>
+        </div>
+        {team.length > 0 && (
+          <div onClick={(e) => { e.stopPropagation(); toggle(p.id); }} style={{ marginTop: 5, fontSize: 10, color: T.accent, cursor: "pointer" }}>
+            {isOpen(p.id) ? "▾" : "▸"} {(kids.get(p.id) || []).length} direct · {team.filter((x) => x.status !== "remove").length}/{team.length} team · {money(team.reduce((s, x) => s + personCost(x, ctx), 0))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const branch = (p) => {
+    if (visible && !visible.has(p.id)) return null;
+    const ch = (kids.get(p.id) || []).filter((k) => !visible || visible.has(k.id));
+    const leaves = ch.filter((k) => !(kids.get(k.id) || []).length);
+    const stack = ch.length > 4 && leaves.length === ch.length;
+    return (
+      <li key={p.id}>
+        {Card(p)}
+        {ch.length > 0 && isOpen(p.id) && (stack
+          ? <ul><li><div style={{ display: "inline-flex", flexDirection: "column", gap: 6, padding: 6, borderRadius: 10, border: `1px dashed ${lc}` }}>{ch.map((k) => <div key={k.id}>{Card(k, true)}</div>)}</div></li></ul>
+          : <ul>{ch.map((k) => branch(k))}</ul>)}
+      </li>
+    );
+  };
+
+  const roots = (kids.get("root") || []).filter((p) => !visible || visible.has(p.id));
   return (
-    <div style={{ ...card(), overflowX: "auto" }}>
-      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-        <thead><tr style={{ borderBottom: `1px solid ${T.border}` }}>
-          <H k="name">Name</H><H k="title">Title</H><H k="department">Dept</H><th style={th}>Reports to</th><H k="status">Status</H>
-          <H k="salary" right>Salary</H><th style={{ ...th, textAlign: "right" }}>Bonus</th><th style={th}>Months</th><H k="cost" right>Plan cost</H>
-        </tr></thead>
-        <tbody>{rows.map((p) => (
-          <tr key={p.id} style={{ borderBottom: `1px solid ${T.border}`, opacity: p.status === "remove" ? 0.6 : 1 }}>
-            <td style={{ padding: "5px 8px", color: T.text, cursor: "pointer", fontWeight: 600, whiteSpace: "nowrap" }} onClick={() => setEdit(p)}>{p.name}</td>
-            <td style={{ padding: "5px 8px", color: T.text2 }}>{p.title}</td>
-            <td style={{ padding: "5px 8px", color: T.text2 }}>{p.department}</td>
-            <td style={{ padding: "5px 8px", color: T.text3, whiteSpace: "nowrap" }}>{byId.get(p.manager_id)?.name || "—"}</td>
-            <td style={{ padding: "5px 8px" }}><Pill status={p.status} small /></td>
-            <td style={{ padding: "5px 8px", textAlign: "right" }}><MoneyInput value={Number(p.salary)} onSave={(v) => set(p, { salary: v })} /></td>
-            <td style={{ padding: "5px 8px", textAlign: "right" }}><MoneyInput value={Number(p.bonus)} onSave={(v) => set(p, { bonus: v })} width={80} /></td>
-            <td style={{ padding: "5px 8px", color: T.text3, whiteSpace: "nowrap" }}>{paidMonths(p)}</td>
-            <td style={{ padding: "5px 8px", textAlign: "right", color: T.text, fontVariantNumeric: "tabular-nums" }}>{full(personCost(p, load))}</td>
-          </tr>
-        ))}</tbody>
-      </table>
+    <div style={{ ...card(), padding: 0 }}>
+      <style>{`
+        .zbb-oc ul{padding-top:18px;position:relative;display:flex;justify-content:center;margin:0;padding-left:0}
+        .zbb-oc li{list-style:none;position:relative;padding:18px 5px 0;text-align:center}
+        .zbb-oc li::before,.zbb-oc li::after{content:'';position:absolute;top:0;right:50%;width:50%;height:18px;border-top:1px solid ${lc}}
+        .zbb-oc li::after{right:auto;left:50%;border-left:1px solid ${lc}}
+        .zbb-oc li:only-child::before,.zbb-oc li:only-child::after{display:none}
+        .zbb-oc li:only-child{padding-top:0}
+        .zbb-oc li:first-child::before,.zbb-oc li:last-child::after{border:0 none}
+        .zbb-oc li:last-child::before{border-right:1px solid ${lc};border-radius:0 6px 0 0}
+        .zbb-oc li:first-child::after{border-radius:6px 0 0 0}
+        .zbb-oc ul ul::before{content:'';position:absolute;top:0;left:50%;width:0;height:18px;border-left:1px solid ${lc}}
+        .zbb-oc > ul{padding-top:0;width:max-content;min-width:100%}
+      `}</style>
+      <div style={{ display: "flex", gap: 6, alignItems: "center", padding: "8px 10px", borderBottom: `1px solid ${T.border}`, fontSize: 11, color: T.text3, flexWrap: "wrap" }}>
+        <button onClick={() => setZoom((z) => Math.max(0.4, +(z - 0.1).toFixed(2)))} style={btn(false)}>−</button>
+        <span style={{ width: 36, textAlign: "center" }}>{Math.round(zoom * 100)}%</span>
+        <button onClick={() => setZoom((z) => Math.min(1.3, +(z + 0.1).toFixed(2)))} style={btn(false)}>+</button>
+        <button onClick={() => { setOpen(new Set(people.map((p) => p.id))); setClosed(new Set()); center(); }} style={btn(false)}>Expand all</button>
+        <button onClick={() => { setOpen(new Set()); setClosed(new Set(people.filter((p) => (kids.get(p.id) || []).length).map((p) => p.id))); center(); }} style={btn(false)}>Collapse all</button>
+        <span style={{ marginLeft: 6 }}>Card: current loaded cost → FY plan cost (USD). Click to edit; drag a card onto another to change who they report to.</span>
+        <span onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); reassign(drag, null); setDrag(null); }} style={{ border: `1px dashed ${T.border}`, padding: "0 6px", borderRadius: 4 }}>drop here for top level</span>
+      </div>
+      <div ref={scroller} style={{ overflow: "auto", maxHeight: "75vh", padding: 16 }}>
+        <div className="zbb-oc" style={{ zoom, width: "max-content", minWidth: "100%" }}>
+          <ul>{roots.map((p) => branch(p))}</ul>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PeopleTable({ people, byId, ctx, set, setEdit, bulkPeople, year }) {
+  const [sort, setSort] = useState({ k: "department", d: 1 });
+  const [sel, setSel] = useState(() => new Set());
+  const [pct, setPct] = useState("3");
+  const val = (p, k) => (k === "cost" ? personCost(p, ctx) : k === "current" ? personCurrent(p, ctx) : k === "change" ? (changePct(p) ?? -999) : k === "manager" ? (byId.get(p.manager_id)?.name || "") : String(p[k] || ""));
+  const rows = [...people].sort((a, b) => { const va = val(a, sort.k); const vb = val(b, sort.k); return (va > vb ? 1 : va < vb ? -1 : a.name.localeCompare(b.name)) * sort.d; });
+  const H = ({ k, children, right }) => <th onClick={() => setSort((s) => ({ k, d: s.k === k ? -s.d : 1 }))} style={{ ...th, cursor: "pointer", textAlign: right ? "right" : "left" }}>{children}{sort.k === k ? (sort.d > 0 ? " ▲" : " ▼") : ""}</th>;
+  const ids = [...sel].filter((id) => people.some((p) => p.id === id));
+  const allOn = rows.length > 0 && rows.every((p) => sel.has(p.id));
+  const td = { padding: "4px 8px", borderTop: `1px solid ${T.border}` };
+  const totCur = rows.reduce((s, p) => s + personCurrent(p, ctx), 0); const totPlan = rows.reduce((s, p) => s + personCost(p, ctx), 0);
+  return (
+    <div style={{ ...card(), overflow: "hidden" }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", padding: "8px 10px", borderBottom: `1px solid ${T.border}`, flexWrap: "wrap", fontSize: 12, color: T.text3, minHeight: 30 }}>
+        {ids.length ? <>
+          <b style={{ color: T.text }}>{ids.length} selected</b>
+          <span>Set FY {year} salary to current</span>
+          <input value={pct} onChange={(e) => setPct(e.target.value)} style={{ width: 46, padding: "3px 5px", fontSize: 12, borderRadius: 5, border: `1px solid ${T.border}`, background: T.surface2, color: T.text }} />%
+          <button onClick={() => bulkPeople(ids, "raise", { pct: Number(pct) || 0 })} style={btn(true)}>Apply</button>
+          <button onClick={() => bulkPeople(ids, "reset")} style={btn(false)}>Reset to current</button>
+          <button onClick={() => bulkPeople(ids, "status", { status: "remove" })} style={btn(false, T.red)}>Remove</button>
+          <button onClick={() => bulkPeople(ids, "status", { status: "keep" })} style={btn(false, T.green)}>Keep</button>
+          <button onClick={() => setSel(new Set())} style={btn(false)}>Clear</button>
+        </> : <span>Tick people to adjust comp in bulk (e.g. a merit increase on current salary) or remove them. Salaries are in each person's pay currency; costs are USD, loaded.</span>}
+      </div>
+      <div style={{ overflowX: "auto", maxHeight: "72vh" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+          <thead style={{ position: "sticky", top: 0, background: T.surface, zIndex: 1 }}><tr>
+            <th style={th}><input type="checkbox" checked={allOn} onChange={() => setSel(allOn ? new Set() : new Set(rows.map((p) => p.id)))} /></th>
+            <H k="name">Name</H><H k="title">Title</H><H k="department">Department</H><H k="manager">Manager</H><H k="status">Status</H>
+            <th style={th}>Cur.</th><th style={{ ...th, textAlign: "right" }}>Current salary</th><H k="current" right>Current cost</H>
+            <th style={{ ...th, textAlign: "right" }}>FY {year} salary</th><H k="change" right>Δ</H><th style={{ ...th, textAlign: "right" }}>Bonus</th>
+            <th style={th}>Months</th><H k="cost" right>FY {year} cost</H>
+          </tr></thead>
+          <tbody>{rows.map((p) => {
+            const c = changePct(p); const cogs = !isOpex(p, ctx);
+            return (
+              <tr key={p.id} style={{ opacity: p.status === "remove" ? 0.55 : 1, background: sel.has(p.id) ? T.accentDim : "transparent" }}>
+                <td style={td}><input type="checkbox" checked={sel.has(p.id)} onChange={() => setSel((s) => { const n = new Set(s); n.has(p.id) ? n.delete(p.id) : n.add(p.id); return n; })} /></td>
+                <td style={{ ...td, color: T.text, cursor: "pointer", fontWeight: 600, whiteSpace: "nowrap" }} onClick={() => setEdit(p)}>{p.name}</td>
+                <td style={{ ...td, color: T.text2 }}>{p.title}</td>
+                <td style={{ ...td, color: T.text2, whiteSpace: "nowrap" }}>{p.department}{cogs && <span style={{ color: T.purple, fontSize: 10, fontWeight: 700 }}> COGS</span>}</td>
+                <td style={{ ...td, color: T.text3, whiteSpace: "nowrap" }}>{byId.get(p.manager_id)?.name || "—"}</td>
+                <td style={td}><Pill status={p.status} small /></td>
+                <td style={{ ...td, color: T.text3 }}>{p.currency || "USD"}</td>
+                <td style={{ ...td, textAlign: "right", color: T.text2, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{Number(p.current_salary) ? Math.round(p.current_salary).toLocaleString("en-US") : "—"}</td>
+                <td style={{ ...td, textAlign: "right", color: T.text2, fontVariantNumeric: "tabular-nums" }}>{personCurrent(p, ctx) ? full(personCurrent(p, ctx)) : "—"}</td>
+                <td style={{ ...td, textAlign: "right" }}><MoneyInput value={Number(p.salary)} onSave={(v) => set(p, { salary: v })} width={92} placeholder="0" /></td>
+                <td style={{ ...td, textAlign: "right", color: c == null ? T.text3 : c > 0.05 ? T.red : c < -0.05 ? T.green : T.text3, fontVariantNumeric: "tabular-nums" }}>{c == null ? "—" : `${c > 0 ? "+" : ""}${c.toFixed(1)}%`}</td>
+                <td style={{ ...td, textAlign: "right" }}><MoneyInput value={Number(p.bonus)} onSave={(v) => set(p, { bonus: v })} width={76} placeholder="0" /></td>
+                <td style={{ ...td, color: T.text3, whiteSpace: "nowrap" }}>{paidMonths(p)}</td>
+                <td style={{ ...td, textAlign: "right", color: T.text, fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>{full(personCost(p, ctx))}</td>
+              </tr>
+            );
+          })}
+            <tr><td style={td} /><td style={{ ...td, fontWeight: 700, color: T.text }} colSpan={7}>Total ({rows.length})</td>
+              <td style={{ ...td, textAlign: "right", fontWeight: 700, color: T.text2 }}>{full(totCur)}</td><td style={td} /><td style={td} /><td style={td} /><td style={td} />
+              <td style={{ ...td, textAlign: "right", fontWeight: 700, color: T.text }}>{full(totPlan)}</td></tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -477,19 +690,27 @@ function Drawer({ title, onClose, children }) {
 const Field = ({ label, children }) => <label style={{ display: "block", marginBottom: 10 }}><div style={{ fontSize: 11, color: T.text3, marginBottom: 3 }}>{label}</div>{children}</label>;
 const inp = () => ({ width: "100%", boxSizing: "border-box", padding: "7px 9px", fontSize: 13, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text });
 
-function PersonEditor({ person: p, people, subtree, load, onClose, onSave, onRemoveTeam, onDelete }) {
+function PersonEditor({ person: p, people, subtree, ctx, year, onClose, onSave, onRemoveTeam, onDelete }) {
   const [f, setF] = useState(p);
   useEffect(() => setF(p), [p.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const team = subtree(p.id);
   const banned = new Set([p.id, ...team.map((t) => t.id)]);
   const put = (k, v) => setF((x) => ({ ...x, [k]: v }));
-  const save = async () => { await onSave({ name: f.name, title: f.title, department: f.department, manager_id: f.manager_id || null, status: f.status, salary: parseMoney(f.salary), bonus: parseMoney(f.bonus), start_month: Number(f.start_month) || 1, end_month: Number(f.end_month), note: f.note }); onClose(); };
-  const preview = { ...f, salary: parseMoney(f.salary), bonus: parseMoney(f.bonus) };
+  const cur = (f.currency || "USD").toUpperCase();
+  const save = async () => {
+    await onSave({ name: f.name, title: f.title, department: f.department, manager_id: f.manager_id || null, status: f.status, currency: cur,
+      current_salary: parseMoney(f.current_salary), salary: parseMoney(f.salary), bonus: parseMoney(f.bonus), start_month: Number(f.start_month) || 1, end_month: Number(f.end_month), note: f.note });
+    onClose();
+  };
+  const preview = { ...f, currency: cur, salary: parseMoney(f.salary), bonus: parseMoney(f.bonus), current_salary: parseMoney(f.current_salary) };
+  const pct = changePct(preview);
   return (
-    <Drawer title={p.profile_id ? p.name : "Role"} onClose={onClose}>
+    <Drawer title={p.is_existing ? p.name : "Role"} onClose={onClose}>
       <Field label="Name or role"><input style={inp()} value={f.name || ""} onChange={(e) => put("name", e.target.value)} /></Field>
-      <Field label="Title"><input style={inp()} value={f.title || ""} onChange={(e) => put("title", e.target.value)} /></Field>
-      <Field label="Department"><input style={inp()} value={f.department || ""} onChange={(e) => put("department", e.target.value)} /></Field>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <Field label="Title"><input style={inp()} value={f.title || ""} onChange={(e) => put("title", e.target.value)} /></Field>
+        <Field label="Department"><input style={inp()} value={f.department || ""} onChange={(e) => put("department", e.target.value)} /></Field>
+      </div>
       <Field label="Reports to">
         <select style={inp()} value={f.manager_id || ""} onChange={(e) => put("manager_id", e.target.value)}>
           <option value="">— top level —</option>
@@ -498,15 +719,22 @@ function PersonEditor({ person: p, people, subtree, load, onClose, onSave, onRem
       </Field>
       <Field label="Status">
         <div style={{ display: "flex", gap: 6 }}>
-          {(p.profile_id ? ["keep", "remove"] : ["new", "remove"]).map((s) => (
+          {(p.is_existing ? ["keep", "remove"] : ["new", "remove"]).map((s) => (
             <button key={s} onClick={() => setF((x) => ({ ...x, status: s, end_month: s === "remove" ? 0 : 12 }))} style={btn(f.status === s, STATUS[s].c())}>{STATUS[s].label}</button>
           ))}
         </div>
       </Field>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-        <Field label="Annual salary"><input style={inp()} value={f.salary ?? ""} onChange={(e) => put("salary", e.target.value)} placeholder="e.g. 95000 or 95k" /></Field>
-        <Field label="Annual bonus"><input style={inp()} value={f.bonus ?? ""} onChange={(e) => put("bonus", e.target.value)} /></Field>
+      <div style={{ display: "grid", gridTemplateColumns: "80px 1fr 1fr", gap: 10 }}>
+        <Field label="Currency"><input style={inp()} value={f.currency || "USD"} maxLength={3} onChange={(e) => put("currency", e.target.value.toUpperCase())} /></Field>
+        <Field label="Current salary"><input style={inp()} value={f.current_salary ?? ""} onChange={(e) => put("current_salary", e.target.value)} disabled={!p.is_existing} placeholder={p.is_existing ? "" : "new role"} /></Field>
+        <Field label={`FY ${year} salary${pct != null ? ` (${pct > 0 ? "+" : ""}${pct.toFixed(1)}%)` : ""}`}><input style={inp()} value={f.salary ?? ""} onChange={(e) => put("salary", e.target.value)} placeholder="e.g. 95000 or 95k" /></Field>
       </div>
+      {Number(preview.current_salary) > 0 && (
+        <div style={{ display: "flex", gap: 6, marginTop: -4, marginBottom: 10, flexWrap: "wrap" }}>
+          {[0, 2, 3, 4, 5, 10].map((r) => <button key={r} onClick={() => put("salary", String(Math.round(preview.current_salary * (1 + r / 100))))} style={{ ...btn(false), padding: "2px 8px" }}>{r ? `+${r}%` : "= current"}</button>)}
+        </div>
+      )}
+      <Field label={`FY ${year} bonus`}><input style={inp()} value={f.bonus ?? ""} onChange={(e) => put("bonus", e.target.value)} /></Field>
       {f.status === "remove"
         ? <Field label="Paid through (notice, transition or severance period)">
           <select style={inp()} value={f.end_month ?? 0} onChange={(e) => put("end_month", Number(e.target.value))}>
@@ -517,11 +745,14 @@ function PersonEditor({ person: p, people, subtree, load, onClose, onSave, onRem
           <Field label="Paid through"><select style={inp()} value={f.end_month || 12} onChange={(e) => put("end_month", Number(e.target.value))}>{MONTHS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}</select></Field>
         </div>}
       <Field label="Note / justification"><textarea style={{ ...inp(), minHeight: 70 }} value={f.note || ""} onChange={(e) => put("note", e.target.value)} /></Field>
-      <div style={{ fontSize: 12, color: T.text2, margin: "6px 0 14px" }}>Plan cost <b>{full(personCost(preview, load))}</b> ({paidMonths(preview)} months, {load}% taxes &amp; benefits). Full-year cost {full(personBase({ ...preview, status: "keep" }, load))}.</div>
+      <div style={{ fontSize: 12, color: T.text2, margin: "6px 0 14px", lineHeight: 1.5 }}>
+        Current cost <b>{full(personCurrent({ ...preview, status: "keep", is_existing: p.is_existing }, ctx))}</b> · FY {year} cost <b>{full(personCost(preview, ctx))}</b> ({paidMonths(preview)} months, USD, {ctx.load}% taxes &amp; benefits{cur !== "USD" ? `, 1 ${cur} = $${ctx.fx?.[cur] ?? "?"}` : ""}).
+        {!isOpex(preview, ctx) && <> Counted as COGS, outside the Opex totals.</>}
+      </div>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         <button onClick={save} style={{ ...btn(true), padding: "7px 14px", fontSize: 12 }}>Save</button>
         {team.length > 0 && <button onClick={() => { onRemoveTeam(p); onClose(); }} style={btn(false, T.red)}>Remove with team ({team.length})</button>}
-        {!p.profile_id && <button onClick={() => onDelete(p)} style={btn(false, T.red)}>Delete role</button>}
+        {!p.is_existing && <button onClick={() => onDelete(p)} style={btn(false, T.red)}>Delete role</button>}
       </div>
     </Drawer>
   );
@@ -752,18 +983,25 @@ function LineEditor({ line, categories, onClose, onSave, onDelete }) {
   );
 }
 
+
 // ── Removed ─────────────────────────────────────────────────────────────────
-function Removed({ people, lines, load }) {
-  const gone = people.filter((p) => p.status === "remove").map((p) => ({ ...p, saving: personBase(p, load) - personCost(p, load) })).sort((a, b) => b.saving - a.saving);
-  const cut = lines.filter((l) => l.status === "remove" && Number(l.baseline)).sort((a, b) => b.baseline - a.baseline);
-  const reduced = lines.filter((l) => l.status === "change" && Number(l.amount) < Number(l.baseline)).map((l) => ({ ...l, saving: l.baseline - l.amount })).sort((a, b) => b.saving - a.saving);
-  const pSave = gone.reduce((s, p) => s + p.saving, 0);
+const removedPeople = (people, ctx) => people.filter((p) => p.status === "remove").map((p) => ({ ...p, saving: personCurrent(p, ctx) - personCost(p, ctx), opex: isOpex(p, ctx) })).sort((a, b) => b.saving - a.saving);
+const removedLines = (lines) => lines.filter((l) => l.status === "remove" && Number(l.baseline)).sort((a, b) => b.baseline - a.baseline);
+const reducedLines = (lines) => lines.filter((l) => l.status === "change" && Number(l.amount) < Number(l.baseline)).map((l) => ({ ...l, saving: l.baseline - l.amount })).sort((a, b) => b.saving - a.saving);
+
+function Removed({ people, lines, ctx }) {
+  const gone = removedPeople(people, ctx);
+  const goneOpex = gone.filter((p) => p.opex);
+  const cut = removedLines(lines);
+  const reduced = reducedLines(lines);
+  const pSave = goneOpex.reduce((s, p) => s + p.saving, 0);
+  const cogsSave = gone.filter((p) => !p.opex).reduce((s, p) => s + p.saving, 0);
   const vSave = cut.reduce((s, l) => s + Number(l.baseline), 0);
   const rSave = reduced.reduce((s, l) => s + l.saving, 0);
   const byCat = {};
   for (const l of cut) byCat[l.category] = (byCat[l.category] || 0) + Number(l.baseline);
   for (const l of reduced) byCat[l.category] = (byCat[l.category] || 0) + l.saving;
-  const noSalary = gone.filter((p) => !(Number(p.salary) > 0)).length;
+  const noSalary = gone.filter((p) => !(Number(p.current_salary) > 0)).length;
 
   const Section = ({ title, total, children, empty }) => (
     <div style={{ ...card(), marginBottom: 12, overflowX: "auto" }}>
@@ -785,31 +1023,79 @@ function Removed({ people, lines, load }) {
   return (
     <div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginBottom: 12 }}>
-        <Tile label="Total removed" value={money(pSave + vSave + rSave)} sub="vs baseline run rate" tone={T.green} />
-        <Tile label="People" value={money(pSave)} sub={`${gone.length} roles${noSalary ? `, ${noSalary} without salary entered` : ""}`} />
+        <Tile label="Total removed (Opex)" value={money(pSave + vSave + rSave)} sub="vs current run rate" tone={T.green} />
+        <Tile label="People" value={money(pSave)} sub={`${goneOpex.length} Opex roles${cogsSave ? ` · ${money(cogsSave)} more in COGS` : ""}${noSalary ? ` · ${noSalary} without comp` : ""}`} />
         <Tile label="Vendors cut" value={money(vSave)} sub={`${cut.length} vendors`} />
         <Tile label="Vendors reduced" value={money(rSave)} sub={`${reduced.length} renegotiated or downsized`} />
       </div>
       {Object.keys(byCat).length > 0 && (
         <div style={{ ...card(), padding: "10px 12px", marginBottom: 12, display: "flex", flexWrap: "wrap", gap: 16 }}>
-          {Object.entries(byCat).sort((a, b) => b[1] - a[1]).map(([c, v]) => <div key={c} style={{ fontSize: 12, color: T.text2 }}>{c} <b style={{ color: T.text }}>{money(v)}</b></div>)}
+          {Object.entries(byCat).sort((a, b) => b[1] - a[1]).map(([c, v]) => <div key={c} style={{ fontSize: 12, color: T.text2 }}>{catLabel(c)} <b style={{ color: T.text }}>{money(v)}</b></div>)}
         </div>
       )}
       <Section title="People removed" total={pSave} empty="Nobody removed yet. Use Remove on the org chart.">
-        {gone.length ? tbl(["Name", "Title", "Department", "Paid through", "Saving"], gone.map((p) => (
-          <tr key={p.id}>{td(p.name, false, true)}{td(p.title)}{td(p.department)}{td(p.end_month ? MONTHS[p.end_month - 1] : "Before Jan")}{td(Number(p.salary) > 0 ? full(p.saving) : "salary not entered", true, true)}</tr>
+        {gone.length ? tbl(["Name", "Title", "Department", "Current salary", "Paid through", "Saving (USD, loaded)"], gone.map((p) => (
+          <tr key={p.id}>{td(p.name, false, true)}{td(p.title)}{td(<>{p.department}{!p.opex && <span style={{ color: T.purple, fontSize: 10, fontWeight: 700 }}> COGS</span>}</>)}{td(Number(p.current_salary) ? local(p.current_salary, p.currency) : "—")}{td(p.end_month ? MONTHS[p.end_month - 1] : "Before Jan")}{td(Number(p.current_salary) > 0 ? full(p.saving) : "no comp entered", true, true)}</tr>
         ))) : null}
       </Section>
       <Section title="Vendors removed" total={vSave} empty="No vendors removed yet.">
         {cut.length ? tbl(["Vendor", "Category", "Account", "Note", "Baseline saved"], cut.map((l) => (
-          <tr key={l.id}>{td(l.vendor, false, true)}{td(l.category)}{td(`${l.account_num || ""} ${String(l.account_name || "").split(":").pop()}`)}{td(l.note || "")}{td(full(l.baseline), true, true)}</tr>
+          <tr key={l.id}>{td(l.vendor, false, true)}{td(catLabel(l.category))}{td(`${l.account_num || ""} ${String(l.account_name || "").split(":").pop()}`)}{td(l.note || "")}{td(full(l.baseline), true, true)}</tr>
         ))) : null}
       </Section>
       <Section title="Vendors reduced" total={rSave} empty="No reductions yet. Use Change and enter a lower amount.">
         {reduced.length ? tbl(["Vendor", "Category", "Baseline", "Plan", "Saving"], reduced.map((l) => (
-          <tr key={l.id}>{td(l.vendor, false, true)}{td(l.category)}{td(full(l.baseline))}{td(full(l.amount))}{td(full(l.saving), true, true)}</tr>
+          <tr key={l.id}>{td(l.vendor, false, true)}{td(catLabel(l.category))}{td(full(l.baseline))}{td(full(l.amount))}{td(full(l.saving), true, true)}</tr>
         ))) : null}
       </Section>
     </div>
   );
+}
+
+// ── Excel export ────────────────────────────────────────────────────────────
+async function exportWorkbook({ data, totals, ctx, year }) {
+  const X = await loadXLSX();
+  const wb = X.utils.book_new();
+  const byId = new Map(data.people.map((p) => [p.id, p]));
+  const r0 = (n) => Math.round(Number(n) || 0);
+  const add = (name, rows, widths) => {
+    const ws = X.utils.json_to_sheet(rows.length ? rows : [{ Note: "Nothing yet" }]);
+    if (widths) ws["!cols"] = widths.map((w) => ({ wch: w }));
+    X.utils.book_append_sheet(wb, ws, name);
+  };
+  const pplBase = totals.pplCurrent || totals.payBase;
+  add("Summary", [
+    { Category: "People (salary, bonus, taxes & benefits)", Baseline: r0(pplBase), [`FY ${year}`]: r0(totals.pplPlan), Change: r0(totals.pplPlan - pplBase) },
+    ...totals.shown.map((c) => ({ Category: catLabel(c.category), Baseline: r0(c.baseline), [`FY ${year}`]: r0(c.plan), Change: r0(c.plan - c.baseline), Kept: c.keep + c.change, Removed: c.remove, New: c.newN, "To decide": c.review })),
+    { Category: "Total Opex", Baseline: r0(pplBase + totals.vBase), [`FY ${year}`]: r0(totals.pplPlan + totals.vPlan), Change: r0(totals.pplPlan + totals.vPlan - pplBase - totals.vBase) },
+    {},
+    { Category: "People in COGS departments (not in totals)", Baseline: r0(totals.cogsCurrent), [`FY ${year}`]: r0(totals.cogsPlan), Change: r0(totals.cogsPlan - totals.cogsCurrent) },
+    { Category: `Assumptions: taxes & benefits load ${ctx.load}%; FX ${Object.entries(ctx.fx || {}).filter(([k]) => k !== "USD").map(([k, v]) => `1 ${k} = $${v}`).join(", ")}; COGS departments: ${[...ctx.cogs].join(", ") || "none"}` },
+  ], [48, 14, 14, 14, 8, 9, 6, 10]);
+  add("People", data.people.slice().sort((a, b) => String(a.department || "").localeCompare(String(b.department || "")) || a.name.localeCompare(b.name)).map((p) => ({
+    Name: p.name, Title: p.title || "", Department: p.department || "", "Reports to": byId.get(p.manager_id)?.name || "",
+    Bucket: isOpex(p, ctx) ? "Opex" : "COGS", Status: STATUS[p.status]?.label || p.status, Currency: p.currency || "USD",
+    "Current salary (local)": r0(p.current_salary), [`FY ${year} salary (local)`]: r0(p.salary), "Change %": changePct(p) == null ? "" : +changePct(p).toFixed(1),
+    [`FY ${year} bonus (local)`]: r0(p.bonus), "USD per unit": fxOf(p, ctx), "Paid from": MONTHS[(p.start_month || 1) - 1], "Paid through": p.end_month ? MONTHS[p.end_month - 1] : "None",
+    "Months paid": paidMonths(p), "Current cost USD (loaded)": r0(personCurrent(p, ctx)), [`FY ${year} cost USD (loaded)`]: r0(personCost(p, ctx)), Note: p.note || "",
+  })), [26, 22, 20, 22, 7, 9, 8, 14, 14, 9, 12, 11, 9, 11, 8, 16, 16, 40]);
+  add("Vendors & software", data.lines.slice().sort((a, b) => String(a.category).localeCompare(String(b.category)) || b.baseline - a.baseline).map((l) => ({
+    Category: catLabel(l.category), Vendor: l.vendor, Type: l.kind, Account: `${l.account_num || ""} ${l.account_name || ""}`.trim(),
+    Baseline: r0(l.baseline), Decision: STATUS[l.status]?.label || l.status, [`FY ${year}`]: r0(lineAmount(l)), Change: r0(lineAmount(l) - l.baseline),
+    Seats: l.seats ?? "", "Cost per seat": l.unit_cost ?? "", Billing: l.billing || "", Owner: l.owner || "", Note: l.note || "",
+  })), [28, 32, 9, 36, 12, 10, 12, 12, 7, 12, 18, 16, 40]);
+  const gone = removedPeople(data.people, ctx);
+  add("Removed", [
+    ...gone.map((p) => ({ Type: p.opex ? "Person" : "Person (COGS)", Name: p.name, "Category / department": p.department || "", Baseline: r0(personCurrent(p, ctx)), [`FY ${year}`]: r0(personCost(p, ctx)), Saving: r0(p.saving), Note: p.note || "" })),
+    ...removedLines(data.lines).map((l) => ({ Type: "Vendor removed", Name: l.vendor, "Category / department": catLabel(l.category), Baseline: r0(l.baseline), [`FY ${year}`]: 0, Saving: r0(l.baseline), Note: l.note || "" })),
+    ...reducedLines(data.lines).map((l) => ({ Type: "Vendor reduced", Name: l.vendor, "Category / department": catLabel(l.category), Baseline: r0(l.baseline), [`FY ${year}`]: r0(l.amount), Saving: r0(l.saving), Note: l.note || "" })),
+  ], [16, 32, 30, 12, 12, 12, 40]);
+  const months = [...new Set(data.baseline.flatMap((a) => Object.keys(a.months || {})))].sort();
+  add("Baseline by account", data.baseline.slice().sort((a, b) => String(a.account_num).localeCompare(String(b.account_num))).map((a) => {
+    const row = { Account: a.account_num, Name: a.account_name, Category: catLabel(a.category) };
+    for (const m of months) row[m] = r0(a.months?.[m]);
+    row.Total = r0(a.total);
+    return row;
+  }), [9, 34, 26, ...months.map(() => 11), 13]);
+  X.writeFile(wb, `Zero-Based Budget FY${year} ${new Date().toISOString().slice(0, 10)}.xlsx`);
 }

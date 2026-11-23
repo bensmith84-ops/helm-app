@@ -109,7 +109,6 @@ const MODULE_TREE = [
       { key: "erp.fin_budgets.monthly_view", label: "Monthly View" },
     ]},
     { key: "erp.fin_budget_planner", label: "Budget Planner" },
-    { key: "erp.fin_zbb", label: "Zero-Based Budget" },
     { key: "erp.fin_requests", label: "Spend Requests" },
     { key: "erp.fin_rules", label: "Approval Rules" },
     { key: "erp.fin_audit", label: "Audit Log" },
