@@ -4,7 +4,9 @@
 // through /rest/v1 (see migrations/032_zbb.sql), so everything goes through here.
 //
 // Body: { action, ... }
-//   load            { year }                 -> plan (created and seeded on first load), people, lines, baseline
+//   load            { year, plan_id? }       -> a version of the plan (latest changed if no plan_id; created and
+//                                               seeded on first load), its people, lines, baseline, and the year's versions
+//   copy_version    { plan_id, name }        -> duplicate a version; rename_version { plan_id, name }; delete_version { plan_id }
 //   refresh_actuals { plan_id, start, end }  -> pulls QuickBooks Profit and Loss Detail for the baseline
 //                                               window (Opex 6xxxx accounts), stores it by vendor x account x
 //                                               month, and adds a "review" line for every vendor not yet listed
@@ -159,13 +161,15 @@ module.exports = function (app, { pool }) {
 
       if (action === 'load') {
         const year = int(b.year, 2020, 2100, new Date().getFullYear() + 1);
-        let { rows: [plan] } = await pool.query(`SELECT * FROM zbb_plans WHERE org_id = $1 AND year = $2`, [ORG, year]);
+        // A specific version, else the most recently changed version for the year.
+        let plan = UUID_RE.test(String(b.plan_id || '')) ? await planById(b.plan_id) : null;
+        if (plan && plan.year !== year) plan = null;
+        if (!plan) ({ rows: [plan] } = await pool.query(`SELECT * FROM zbb_plans WHERE org_id = $1 AND year = $2 ORDER BY updated_at DESC LIMIT 1`, [ORG, year]));
         if (!plan) {
           const def = { base_start: `${year - 2}-11-01`, base_end: `${year - 1}-10-31`, load_pct: 18, fx: DEFAULT_FX, cogs_departments: ['KY Plant'] };
           ({ rows: [plan] } = await pool.query(
-            `INSERT INTO zbb_plans (org_id, year, name, settings, created_by) VALUES ($1, $2, $3, $4, $5)
-             ON CONFLICT (org_id, year) DO UPDATE SET updated_at = now() RETURNING *`,
-            [ORG, year, `FY ${year} Zero-Based Opex`, def, uid]));
+            `INSERT INTO zbb_plans (org_id, year, name, settings, created_by) VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+            [ORG, year, 'Version 1', def, uid]));
           // Seed the org chart from active Helm members.
           const { rows: staff } = await pool.query(
             `SELECT DISTINCT ON (p.id) p.id, p.display_name, p.email, p.title, p.department, p.reports_to
@@ -199,7 +203,64 @@ module.exports = function (app, { pool }) {
           e.months[a.month] = a.amount; e.total += a.amount;
         }
         const { rows: catRows } = await pool.query(`SELECT name, color, sort_order FROM af_gl_categories WHERE org_id = $1 ORDER BY sort_order, name`, [ORG]);
-        return res.json({ plan, people: people.rows, lines: lines.rows, baseline: Object.values(accounts), categories: catRows });
+        const { rows: versions } = await pool.query(
+          `SELECT v.id, v.name, v.parent_id, v.created_at, v.updated_at, (SELECT count(*)::int FROM zbb_people z WHERE z.plan_id = v.id AND z.status <> 'remove') AS heads
+             FROM zbb_plans v WHERE v.org_id = $1 AND v.year = $2 ORDER BY v.created_at`, [ORG, year]);
+        return res.json({ plan, people: people.rows, lines: lines.rows, baseline: Object.values(accounts), categories: catRows, versions });
+      }
+
+      if (action === 'copy_version') {
+        // Duplicate a version (people with their reporting lines, vendor lines, actuals, settings).
+        const src = await planById(b.plan_id);
+        if (!src) return res.status(404).json({ error: 'plan not found' });
+        const name = str(b.name, 80) || `${src.name} (copy)`;
+        const client = await pool.connect();
+        try {
+          await client.query('BEGIN');
+          const { rows: [plan] } = await client.query(
+            `INSERT INTO zbb_plans (org_id, year, name, settings, actuals_refreshed_at, created_by, parent_id)
+             SELECT org_id, year, $2, settings, actuals_refreshed_at, $3, id FROM zbb_plans WHERE id = $1 RETURNING *`, [src.id, name, uid]);
+          await client.query(
+            `WITH m AS MATERIALIZED (SELECT id AS old, gen_random_uuid() AS new FROM zbb_people WHERE plan_id = $1)
+             INSERT INTO zbb_people (id, plan_id, profile_id, name, title, department, manager_id, status, salary, bonus, start_month, end_month,
+                                     note, sort_order, currency, current_salary, is_existing, source)
+             SELECT m.new, $2, p.profile_id, p.name, p.title, p.department, mm.new, p.status, p.salary, p.bonus, p.start_month, p.end_month,
+                    p.note, p.sort_order, p.currency, p.current_salary, p.is_existing, p.source
+               FROM zbb_people p JOIN m ON m.old = p.id LEFT JOIN m mm ON mm.old = p.manager_id
+              WHERE p.plan_id = $1`, [src.id, plan.id]);
+          await client.query(
+            `INSERT INTO zbb_lines (plan_id, vendor, account_num, account_name, category, kind, baseline, amount, status, seats, unit_cost, billing, owner, note, source)
+             SELECT $2, vendor, account_num, account_name, category, kind, baseline, amount, status, seats, unit_cost, billing, owner, note, source
+               FROM zbb_lines WHERE plan_id = $1`, [src.id, plan.id]);
+          await client.query(
+            `INSERT INTO zbb_actuals (plan_id, month, account_num, account_name, vendor, amount, txns)
+             SELECT $2, month, account_num, account_name, vendor, amount, txns FROM zbb_actuals WHERE plan_id = $1`, [src.id, plan.id]);
+          await client.query('COMMIT');
+          return res.json({ plan });
+        } catch (e) {
+          await client.query('ROLLBACK').catch(() => {});
+          throw e;
+        } finally {
+          client.release();
+        }
+      }
+
+      if (action === 'rename_version') {
+        const plan = await planById(b.plan_id);
+        if (!plan) return res.status(404).json({ error: 'plan not found' });
+        const name = str(b.name, 80);
+        if (!name) return res.status(400).json({ error: 'name required' });
+        const { rows: [p] } = await pool.query(`UPDATE zbb_plans SET name = $2, updated_at = now() WHERE id = $1 RETURNING *`, [plan.id, name]);
+        return res.json({ plan: p });
+      }
+
+      if (action === 'delete_version') {
+        const plan = await planById(b.plan_id);
+        if (!plan) return res.status(404).json({ error: 'plan not found' });
+        const { rows: [{ n }] } = await pool.query(`SELECT count(*)::int AS n FROM zbb_plans WHERE org_id = $1 AND year = $2`, [ORG, plan.year]);
+        if (n <= 1) return res.status(400).json({ error: 'This is the only version for the year, so it cannot be deleted.' });
+        await pool.query(`DELETE FROM zbb_plans WHERE id = $1`, [plan.id]); // people, lines and actuals cascade
+        return res.json({ ok: true });
       }
 
       if (action === 'save_settings') {
