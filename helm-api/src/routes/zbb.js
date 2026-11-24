@@ -118,6 +118,36 @@ function vendorNamer(rows, known = []) {
   };
 }
 
+// Vendor baseline basis: { type: 'month', month: 'YYYY-MM' } (that month x 12) or
+// { type: 'ttm' } (the whole baseline window). Default: the last month of the window.
+const basisOf = (settings = {}) => {
+  const b = settings.baseline_basis;
+  if (b && b.type === 'ttm') return { type: 'ttm' };
+  const month = b && /^\d{4}-\d{2}$/.test(b.month || '') ? b.month : String(settings.base_end || '').slice(0, 7);
+  return /^\d{4}-\d{2}$/.test(month) ? { type: 'month', month } : { type: 'ttm' };
+};
+// Recompute every QuickBooks line's baseline from the stored actuals. Lines kept at their
+// old baseline follow the new one; changed amounts are left alone.
+async function applyBasis(q, plan) {
+  const basis = basisOf(plan.settings);
+  await q.query(
+    `UPDATE zbb_lines l
+        SET baseline_ttm = round(coalesce(x.ttm, 0), 2),
+            baseline_month = round(coalesce(x.mon, 0), 2),
+            baseline = round(CASE WHEN $2 = 'month' THEN coalesce(x.mon, 0) * 12 ELSE coalesce(x.ttm, 0) END, 2),
+            amount = CASE WHEN l.status = 'keep' AND round(l.amount, 2) = round(l.baseline, 2)
+                          THEN round(CASE WHEN $2 = 'month' THEN coalesce(x.mon, 0) * 12 ELSE coalesce(x.ttm, 0) END, 2)
+                          ELSE l.amount END,
+            updated_at = now()
+       FROM (SELECT l2.id, sum(a.amount) AS ttm, sum(a.amount) FILTER (WHERE a.month = $3) AS mon
+               FROM zbb_lines l2
+               LEFT JOIN zbb_actuals a ON a.plan_id = l2.plan_id AND a.vendor = l2.vendor AND a.account_num = l2.account_num
+              WHERE l2.plan_id = $1 AND l2.source = 'qbo'
+              GROUP BY l2.id) x
+      WHERE l.id = x.id`, [plan.id, basis.type, basis.month || null]);
+  return basis;
+}
+
 function monthsBetween(start, end) {
   const out = [];
   let [y, m] = start.slice(0, 7).split('-').map(Number);
@@ -195,6 +225,13 @@ module.exports = function (app, { pool }) {
           }
         }
         if (!plan.settings.fx) plan.settings = { ...plan.settings, fx: DEFAULT_FX, cogs_departments: plan.settings.cogs_departments || ['KY Plant'] };
+        if (!plan.settings.baseline_basis) {
+          // First load since bases existed: default to the last month of the window, x 12.
+          const basis = basisOf(plan.settings);
+          plan.settings = { ...plan.settings, baseline_basis: basis };
+          await pool.query(`UPDATE zbb_plans SET settings = $2 WHERE id = $1`, [plan.id, plan.settings]);
+          await applyBasis(pool, plan);
+        }
         const [people, lines, actuals, cats] = await Promise.all([
           pool.query(`SELECT * FROM zbb_people WHERE plan_id = $1 ORDER BY sort_order, name`, [plan.id]),
           pool.query(`SELECT * FROM zbb_lines WHERE plan_id = $1 ORDER BY category, baseline DESC, vendor`, [plan.id]),
@@ -234,8 +271,8 @@ module.exports = function (app, { pool }) {
                FROM zbb_people p JOIN m ON m.old = p.id LEFT JOIN m mm ON mm.old = p.manager_id
               WHERE p.plan_id = $1`, [src.id, plan.id]);
           await client.query(
-            `INSERT INTO zbb_lines (plan_id, vendor, account_num, account_name, category, kind, baseline, amount, status, seats, unit_cost, billing, owner, note, source)
-             SELECT $2, vendor, account_num, account_name, category, kind, baseline, amount, status, seats, unit_cost, billing, owner, note, source
+            `INSERT INTO zbb_lines (plan_id, vendor, account_num, account_name, category, kind, baseline, baseline_ttm, baseline_month, amount, status, seats, unit_cost, billing, owner, note, source)
+             SELECT $2, vendor, account_num, account_name, category, kind, baseline, baseline_ttm, baseline_month, amount, status, seats, unit_cost, billing, owner, note, source
                FROM zbb_lines WHERE plan_id = $1`, [src.id, plan.id]);
           await client.query(
             `INSERT INTO zbb_actuals (plan_id, month, account_num, account_name, vendor, amount, txns)
@@ -284,7 +321,18 @@ module.exports = function (app, { pool }) {
         if (Array.isArray(s.cogs_departments)) next.cogs_departments = s.cogs_departments.map((x) => String(x).slice(0, 80)).slice(0, 30);
         if (typeof s.hide_removed === 'boolean') next.hide_removed = s.hide_removed;
         if (Array.isArray(s.hidden_categories)) next.hidden_categories = s.hidden_categories.map((x) => String(x).slice(0, 80)).slice(0, 30);
+        let basisChanged = false;
+        if (s.baseline_basis && typeof s.baseline_basis === 'object') {
+          next.baseline_basis = s.baseline_basis.type === 'ttm' ? { type: 'ttm' }
+            : /^\d{4}-\d{2}$/.test(s.baseline_basis.month || '') ? { type: 'month', month: s.baseline_basis.month } : next.baseline_basis;
+          basisChanged = JSON.stringify(next.baseline_basis) !== JSON.stringify(plan.settings.baseline_basis);
+        }
         const { rows: [p] } = await pool.query(`UPDATE zbb_plans SET settings = $1, updated_at = now() WHERE id = $2 RETURNING *`, [next, plan.id]);
+        if (basisChanged) {
+          await applyBasis(pool, p);
+          const { rows: lines } = await pool.query(`SELECT * FROM zbb_lines WHERE plan_id = $1 ORDER BY category, baseline DESC, vendor`, [plan.id]);
+          return res.json({ plan: p, lines });
+        }
         return res.json({ plan: p });
       }
 
@@ -351,17 +399,17 @@ module.exports = function (app, { pool }) {
               `INSERT INTO zbb_lines (plan_id, vendor, account_num, account_name, category, kind, baseline, amount, status, source)
                VALUES ($1, $2, $3, $4, $5, $6, $7, 0, 'review', 'qbo')
                ON CONFLICT (plan_id, vendor, account_num) WHERE source = 'qbo'
-               DO UPDATE SET baseline = EXCLUDED.baseline, account_name = EXCLUDED.account_name, updated_at = now() -- keep the line's category: it may have been moved (e.g. to COGS)
+               DO UPDATE SET baseline_ttm = EXCLUDED.baseline, account_name = EXCLUDED.account_name, updated_at = now() -- keep the line's category: it may have been moved (e.g. to COGS)
                RETURNING (xmax = 0) AS inserted`,
               [plan.id, t.vendor, t.account_num, t.account_name, category,
                 /^605(20|25)$/.test(t.account_num) || category === 'Software and Subscriptions' ? 'software' : 'vendor', total]);
             if (r.rows[0]?.inserted) added++; else updated++;
           }
-          // Lines whose vendor no longer has baseline spend keep their row, with a zero baseline.
-          await client.query(
-            `UPDATE zbb_lines l SET baseline = 0 WHERE l.plan_id = $1 AND l.source = 'qbo'
-               AND NOT EXISTS (SELECT 1 FROM zbb_actuals a WHERE a.plan_id = l.plan_id AND a.vendor = l.vendor AND a.account_num = l.account_num)`, [plan.id]);
+          // Baselines per the plan's basis (lines with no spend left keep their row at zero).
           const settings = { ...plan.settings, base_start: start, base_end: end };
+          if (settings.baseline_basis?.type === 'month' && !months.includes(settings.baseline_basis.month)) settings.baseline_basis = { type: 'month', month: months[months.length - 1] };
+          if (!settings.baseline_basis) settings.baseline_basis = basisOf(settings);
+          await applyBasis(client, { ...plan, settings });
           await client.query(`UPDATE zbb_plans SET actuals_refreshed_at = now(), settings = $2, updated_at = now() WHERE id = $1`, [plan.id, settings]);
           await client.query('COMMIT');
           return res.json({ ok: true, months: months.length, txns: all.length, added, updated });
