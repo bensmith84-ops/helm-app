@@ -73,6 +73,9 @@ const TAX_NOTE = (load) => `Calculated at ${load}% of total headcount cost (sala
 const isOpex = (p, ctx) => !ctx.cogs.has(p.department || "");
 const changePct = (p) => (Number(p.current_salary) > 0 ? ((Number(p.salary) || 0) / Number(p.current_salary) - 1) * 100 : null);
 const COGS = "COGS"; // lines moved out of Opex: listed, but outside the Opex baseline and plan
+const monthLabel = (ym) => { const [y, m] = String(ym || "").split("-").map(Number); return y && m ? `${MONTHS[m - 1]} ${y}` : ym; };
+// The vendor baseline basis in plan settings: { type: "month", month } (x 12) or { type: "ttm" }.
+const basisLabel = (b, short) => (b?.type === "month" ? (short ? `${monthLabel(b.month)} × 12` : `${monthLabel(b.month)} run rate (× 12)`) : (short ? "12 months" : "trailing 12 months"));
 const catLabel = (c) => (c === "People Costs" ? "Other people costs (hiring, training, perks, fees)" : c === COGS ? "COGS (moved out of Opex)" : c);
 const lineAmount = (l) => (l.status === "keep" || l.status === "change" || l.status === "new" ? Number(l.amount) || 0 : 0);
 
@@ -150,7 +153,7 @@ function computeTotals(data, hidden, ctx) {
     const movedCogs = { n: cogsLines.length, baseline: cogsLines.reduce((s, l) => s + (Number(l.baseline) || 0), 0), plan: cogsLines.reduce((s, l) => s + lineAmount(l), 0) };
     const taxPlan = taxLine(pplPlan, ctx);
     const taxCurrent = pplCurrent ? taxLine(pplCurrent, ctx) : 0;
-    return { movedCogs, list, shown, vBase, vPlan, payBase, salBase, loadBase, pplPlan, pplCurrent, taxPlan, taxCurrent, cogsPlan, cogsCurrent, cogsN: cogsPeople.length, load: ctx.load, head, missingPay, missingFx, review, actualLoad: salBase ? (loadBase / salBase) * 100 : null };
+    return { basis: data.plan?.settings?.baseline_basis, movedCogs, list, shown, vBase, vPlan, payBase, salBase, loadBase, pplPlan, pplCurrent, taxPlan, taxCurrent, cogsPlan, cogsCurrent, cogsN: cogsPeople.length, load: ctx.load, head, missingPay, missingFx, review, actualLoad: salBase ? (loadBase / salBase) * 100 : null };
 }
 const ctxOf = (settings = {}) => ({ load: Number(settings.load_pct ?? 18), fx: settings.fx || { USD: 1 }, cogs: new Set(settings.cogs_departments || ["KY Plant"]) });
 
@@ -223,7 +226,7 @@ export default function ZeroBasedBudget({ isMobile }) {
     return r.line;
   };
   const deleteLine = async (id) => { await call({ action: "delete_line", id }); setData((d) => ({ ...d, lines: d.lines.filter((l) => l.id !== id) })); };
-  const saveSettings = async (s) => { const r = await call({ action: "save_settings", plan_id: plan.id, settings: s }); setData((d) => ({ ...d, plan: r.plan })); };
+  const saveSettings = async (s) => { const r = await call({ action: "save_settings", plan_id: plan.id, settings: s }); setData((d) => ({ ...d, plan: r.plan, ...(r.lines ? { lines: r.lines } : {}) })); };
   const refresh = async () => {
     setBusy("Pulling QuickBooks actuals…");
     try {
@@ -293,9 +296,20 @@ export default function ZeroBasedBudget({ isMobile }) {
             </div>
           )}
           <div style={{ fontSize: 12, color: T.text3, marginTop: 4 }}>
-            Every line starts at zero. Vendor baseline is QuickBooks actuals {settings.base_start ? `${settings.base_start.slice(0, 7)} to ${settings.base_end.slice(0, 7)}` : ""}
+            Every line starts at zero. Vendor baseline: <b style={{ color: T.text2 }}>{basisLabel(settings.baseline_basis)}</b> from QuickBooks actuals {settings.base_start ? `${monthLabel(settings.base_start.slice(0, 7))} to ${monthLabel(settings.base_end.slice(0, 7))}` : ""}
             {plan.actuals_refreshed_at ? ` (pulled ${new Date(plan.actuals_refreshed_at).toLocaleDateString()})` : " (not pulled yet)"}; people baseline is current comp.
           </div>
+          {data.baseline.length > 0 && (
+            <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, color: T.text3, marginTop: 6 }} title="What each vendor line's baseline is based on. Lines kept at their baseline follow a change; changed amounts are left alone.">
+              Vendor baseline
+              <select value={settings.baseline_basis?.type === "month" ? settings.baseline_basis.month : "ttm"}
+                onChange={(e) => wrap(saveSettings)({ baseline_basis: e.target.value === "ttm" ? { type: "ttm" } : { type: "month", month: e.target.value } })}
+                style={{ fontSize: 12, padding: "3px 6px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text }}>
+                {[...new Set(data.baseline.flatMap((a) => Object.keys(a.months || {})))].sort().reverse().map((m) => <option key={m} value={m}>{monthLabel(m)} × 12</option>)}
+                <option value="ttm">Trailing 12 months</option>
+              </select>
+            </label>
+          )}
         </div>
         <label style={{ fontSize: 11, color: T.text3, display: "flex", alignItems: "center", gap: 6 }} title="Payroll taxes, benefits and 401k on top of salary and bonus">
           Taxes &amp; benefits load
@@ -343,7 +357,7 @@ export default function ZeroBasedBudget({ isMobile }) {
       {tab === "summary" && <Summary totals={totals} year={year} />}
       {tab === "people" && <People people={data.people} ctx={ctx} settings={settings} year={year} savePerson={wrap(savePerson)} deletePerson={wrap(deletePerson)}
         bulkPeople={wrap(bulkPeople)} importPeople={wrap(importPeople)} saveSettings={wrap(saveSettings)} isMobile={isMobile} totals={totals} setToast={setToast} />}
-      {tab === "lines" && <Lines lines={data.lines.filter((l) => l.category === COGS || !hidden.includes(l.category || ""))} planId={plan.id} categories={data.categories} saveLine={wrap(saveLine)} deleteLine={wrap(deleteLine)} isMobile={isMobile} setToast={setToast} allLines={data.lines} />}
+      {tab === "lines" && <Lines basis={settings.baseline_basis} lines={data.lines.filter((l) => l.category === COGS || !hidden.includes(l.category || ""))} planId={plan.id} categories={data.categories} saveLine={wrap(saveLine)} deleteLine={wrap(deleteLine)} isMobile={isMobile} setToast={setToast} allLines={data.lines} />}
       {tab === "compare" && <CompareVersions year={year} versions={data.versions || []} currentId={plan.id} onOpen={(id) => { setTab("summary"); switchVersion(id); }} />}
       {tab === "removed" && <Removed people={data.people} lines={data.lines.filter((l) => l.category !== COGS && !hidden.includes(l.category || ""))} ctx={ctx} />}
 
@@ -404,7 +418,7 @@ function Summary({ totals, year }) {
         </tbody>
       </table>
       <div style={{ padding: "8px 10px", fontSize: 11, color: T.text3, borderTop: `1px solid ${T.border}` }}>
-        Grey bar: baseline. Coloured bar: FY {year} plan. Salaries baseline is current base salary from the HRIS import; payroll taxes and benefits are {TAX_NOTE(totals.load).toLowerCase()} (QuickBooks pay accounts 60010–60059 over the baseline window, all-in: {full(totals.payBase)}).
+        Grey bar: baseline (vendors: {basisLabel(totals.basis)}). Coloured bar: FY {year} plan. Salaries baseline is current base salary from the HRIS import; payroll taxes and benefits are {TAX_NOTE(totals.load).toLowerCase()} (QuickBooks pay accounts 60010–60059 over the baseline window, all-in: {full(totals.payBase)}).
         {totals.cogsN > 0 && <> {totals.cogsN} people in COGS departments are outside these totals (salaries now {money(totals.cogsCurrent)}, plan {money(totals.cogsPlan)}).</>}
         {totals.movedCogs.n > 0 && <> {totals.movedCogs.n} vendor {totals.movedCogs.n === 1 ? "line has" : "lines have"} been moved to COGS and sit outside Opex (baseline {money(totals.movedCogs.baseline)}, plan {money(totals.movedCogs.plan)}).</>} Vendor lines still "to decide" count as $0.
       </div>
@@ -1085,7 +1099,7 @@ function PersonEditor({ person: p, people, subtree, ctx, year, onClose, onSave, 
 }
 
 // ── Vendors & software ──────────────────────────────────────────────────────
-function Lines({ lines, allLines, planId, categories, saveLine, deleteLine, isMobile, setToast }) {
+function Lines({ basis, lines, allLines, planId, categories, saveLine, deleteLine, isMobile, setToast }) {
   const [filter, setFilter] = useState("all");
   const [q, setQ] = useState("");
   const [closed, setClosed] = useState(() => new Set());
@@ -1131,7 +1145,7 @@ function Lines({ lines, allLines, planId, categories, saveLine, deleteLine, isMo
             {!isClosed && (
               <div style={{ overflowX: "auto", borderTop: `1px solid ${T.border}` }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-                  <thead><tr><th style={th}>Vendor</th>{!isMobile && <th style={th}>Account</th>}<th style={{ ...th, textAlign: "right" }}>Baseline</th><th style={th}>Decision</th><th style={{ ...th, textAlign: "right" }}>Plan</th><th style={th}></th></tr></thead>
+                  <thead><tr><th style={th}>Vendor</th>{!isMobile && <th style={th}>Account</th>}<th style={{ ...th, textAlign: "right" }} title={`Baseline: ${basisLabel(basis)}`}>Baseline{basis?.type === "month" ? ` (${monthLabel(basis.month).slice(0, 3)} × 12)` : ""}</th><th style={th}>Decision</th><th style={{ ...th, textAlign: "right" }}>Plan</th><th style={th}></th></tr></thead>
                   <tbody>{ls.map((l) => (
                     <tr key={l.id} style={{ borderTop: `1px solid ${T.border}`, background: flash === l.id ? T.accentDim : "transparent" }}>
                       <td style={{ padding: "5px 8px", minWidth: 160 }}>
@@ -1139,7 +1153,15 @@ function Lines({ lines, allLines, planId, categories, saveLine, deleteLine, isMo
                         {(l.note || l.seats) && <div style={{ fontSize: 11, color: T.text3 }}>{l.seats ? `${l.seats} × ${full(l.unit_cost)}${l.billing ? ` ${l.billing}` : ""}` : ""}{l.seats && l.note ? " · " : ""}{l.note}</div>}
                       </td>
                       {!isMobile && <td style={{ padding: "5px 8px", color: T.text3, fontSize: 11, whiteSpace: "nowrap" }}>{l.account_num} {String(l.account_name || "").split(":").pop()}</td>}
-                      <td style={{ padding: "5px 8px", textAlign: "right", color: T.text2, fontVariantNumeric: "tabular-nums" }}>{Number(l.baseline) ? full(l.baseline) : "—"}</td>
+                      <td style={{ padding: "5px 8px", textAlign: "right", color: T.text2, fontVariantNumeric: "tabular-nums" }}>
+                        {Number(l.baseline) ? full(l.baseline) : "—"}
+                        {basis?.type === "month" && l.baseline_ttm != null && Math.round(Number(l.baseline_ttm)) !== Math.round(Number(l.baseline)) && (
+                          <div style={{ fontSize: 10, color: Number(l.baseline_ttm) > 0 && !Number(l.baseline_month) ? (T.amber || T.yellow) : T.text3 }}
+                            title={!Number(l.baseline_month) ? `No spend in ${monthLabel(basis.month)}; check whether this is billed annually or quarterly` : "Spend over the trailing 12 months"}>
+                            12-mo {full(l.baseline_ttm)}
+                          </div>
+                        )}
+                      </td>
                       <td style={{ padding: "5px 8px", whiteSpace: "nowrap" }}>
                         {l.status === "new" ? <Pill status="new" /> : ["keep", "change", "remove"].map((s) => (
                           <button key={s} onClick={() => decide(l, l.status === s ? "review" : s)} style={{ ...btn(l.status === s, STATUS[s].c()), marginRight: 4, padding: "3px 8px" }}>{STATUS[s].label}</button>
@@ -1450,6 +1472,8 @@ function CompareVersions({ year, versions, currentId, onOpen }) {
 
 // ── Excel export ────────────────────────────────────────────────────────────
 async function exportWorkbook({ data, totals, ctx, year, version }) {
+  const basis = data.plan?.settings?.baseline_basis;
+  const basisMonth = basis?.type === "month" ? basis.month : null;
   const X = await loadXLSX();
   const wb = X.utils.book_new();
   const byId = new Map(data.people.map((p) => [p.id, p]));
@@ -1468,6 +1492,7 @@ async function exportWorkbook({ data, totals, ctx, year, version }) {
     {},
     { Category: "People in COGS departments (not in totals)", Baseline: r0(totals.cogsCurrent), [`FY ${year}`]: r0(totals.cogsPlan), Change: r0(totals.cogsPlan - totals.cogsCurrent) },
     { Category: `Version: ${version || ""}` },
+    { Category: `Vendor baseline: ${basisLabel(basis)}` },
     { Category: `Assumptions: taxes & benefits load ${ctx.load}%; FX ${Object.entries(ctx.fx || {}).filter(([k]) => k !== "USD").map(([k, v]) => `1 ${k} = $${v}`).join(", ")}; COGS departments: ${[...ctx.cogs].join(", ") || "none"}` },
   ], [48, 14, 14, 14, 8, 9, 6, 10]);
   add("People", data.people.slice().sort((a, b) => String(a.department || "").localeCompare(String(b.department || "")) || a.name.localeCompare(b.name)).map((p) => ({
@@ -1480,9 +1505,10 @@ async function exportWorkbook({ data, totals, ctx, year, version }) {
   })), [26, 22, 20, 22, 7, 9, 8, 14, 14, 9, 12, 11, 9, 11, 8, 16, 16, 40]);
   add("Vendors & software", data.lines.slice().sort((a, b) => String(a.category).localeCompare(String(b.category)) || b.baseline - a.baseline).map((l) => ({
     Category: catLabel(l.category), Vendor: l.vendor, Type: l.kind, Account: `${l.account_num || ""} ${l.account_name || ""}`.trim(),
-    Baseline: r0(l.baseline), Decision: STATUS[l.status]?.label || l.status, [`FY ${year}`]: r0(lineAmount(l)), Change: r0(lineAmount(l) - l.baseline),
+    Baseline: r0(l.baseline), [basisMonth ? `${monthLabel(basisMonth)} actual` : "Month actual"]: l.baseline_month == null ? "" : r0(l.baseline_month), "Trailing 12 months": l.baseline_ttm == null ? "" : r0(l.baseline_ttm),
+    Decision: STATUS[l.status]?.label || l.status, [`FY ${year}`]: r0(lineAmount(l)), Change: r0(lineAmount(l) - l.baseline),
     Seats: l.seats ?? "", "Cost per seat": l.unit_cost ?? "", Billing: l.billing || "", Owner: l.owner || "", Note: l.note || "",
-  })), [28, 32, 9, 36, 12, 10, 12, 12, 7, 12, 18, 16, 40]);
+  })), [28, 32, 9, 36, 12, 12, 14, 10, 12, 12, 7, 12, 18, 16, 40]);
   const gone = removedPeople(data.people, ctx);
   add("Removed", [
     ...gone.map((p) => ({ Type: p.opex ? "Person" : "Person (COGS)", Name: p.name, "Category / department": p.department || "", Baseline: r0(personCurrent(p, ctx)), [`FY ${year}`]: r0(personCost(p, ctx)), Saving: r0(p.saving), Note: p.note || "" })),
