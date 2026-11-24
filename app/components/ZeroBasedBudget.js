@@ -225,8 +225,8 @@ export default function ZeroBasedBudget({ isMobile }) {
     setData((d) => ({ ...d, lines: line.id ? d.lines.map((l) => (l.id === r.line.id ? r.line : l)) : [...d.lines, r.line] }));
     return r.line;
   };
-  const bulkLines = async (ids, status) => {
-    const r = await call({ action: "bulk_lines", plan_id: plan.id, ids, status });
+  const bulkLines = async (ids, status, category) => {
+    const r = await call({ action: "bulk_lines", plan_id: plan.id, ids, ...(category ? { category } : { status }) });
     const by = new Map(r.lines.map((l) => [l.id, l]));
     setData((d) => ({ ...d, lines: d.lines.map((l) => by.get(l.id) || l) }));
     return r.lines.length;
@@ -1107,6 +1107,29 @@ function PersonEditor({ person: p, people, subtree, ctx, year, onClose, onSave, 
 // ── Vendors & software ──────────────────────────────────────────────────────
 function Lines({ basis, lines, allLines, planId, categories, saveLine, bulkLines, deleteLine, isMobile, setToast }) {
   const [confirmCat, setConfirmCat] = useState(null); // section waiting for "Remove all" confirmation
+  const [sel, setSel] = useState(() => new Set()); // ticked lines for bulk move / keep / remove
+  const [sort, setSortRaw] = useState(() => { try { return JSON.parse(localStorage.getItem("zbb.lineSort")) || { k: "baseline", d: -1 }; } catch { return { k: "baseline", d: -1 }; } });
+  const setSort = (k) => setSortRaw((s) => { const n = { k, d: s.k === k ? -s.d : (k === "vendor" || k === "account" || k === "decision" ? 1 : -1) }; try { localStorage.setItem("zbb.lineSort", JSON.stringify(n)); } catch {} return n; });
+  const SortTh = ({ k, children, right, title }) => (
+    <th onClick={() => setSort(k)} title={title || "Click to sort"} style={{ ...th, cursor: "pointer", userSelect: "none", textAlign: right ? "right" : "left", color: sort.k === k ? T.accent : th.color }}>
+      {children}{sort.k === k ? (sort.d > 0 ? " ▲" : " ▼") : ""}
+    </th>
+  );
+  const moveTargets = [...new Set([...(categories || []).map((c) => c.name), ...Object.keys(CAT_ACCOUNT), ...allLines.map((l) => l.category).filter(Boolean)])]
+    .filter((c) => c !== COGS && c !== "COGS" && c !== "People Costs").sort().concat(allLines.some((l) => l.category === "People Costs") ? ["People Costs"] : []).concat(COGS);
+  const moveTo = async (ids, cat) => {
+    if (!ids.length || !cat) return;
+    const n = await bulkLines(ids, null, cat);
+    if (n) { setToast(`Moved ${n} line${n === 1 ? "" : "s"} to ${catLabel(cat)}.`); setSel(new Set()); setClosed((s) => { const x = new Set(s); x.delete(cat); return x; }); }
+  };
+  const toggleSel = (id) => setSel((s) => { const x = new Set(s); x.has(id) ? x.delete(id) : x.add(id); return x; });
+  const MoveSelect = ({ value, onPick, label, small }) => (
+    <select value="" onClick={(e) => e.stopPropagation()} onChange={(e) => { const v = e.target.value; e.target.value = ""; onPick(v); }}
+      title="Move to another category" style={{ fontSize: small ? 11 : 12, padding: small ? "2px 4px" : "4px 6px", borderRadius: 5, border: `1px solid ${T.border}`, background: T.surface2, color: T.text2, maxWidth: small ? 110 : 200 }}>
+      <option value="">{label || "Move to…"}</option>
+      {moveTargets.filter((c) => c !== value).map((c) => <option key={c} value={c}>{c === COGS ? "COGS (out of Opex)" : catLabel(c)}</option>)}
+    </select>
+  );
   const [filter, setFilter] = useState("all");
   const [q, setQ] = useState("");
   const [closed, setClosed] = useState(() => new Set());
@@ -1117,6 +1140,10 @@ function Lines({ basis, lines, allLines, planId, categories, saveLine, bulkLines
   const shown = lines.filter((l) => (filter === "all" || l.status === filter) && (!q || `${l.vendor} ${l.account_name || ""} ${l.note || ""}`.toLowerCase().includes(q.toLowerCase())));
   const groups = {};
   for (const l of shown) (groups[l.category || "Non-Fixed and Other"] ||= []).push(l);
+  // Sort within each category (remembered in this browser).
+  const sv = (l, k) => k === "vendor" ? String(l.vendor || "").toLowerCase() : k === "account" ? String(l.account_num || "") : k === "decision" ? ["review", "keep", "change", "new", "remove"].indexOf(l.status)
+    : k === "plan" ? lineAmount(l) : k === "change" ? lineAmount(l) - Number(l.baseline || 0) : k === "ttm" ? Number(l.baseline_ttm ?? l.baseline ?? 0) : Number(l.baseline || 0);
+  for (const k of Object.keys(groups)) groups[k].sort((a, b) => { const x = sv(a, sort.k); const y = sv(b, sort.k); return (x > y ? 1 : x < y ? -1 : String(a.vendor).localeCompare(String(b.vendor))) * sort.d; });
   const order = Object.keys(groups).sort((a, b) => (a === COGS) - (b === COGS) || groups[b].reduce((s, l) => s + Number(l.baseline), 0) - groups[a].reduce((s, l) => s + Number(l.baseline), 0));
 
   const decide = (l, status) => saveLine({ ...l, status, amount: status === "keep" ? Number(l.baseline) || Number(l.amount) : status === "change" ? Number(l.amount) || Number(l.baseline) : l.amount });
@@ -1137,10 +1164,25 @@ function Lines({ basis, lines, allLines, planId, categories, saveLine, bulkLines
   return (
     <div>
       <SoftwareSearch planId={planId} lines={allLines} categories={categories} saveLine={saveLine} onAdded={onAdded} setToast={setToast} setEdit={setEdit} />
+      {sel.size > 0 && (
+        <div style={{ position: "sticky", top: 0, zIndex: 5, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", margin: "10px 0", padding: "8px 12px", borderRadius: 8, border: `1px solid ${T.accent}`, background: T.surface, boxShadow: "0 4px 14px rgba(0,0,0,.12)", fontSize: 12, color: T.text2 }}>
+          <b style={{ color: T.text }}>{sel.size} selected</b>
+          <MoveSelect label="Move selected to…" onPick={(c) => moveTo([...sel], c)} />
+          <button onClick={async () => { const n = await bulkLines([...sel], "keep"); if (n) setToast(`Kept ${n} at baseline.`); setSel(new Set()); }} style={btn(false, T.green)}>Keep at baseline</button>
+          <button onClick={async () => { const n = await bulkLines([...sel], "remove"); if (n) setToast(`Removed ${n}.`); setSel(new Set()); }} style={btn(false, T.red)}>Remove</button>
+          <button onClick={() => setSel(new Set())} style={btn(false)}>Clear</button>
+        </div>
+      )}
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", margin: "12px 0 10px" }}>
         {["all", "review", "keep", "change", "remove", "new"].map((s) => (
           <button key={s} onClick={() => setFilter(s)} style={btn(filter === s, s === "all" ? null : STATUS[s].c())}>{s === "all" ? "All" : STATUS[s].label} {s === "all" ? lines.length : counts[s] || 0}</button>
         ))}
+        <select value={sort.k} onChange={(e) => setSort(e.target.value)} title="Sort lines within each category"
+          style={{ fontSize: 11, padding: "4px 6px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text2 }}>
+          <option value="baseline">Sort: baseline</option><option value="ttm">Sort: 12-month spend</option><option value="plan">Sort: plan</option>
+          <option value="change">Sort: change vs baseline</option><option value="vendor">Sort: vendor A–Z</option><option value="account">Sort: account</option><option value="decision">Sort: decision</option>
+        </select>
+        <button onClick={() => setSort(sort.k)} style={{ ...btn(false), padding: "3px 8px" }} title="Reverse order">{sort.d > 0 ? "▲" : "▼"}</button>
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter lines…" style={{ marginLeft: "auto", flex: "0 1 220px", padding: "5px 9px", fontSize: 12, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text }} />
       </div>
       {!lines.length && <div style={{ ...card(), padding: 16, fontSize: 13, color: T.text3 }}>No lines yet. Pull QuickBooks actuals, or search above to add software and vendors.</div>}
@@ -1176,9 +1218,15 @@ function Lines({ basis, lines, allLines, planId, categories, saveLine, bulkLines
             {!isClosed && (
               <div style={{ overflowX: "auto", borderTop: `1px solid ${T.border}` }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-                  <thead><tr><th style={th}>Vendor</th>{!isMobile && <th style={th}>Account</th>}<th style={{ ...th, textAlign: "right" }} title={`Baseline: ${basisLabel(basis)}`}>Baseline{basis?.type === "month" ? ` (${monthLabel(basis.month).slice(0, 3)} × 12)` : ""}</th><th style={th}>Decision</th><th style={{ ...th, textAlign: "right" }}>Plan</th><th style={th}></th></tr></thead>
+                  <thead><tr>
+                    <th style={{ ...th, width: 24 }}><input type="checkbox" title="Select all lines in this section" checked={ls.length > 0 && ls.every((x) => sel.has(x.id))}
+                      onChange={() => setSel((s) => { const x = new Set(s); const all = ls.every((l) => x.has(l.id)); ls.forEach((l) => (all ? x.delete(l.id) : x.add(l.id))); return x; })} /></th>
+                    <SortTh k="vendor">Vendor</SortTh>{!isMobile && <SortTh k="account">Account</SortTh>}
+                    <SortTh k="baseline" right title={`Baseline: ${basisLabel(basis)}. Click to sort`}>Baseline{basis?.type === "month" ? ` (${monthLabel(basis.month).slice(0, 3)} × 12)` : ""}</SortTh>
+                    <SortTh k="decision">Decision</SortTh><SortTh k="plan" right>Plan</SortTh><th style={th}></th></tr></thead>
                   <tbody>{ls.map((l) => (
-                    <tr key={l.id} style={{ borderTop: `1px solid ${T.border}`, background: flash === l.id ? T.accentDim : "transparent" }}>
+                    <tr key={l.id} style={{ borderTop: `1px solid ${T.border}`, background: flash === l.id || sel.has(l.id) ? T.accentDim : "transparent" }}>
+                      <td style={{ padding: "5px 8px" }}><input type="checkbox" checked={sel.has(l.id)} onChange={() => toggleSel(l.id)} /></td>
                       <td style={{ padding: "5px 8px", minWidth: 160 }}>
                         <div style={{ color: T.text, fontWeight: 600, textDecoration: l.status === "remove" ? "line-through" : "none" }}>{l.vendor}{l.kind === "software" && <span style={{ fontSize: 10, color: T.text3, fontWeight: 400 }}> · software</span>}</div>
                         {(l.note || l.seats) && <div style={{ fontSize: 11, color: T.text3 }}>{l.seats ? `${l.seats} × ${full(l.unit_cost)}${l.billing ? ` ${l.billing}` : ""}` : ""}{l.seats && l.note ? " · " : ""}{l.note}</div>}
@@ -1202,7 +1250,10 @@ function Lines({ basis, lines, allLines, planId, categories, saveLine, bulkLines
                         {l.status === "review" || l.status === "remove" ? <span style={{ color: T.text3 }}>$0</span>
                           : <MoneyInput value={Number(l.amount)} onSave={(v) => saveLine({ ...l, amount: v, status: l.status === "keep" && Math.round(v) !== Math.round(Number(l.baseline)) ? "change" : l.status })} />}
                       </td>
-                      <td style={{ padding: "5px 8px", whiteSpace: "nowrap" }}><button onClick={() => setEdit(l)} style={{ ...btn(false), padding: "3px 8px" }}>Edit</button></td>
+                      <td style={{ padding: "5px 8px", whiteSpace: "nowrap" }}>
+                        <MoveSelect small value={l.category} onPick={(c) => moveTo([l.id], c)} />{" "}
+                        <button onClick={() => setEdit(l)} style={{ ...btn(false), padding: "3px 8px" }}>Edit</button>
+                      </td>
                     </tr>
                   ))}</tbody>
                 </table>
