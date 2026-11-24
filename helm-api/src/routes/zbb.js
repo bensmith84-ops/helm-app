@@ -6,7 +6,10 @@
 // Body: { action, ... }
 //   load            { year, plan_id? }       -> a version of the plan (latest changed if no plan_id; created and
 //                                               seeded on first load), its people, lines, baseline, and the year's versions
-//   copy_version    { plan_id, name }        -> duplicate a version; rename_version { plan_id, name }; delete_version { plan_id }
+//   copy_version    { plan_id, name, mode? } -> new version: a copy, or mode 'baseline' / 'blank' for a fresh start
+//   reset_version   { plan_id, mode }        -> reset a version to 'baseline' (current org, vendors to decide at 12-month
+//                                               spend) or 'blank' (everything removed, plan at $0)
+//   rename_version { plan_id, name }; delete_version { plan_id }
 //   refresh_actuals { plan_id, start, end }  -> pulls QuickBooks Profit and Loss Detail for the baseline
 //                                               window (Opex 6xxxx accounts), stores it by vendor x account x
 //                                               month, and adds a "review" line for every vendor not yet listed
@@ -150,6 +153,39 @@ async function applyBasis(q, plan) {
   return basis;
 }
 
+// Reset a version. mode 'baseline': everyone back on at current salary, new roles gone,
+// every QuickBooks vendor back to "to decide" in its GL category at its trailing-12-month
+// spend, added lines gone. mode 'blank': the same, but every person and vendor is removed
+// (and removed people hidden) so the plan starts at $0 and is built back up.
+async function resetPlan(q, plan, mode, cats) {
+  const id = plan.id;
+  // Roles added in the plan go; anyone reporting to one moves up to that role's manager.
+  for (let i = 0; i < 10; i++) {
+    const { rowCount } = await q.query(
+      `UPDATE zbb_people c SET manager_id = r.manager_id FROM zbb_people r
+        WHERE c.plan_id = $1 AND r.plan_id = $1 AND c.manager_id = r.id AND NOT r.is_existing AND c.id <> r.id`, [id]);
+    if (!rowCount) break;
+  }
+  await q.query(`DELETE FROM zbb_people WHERE plan_id = $1 AND NOT is_existing`, [id]);
+  await q.query(`UPDATE zbb_people SET manager_id = NULL WHERE plan_id = $1 AND manager_id IS NOT NULL
+                   AND manager_id NOT IN (SELECT id FROM zbb_people WHERE plan_id = $1)`, [id]);
+  await q.query(
+    `UPDATE zbb_people SET status = $2, salary = current_salary, bonus = 0, start_month = 1, end_month = $3, updated_at = now() WHERE plan_id = $1`,
+    [id, mode === 'blank' ? 'remove' : 'keep', mode === 'blank' ? 0 : 12]);
+  // Vendors: only QuickBooks lines remain, undecided (or removed for blank), in their GL category.
+  await q.query(`DELETE FROM zbb_lines WHERE plan_id = $1 AND source IS DISTINCT FROM 'qbo'`, [id]);
+  await q.query(
+    `UPDATE zbb_lines SET status = $2, amount = 0, seats = NULL, unit_cost = NULL, billing = NULL, owner = NULL, note = NULL, updated_at = now()
+      WHERE plan_id = $1`, [id, mode === 'blank' ? 'remove' : 'review']);
+  const { rows: accts } = await q.query(`SELECT DISTINCT account_num FROM zbb_lines WHERE plan_id = $1`, [id]);
+  for (const a of accts) {
+    await q.query(`UPDATE zbb_lines SET category = $3 WHERE plan_id = $1 AND account_num IS NOT DISTINCT FROM $2`, [id, a.account_num, catFor(cats, a.account_num)]);
+  }
+  const settings = { ...plan.settings, baseline_basis: { type: 'ttm' }, hide_removed: mode === 'blank' };
+  await q.query(`UPDATE zbb_plans SET settings = $2, updated_at = now() WHERE id = $1`, [id, settings]);
+  await applyBasis(q, { ...plan, settings });
+}
+
 function monthsBetween(start, end) {
   const out = [];
   let [y, m] = start.slice(0, 7).split('-').map(Number);
@@ -279,8 +315,29 @@ module.exports = function (app, { pool }) {
           await client.query(
             `INSERT INTO zbb_actuals (plan_id, month, account_num, account_name, vendor, amount, txns)
              SELECT $2, month, account_num, account_name, vendor, amount, txns FROM zbb_actuals WHERE plan_id = $1`, [src.id, plan.id]);
+          // A fresh start instead of a straight copy.
+          if (b.mode === 'baseline' || b.mode === 'blank') await resetPlan(client, plan, b.mode, await categoryMap(pool));
           await client.query('COMMIT');
           return res.json({ plan });
+        } catch (e) {
+          await client.query('ROLLBACK').catch(() => {});
+          throw e;
+        } finally {
+          client.release();
+        }
+      }
+
+      if (action === 'reset_version') {
+        const plan = await planById(b.plan_id);
+        if (!plan) return res.status(404).json({ error: 'plan not found' });
+        if (b.mode !== 'baseline' && b.mode !== 'blank') return res.status(400).json({ error: 'mode must be baseline or blank' });
+        const cats = await categoryMap(pool);
+        const client = await pool.connect();
+        try {
+          await client.query('BEGIN');
+          await resetPlan(client, plan, b.mode, cats);
+          await client.query('COMMIT');
+          return res.json({ ok: true });
         } catch (e) {
           await client.query('ROLLBACK').catch(() => {});
           throw e;
