@@ -17,7 +17,8 @@
 //   bulk_people     { plan_id, ids, op, ... } -> op raise {pct} | reset | status {status}
 //   save_person     { plan_id, person }      -> insert (no id) or update
 //   delete_person   { id }                   -> only people added in the plan; existing staff are marked removed
-//   bulk_lines      { plan_id, ids, status } -> remove | keep (at baseline) | review, for many lines at once
+//   bulk_lines      { plan_id, ids, status | category } -> remove | keep (at baseline) | review, or move to a
+//                                               category, for many lines at once
 //   save_line       { plan_id, line }
 //   delete_line     { id }
 //   search          { plan_id, q }           -> vendors with baseline spend + QuickBooks vendors, for "add software"
@@ -575,6 +576,12 @@ module.exports = function (app, { pool }) {
         const ids = (Array.isArray(b.ids) ? b.ids : []).filter((x) => UUID_RE.test(String(x))).slice(0, 5000);
         if (!ids.length) return res.status(400).json({ error: 'no lines selected' });
         let sql;
+        if (typeof b.category === 'string' && b.category.trim()) {
+          // Move to another budget category; decision, amount and notes are untouched.
+          const { rows } = await pool.query(`UPDATE zbb_lines SET category = $3, updated_at = now() WHERE plan_id = $1 AND id = ANY($2::uuid[]) RETURNING *`,
+            [plan.id, ids, b.category.trim().slice(0, 80)]);
+          return res.json({ lines: rows });
+        }
         if (b.status === 'remove') sql = `UPDATE zbb_lines SET status = 'remove', amount = 0, updated_at = now() WHERE plan_id = $1 AND id = ANY($2::uuid[]) RETURNING *`;
         else if (b.status === 'keep') sql = `UPDATE zbb_lines SET status = 'keep', amount = baseline, updated_at = now() WHERE plan_id = $1 AND id = ANY($2::uuid[]) AND status <> 'new' RETURNING *`;
         else if (b.status === 'review') sql = `UPDATE zbb_lines SET status = CASE WHEN source = 'qbo' THEN 'review' ELSE 'new' END, amount = CASE WHEN source = 'qbo' THEN 0 ELSE amount END, updated_at = now()
