@@ -225,6 +225,12 @@ export default function ZeroBasedBudget({ isMobile }) {
     setData((d) => ({ ...d, lines: line.id ? d.lines.map((l) => (l.id === r.line.id ? r.line : l)) : [...d.lines, r.line] }));
     return r.line;
   };
+  const bulkLines = async (ids, status) => {
+    const r = await call({ action: "bulk_lines", plan_id: plan.id, ids, status });
+    const by = new Map(r.lines.map((l) => [l.id, l]));
+    setData((d) => ({ ...d, lines: d.lines.map((l) => by.get(l.id) || l) }));
+    return r.lines.length;
+  };
   const deleteLine = async (id) => { await call({ action: "delete_line", id }); setData((d) => ({ ...d, lines: d.lines.filter((l) => l.id !== id) })); };
   const saveSettings = async (s) => { const r = await call({ action: "save_settings", plan_id: plan.id, settings: s }); setData((d) => ({ ...d, plan: r.plan, ...(r.lines ? { lines: r.lines } : {}) })); };
   const refresh = async () => {
@@ -357,7 +363,7 @@ export default function ZeroBasedBudget({ isMobile }) {
       {tab === "summary" && <Summary totals={totals} year={year} />}
       {tab === "people" && <People people={data.people} ctx={ctx} settings={settings} year={year} savePerson={wrap(savePerson)} deletePerson={wrap(deletePerson)}
         bulkPeople={wrap(bulkPeople)} importPeople={wrap(importPeople)} saveSettings={wrap(saveSettings)} isMobile={isMobile} totals={totals} setToast={setToast} />}
-      {tab === "lines" && <Lines basis={settings.baseline_basis} lines={data.lines.filter((l) => l.category === COGS || !hidden.includes(l.category || ""))} planId={plan.id} categories={data.categories} saveLine={wrap(saveLine)} deleteLine={wrap(deleteLine)} isMobile={isMobile} setToast={setToast} allLines={data.lines} />}
+      {tab === "lines" && <Lines basis={settings.baseline_basis} lines={data.lines.filter((l) => l.category === COGS || !hidden.includes(l.category || ""))} planId={plan.id} categories={data.categories} saveLine={wrap(saveLine)} bulkLines={wrap(bulkLines)} deleteLine={wrap(deleteLine)} isMobile={isMobile} setToast={setToast} allLines={data.lines} />}
       {tab === "compare" && <CompareVersions year={year} versions={data.versions || []} currentId={plan.id} onOpen={(id) => { setTab("summary"); switchVersion(id); }} />}
       {tab === "removed" && <Removed people={data.people} lines={data.lines.filter((l) => l.category !== COGS && !hidden.includes(l.category || ""))} ctx={ctx} />}
 
@@ -1099,7 +1105,8 @@ function PersonEditor({ person: p, people, subtree, ctx, year, onClose, onSave, 
 }
 
 // ── Vendors & software ──────────────────────────────────────────────────────
-function Lines({ basis, lines, allLines, planId, categories, saveLine, deleteLine, isMobile, setToast }) {
+function Lines({ basis, lines, allLines, planId, categories, saveLine, bulkLines, deleteLine, isMobile, setToast }) {
+  const [confirmCat, setConfirmCat] = useState(null); // section waiting for "Remove all" confirmation
   const [filter, setFilter] = useState("all");
   const [q, setQ] = useState("");
   const [closed, setClosed] = useState(() => new Set());
@@ -1113,7 +1120,17 @@ function Lines({ basis, lines, allLines, planId, categories, saveLine, deleteLin
   const order = Object.keys(groups).sort((a, b) => (a === COGS) - (b === COGS) || groups[b].reduce((s, l) => s + Number(l.baseline), 0) - groups[a].reduce((s, l) => s + Number(l.baseline), 0));
 
   const decide = (l, status) => saveLine({ ...l, status, amount: status === "keep" ? Number(l.baseline) || Number(l.amount) : status === "change" ? Number(l.amount) || Number(l.baseline) : l.amount });
-  const keepRest = async (cat) => { for (const l of groups[cat].filter((x) => x.status === "review")) await decide(l, "keep"); };
+  const keepRest = async (cat) => { const n = await bulkLines(groups[cat].filter((x) => x.status === "review").map((x) => x.id), "keep"); if (n) setToast(`Kept ${n} lines at baseline.`); };
+  const removeAll = async (cat) => {
+    const ids = groups[cat].filter((x) => x.status !== "remove").map((x) => x.id);
+    setConfirmCat(null);
+    const n = await bulkLines(ids, "remove");
+    if (n) setToast(`Removed ${n} lines in ${catLabel(cat)}. Use Keep / Change on any line to bring it back.`);
+  };
+  const addLine = (cat) => {
+    const [acct, acctName] = CAT_ACCOUNT[cat] || [null, null];
+    setEdit({ vendor: "", category: cat, account_num: acct, account_name: acctName, kind: cat === "Software and Subscriptions" ? "software" : "vendor", status: "new", amount: 0 });
+  };
 
   const onAdded = (l) => { setFlash(l.id); setFilter("all"); setQ(""); setClosed((s) => { const n = new Set(s); n.delete(l.category); return n; }); setTimeout(() => setFlash(null), 2500); };
 
@@ -1141,6 +1158,20 @@ function Lines({ basis, lines, allLines, planId, categories, saveLine, deleteLin
               <span style={{ fontSize: 12, color: T.text, fontWeight: 600 }}>plan {money(p)}</span>
               <span style={{ fontSize: 12, color: p - b <= 0 ? T.green : T.red, width: 70, textAlign: "right" }}>{signed(p - b)}</span>
               {rev > 0 && <button onClick={(e) => { e.stopPropagation(); keepRest(cat); }} style={btn(false, T.green)} title="Keep every undecided line in this category at its baseline">Keep {rev} at baseline</button>}
+              {(() => {
+                const live = ls.filter((x) => x.status !== "remove").length;
+                if (!live) return null;
+                return confirmCat === cat ? (
+                  <span onClick={(e) => e.stopPropagation()} style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+                    <button onClick={() => removeAll(cat)} style={btn(true, T.red)}>Confirm: remove {live}</button>
+                    <button onClick={() => setConfirmCat(null)} style={btn(false)}>Cancel</button>
+                  </span>
+                ) : (
+                  <button onClick={(e) => { e.stopPropagation(); setConfirmCat(cat); }} style={btn(false, T.red)}
+                    title={`Mark every ${filter === "all" && !q ? "" : "shown "}line in this section as removed (counts as $0). You can bring any back with Keep or Change.`}>Remove all {live}</button>
+                );
+              })()}
+              <button onClick={(e) => { e.stopPropagation(); addLine(cat); }} style={btn(false)} title="Add a new budget line to this section">+ Add budget line</button>
             </div>
             {!isClosed && (
               <div style={{ overflowX: "auto", borderTop: `1px solid ${T.border}` }}>
@@ -1299,8 +1330,8 @@ function LineEditor({ line, categories, onClose, onSave, onDelete }) {
   const seatsTotal = f.seats && f.unit_cost ? parseMoney(f.seats) * parseMoney(f.unit_cost) : null;
   const cats = [...new Set([...(categories || []).map((c) => c.name), ...Object.keys(CAT_ACCOUNT)])].filter((c) => c !== COGS && c !== "People Costs").concat(COGS);
   return (
-    <Drawer title={line.id ? line.vendor : "New line"} onClose={onClose}>
-      <Field label="Vendor / tool"><input style={inp()} value={f.vendor || ""} onChange={(e) => put("vendor", e.target.value)} /></Field>
+    <Drawer title={line.id ? line.vendor : `New budget line${line.category ? ` · ${catLabel(line.category)}` : ""}`} onClose={onClose}>
+      <Field label="Vendor / tool / budget item"><input autoFocus={!line.id} style={inp()} value={f.vendor || ""} placeholder="e.g. Trade show booth, New CRM, Agency retainer" onChange={(e) => put("vendor", e.target.value)} /></Field>
       <Field label="Category">
         <select style={inp()} value={f.category || ""} onChange={(e) => { const c = e.target.value; setF((x) => ({ ...x, category: c, ...(CAT_ACCOUNT[c] && !line.account_num ? { account_num: CAT_ACCOUNT[c][0], account_name: CAT_ACCOUNT[c][1] } : {}) })); }}>
           {cats.map((c) => <option key={c} value={c}>{c === COGS ? "COGS (move out of Opex)" : c}</option>)}
