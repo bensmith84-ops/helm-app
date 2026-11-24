@@ -17,6 +17,7 @@
 //   bulk_people     { plan_id, ids, op, ... } -> op raise {pct} | reset | status {status}
 //   save_person     { plan_id, person }      -> insert (no id) or update
 //   delete_person   { id }                   -> only people added in the plan; existing staff are marked removed
+//   bulk_lines      { plan_id, ids, status } -> remove | keep (at baseline) | review, for many lines at once
 //   save_line       { plan_id, line }
 //   delete_line     { id }
 //   search          { plan_id, q }           -> vendors with baseline spend + QuickBooks vendors, for "add software"
@@ -565,6 +566,22 @@ module.exports = function (app, { pool }) {
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
           [...fields, plan.id, Math.max(0, num(l.baseline)), str(l.source, 20) || 'manual']);
         return res.json({ line: r });
+      }
+
+      if (action === 'bulk_lines') {
+        // Decide many vendor lines at once (a whole section): remove, keep at baseline, or back to review.
+        const plan = await planById(b.plan_id);
+        if (!plan) return res.status(404).json({ error: 'plan not found' });
+        const ids = (Array.isArray(b.ids) ? b.ids : []).filter((x) => UUID_RE.test(String(x))).slice(0, 5000);
+        if (!ids.length) return res.status(400).json({ error: 'no lines selected' });
+        let sql;
+        if (b.status === 'remove') sql = `UPDATE zbb_lines SET status = 'remove', amount = 0, updated_at = now() WHERE plan_id = $1 AND id = ANY($2::uuid[]) RETURNING *`;
+        else if (b.status === 'keep') sql = `UPDATE zbb_lines SET status = 'keep', amount = baseline, updated_at = now() WHERE plan_id = $1 AND id = ANY($2::uuid[]) AND status <> 'new' RETURNING *`;
+        else if (b.status === 'review') sql = `UPDATE zbb_lines SET status = CASE WHEN source = 'qbo' THEN 'review' ELSE 'new' END, amount = CASE WHEN source = 'qbo' THEN 0 ELSE amount END, updated_at = now()
+                                                WHERE plan_id = $1 AND id = ANY($2::uuid[]) RETURNING *`;
+        else return res.status(400).json({ error: 'status must be remove, keep or review' });
+        const { rows } = await pool.query(sql, [plan.id, ids]);
+        return res.json({ lines: rows });
       }
 
       if (action === 'delete_line') {
