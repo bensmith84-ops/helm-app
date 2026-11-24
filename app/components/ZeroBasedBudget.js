@@ -182,7 +182,16 @@ export default function ZeroBasedBudget({ isMobile }) {
   const versionAction = async () => {
     const v = verUi; if (!v) return;
     try {
-      if (v.kind === "copy") { const r = await call({ action: "copy_version", plan_id: data.plan.id, name: v.name }); switchVersion(r.plan.id); setToast(`Created "${r.plan.name}".`); }
+      if (v.kind === "copy") {
+        const r = await call({ action: "copy_version", plan_id: data.plan.id, name: v.name, mode: v.mode || "copy" });
+        switchVersion(r.plan.id);
+        setToast(`Created "${r.plan.name}"${v.mode === "baseline" ? ", reset to the 12-month baseline" : v.mode === "blank" ? ", starting blank" : ""}.`);
+      }
+      if (v.kind === "reset") {
+        await call({ action: "reset_version", plan_id: data.plan.id, mode: v.mode || "baseline" });
+        setVerUi(null); setData(null); await load(data.plan.id);
+        setToast(v.mode === "blank" ? "Reset to blank: everything is removed; add back what you need." : "Reset: current org at current salaries, every vendor to decide at its 12-month spend.");
+      }
       if (v.kind === "rename") { const r = await call({ action: "rename_version", plan_id: data.plan.id, name: v.name }); setVerUi(null); await load(r.plan.id); }
       if (v.kind === "delete") {
         const gone = data.plan.name; await call({ action: "delete_version", plan_id: data.plan.id });
@@ -284,20 +293,37 @@ export default function ZeroBasedBudget({ isMobile }) {
             <select value={plan.id} onChange={(e) => switchVersion(e.target.value)} style={{ fontSize: 12, padding: "3px 6px", borderRadius: 6, border: `1px solid ${T.accent}`, background: T.surface2, color: T.text, maxWidth: 260 }}>
               {(data.versions || []).map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
             </select>
-            <button onClick={() => setVerUi({ kind: "copy", name: `${plan.name} (copy)` })} style={btn(false)} title="Duplicate this version to try a different scenario">Duplicate</button>
+            <button onClick={() => setVerUi({ kind: "copy", mode: "copy", name: `${plan.name} (copy)` })} style={btn(false)} title="Create a new version: a copy of this one, reset to the 12-month baseline, or blank">New version</button>
+            <button onClick={() => setVerUi({ kind: "reset", mode: "baseline" })} style={btn(false)} title="Start this version over">Reset</button>
             <button onClick={() => setVerUi({ kind: "rename", name: plan.name })} style={btn(false)}>Rename</button>
             {(data.versions || []).length > 1 && <button onClick={() => setVerUi({ kind: "delete" })} style={btn(false, T.red)}>Delete</button>}
           </div>
           {verUi && (
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: 8, padding: "8px 10px", borderRadius: 8, border: `1px solid ${verUi.kind === "delete" ? T.red : T.accent}`, background: T.surface, fontSize: 12, color: T.text2 }}>
+              {(verUi.kind === "copy" || verUi.kind === "reset") && (
+                <div style={{ flexBasis: "100%", display: "flex", flexDirection: "column", gap: 5, marginBottom: 4 }}>
+                  {[
+                    ...(verUi.kind === "copy" ? [["copy", `Copy of "${plan.name}"`, "Everything as it is now: org, comp, vendor decisions, notes and settings."]] : []),
+                    ["baseline", "Reset to the 12-month baseline", "Current org at current salaries (roles you added removed); every QuickBooks vendor back to \"to decide\" in its GL category at its trailing-12-month spend; lines you added removed."],
+                    ["blank", "Completely blank", "Plan starts at $0: every person and vendor marked removed (baseline kept for comparison). Add back people, roles and vendors as you go."],
+                  ].map(([m, label, hint]) => (
+                    <label key={m} style={{ display: "flex", gap: 8, alignItems: "flex-start", cursor: "pointer" }}>
+                      <input type="radio" checked={(verUi.mode || "copy") === m} onChange={() => setVerUi({ ...verUi, mode: m })} style={{ marginTop: 2 }} />
+                      <span><b style={{ color: T.text }}>{label}</b> <span style={{ color: T.text3 }}>{hint}</span></span>
+                    </label>
+                  ))}
+                </div>
+              )}
               {verUi.kind === "delete"
                 ? <span>Delete <b style={{ color: T.text }}>{plan.name}</b> and everything in it (org chart, comp, vendor decisions)? This can't be undone; other versions are not affected.</span>
+                : verUi.kind === "reset"
+                ? <span style={{ color: T.red }}>This replaces the decisions in <b>{plan.name}</b> (vendor decisions, changed amounts, notes, added roles and lines). Other versions aren't affected; use <b>New version</b> instead to keep this one.</span>
                 : <>
-                  <span>{verUi.kind === "copy" ? `New version, copied from "${plan.name}":` : "Version name:"}</span>
+                  <span>{verUi.kind === "copy" ? "New version name:" : "Version name:"}</span>
                   <input autoFocus value={verUi.name} onChange={(e) => setVerUi({ ...verUi, name: e.target.value })} onKeyDown={(e) => { if (e.key === "Enter") versionAction(); if (e.key === "Escape") setVerUi(null); }}
                     style={{ flex: "1 1 220px", padding: "5px 8px", fontSize: 12, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text }} />
                 </>}
-              <button onClick={versionAction} style={btn(true, verUi.kind === "delete" ? T.red : null)}>{verUi.kind === "copy" ? "Create version" : verUi.kind === "rename" ? "Save" : "Delete version"}</button>
+              <button onClick={versionAction} style={btn(true, verUi.kind === "delete" || verUi.kind === "reset" ? T.red : null)}>{verUi.kind === "copy" ? "Create version" : verUi.kind === "rename" ? "Save" : verUi.kind === "reset" ? (verUi.mode === "blank" ? "Reset to blank" : "Reset to baseline") : "Delete version"}</button>
               <button onClick={() => setVerUi(null)} style={btn(false)}>Cancel</button>
             </div>
           )}
