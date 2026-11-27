@@ -200,3 +200,12 @@ test('route: chat persists the conversation and passes the mode', async () => {
   assert.equal(out.success, true); assert.equal(out.mode, 'rfp'); assert.ok(out.conversation_id);
   assert.match(client.calls[0].system.map((b) => b.text).join(''), /Mode: RFP and quotes/);
 });
+
+test('restClient: bulk insert sends every row with the same keys', async () => {
+  const { restClient } = require('../src/lib/advisor/engine');
+  let sent;
+  const db = restClient({ base: 'http://localhost:3000', headers: async () => ({}), fetchImpl: async (_u, o) => { sent = JSON.parse(o.body); return { ok: true, text: async () => '[]' }; } });
+  await db.insertMany('plm_ai_messages', [{ conversation_id: 'c', role: 'user', content: 'q' }, { conversation_id: 'c', role: 'assistant', content: 'a', tokens_in: 3, tokens_out: 4 }]);
+  assert.deepEqual(Object.keys(sent[0]).sort(), Object.keys(sent[1]).sort());
+  assert.equal(sent[0].tokens_in, null); assert.equal(sent[1].tokens_out, 4);
+});

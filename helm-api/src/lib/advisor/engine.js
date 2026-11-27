@@ -32,8 +32,13 @@ function restClient({ base, headers, fetchImpl = fetch }) {
   return {
     get: (path) => call('GET', path),
     insert: (table, row) => call('POST', `/${table}`, { body: row, prefer: 'return=representation' }).then((d) => (Array.isArray(d) ? d[0] : d)),
-    insertMany: (table, rows) => call('POST', `/${table}`, { body: rows, prefer: 'return=representation' }),
+    // PostgREST bulk inserts need every row to carry the same keys; fill gaps with null.
+    insertMany: (table, rows) => call('POST', `/${table}`, { body: sameKeys(rows), prefer: 'return=representation' }),
   };
+}
+function sameKeys(rows) {
+  const keys = [...new Set(rows.flatMap((r) => Object.keys(r)))];
+  return rows.map((r) => Object.fromEntries(keys.map((k) => [k, r[k] === undefined ? null : r[k]])));
 }
 async function svcHeaders(base) {
   if (/^http:\/\/(localhost|127\.0\.0\.1)/.test(base)) return {};

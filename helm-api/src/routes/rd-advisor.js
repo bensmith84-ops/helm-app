@@ -108,8 +108,9 @@ module.exports = function mount(app, { pool, anthropicFactory, verifyFirebase, f
         try {
           if (!convId) { const c = await who.db.insert('plm_ai_conversations', { org_id: who.orgId, program_id: program_id || null, user_id: who.userId, title: String(question).slice(0, 80) }); convId = c?.id || null; }
           if (convId) await who.db.insertMany('plm_ai_messages', [
-            // Same columns as before v3: the Google database rejects extra ones.
-            { conversation_id: convId, role: 'user', content: String(question) },
+            // Same columns as before v3 (the Google database rejects extra ones), and the
+            // same keys on both rows: a bulk insert needs every row to have the same keys.
+            { conversation_id: convId, role: 'user', content: String(question), tokens_in: null, tokens_out: null },
             { conversation_id: convId, role: 'assistant', content: run.text, tokens_in: run.usage.input_tokens, tokens_out: run.usage.output_tokens },
           ]);
         } catch (e) { console.error('[rd-advisor] persist failed:', e.message); persistError = e.message; }
