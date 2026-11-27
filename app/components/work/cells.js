@@ -66,7 +66,7 @@ export const SectionCell = memo(function SectionCell({ task, sections, onChange,
 });
 
 export function LabelsCell({ task, labels, ids, onToggle, onCreate, boxed }) {
-  const pop = usePop(); const [name, setName] = useState(""); const [color, setColor] = useState("#0C7C74"); const [making, setMaking] = useState(false);
+  const pop = usePop(); const [name, setName] = useState(""); const [color, setColor] = useState("#3b82f6"); const [making, setMaking] = useState(false);
   const mine = labels.filter((l) => ids.includes(l.id));
   return (<>
     <button className={"hw-cell" + (boxed ? " boxed" : "") + (!mine.length ? " ph" : "")} onClick={pop.toggle} style={{ gap: 4 }}>

@@ -11,7 +11,7 @@ export const PAGES_CSS = `
 .hw-card2{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
 .hw-card2>h4{margin:0 0 12px;font-size:13px;font-weight:650;display:flex;align-items:center;gap:8px}
 .hw-kpi{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px 16px}
-.hw-kpi .v{font-family:var(--serif);font-size:38px;line-height:1;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.hw-kpi .v{font-weight:700;font-size:30px;line-height:1.05;letter-spacing:-.01em;font-variant-numeric:tabular-nums}
 .hw-kpi .l{font-size:12px;color:var(--ink3);font-weight:550;margin-bottom:8px}
 .hw-kpi .s{font-size:12px;color:var(--ink3);margin-top:6px}
 .hw-hbar{display:grid;grid-template-columns:minmax(90px,170px) 1fr 44px;align-items:center;gap:10px;height:28px;font-size:12.5px}
@@ -79,7 +79,7 @@ export function Overview({ store, project, onOpen, onEdit }) {
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
         <div className="hw-card2" style={tone(h.tone)}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}><Chip t={h.tone} dot>{h.label}</Chip><span style={{ flex: 1 }} /><button className="hw-btn ghost sm" onClick={onEdit}>Edit</button></div>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}><span className="hw-serif hw-num" style={{ fontSize: 44, lineHeight: 1 }}>{pct}%</span><span style={{ color: "var(--ink3)", fontSize: 12.5 }}>{stats.done} of {plural(stats.total, "task")} done</span></div>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}><span className="hw-serif hw-num" style={{ fontSize: 34, lineHeight: 1 }}>{pct}%</span><span style={{ color: "var(--ink3)", fontSize: 12.5 }}>{stats.done} of {plural(stats.total, "task")} done</span></div>
           <div style={{ margin: "12px 0 4px" }}><Progress value={pct} color="var(--green)" /></div>
           {stats.overdue > 0 && <div style={{ color: "var(--coral)", fontSize: 12.5, fontWeight: 600, marginTop: 8 }}>{plural(stats.overdue, "task")} overdue</div>}
         </div>
@@ -181,7 +181,7 @@ export function Portfolios({ store, go, navBtn }) {
       </div>
       {!store.portfoliosReady && <div className="hw-card2" style={{ marginBottom: 16, color: "var(--ink2)" }}>Custom portfolios switch on once this release's database update has run. Until then, All projects works as one portfolio.</div>}
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
-        <h3 className="hw-serif" style={{ margin: 0, fontSize: 22 }}>{pf ? pf.name : "All projects"}</h3>
+        <h3 className="hw-serif" style={{ margin: 0, fontSize: 17 }}>{pf ? pf.name : "All projects"}</h3>
         <Chip t="green" dot>{roll.on_track} on track</Chip>{roll.at_risk > 0 && <Chip t="amber" dot>{roll.at_risk} at risk</Chip>}{roll.off_track > 0 && <Chip t="coral" dot>{roll.off_track} off track</Chip>}
         <span style={{ fontSize: 12.5, color: "var(--ink3)" }}>{roll.open} open tasks{roll.overdue > 0 && <>, <b style={{ color: "var(--coral)" }}>{roll.overdue} overdue</b></>}</span>
         <span style={{ flex: 1 }} />

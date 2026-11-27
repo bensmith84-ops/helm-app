@@ -7,7 +7,7 @@ import { taskKind, isDone, ymd, parseYmd, today, addDays, diffDays, monthName, f
 export const CALENDAR_CSS = `
 .hw-calv{flex:1;min-height:0;display:flex;flex-direction:column;background:var(--surface)}
 .hw-calv-h{display:flex;align-items:center;gap:6px;padding:10px 18px;flex:none}
-.hw-calv-h h3{margin:0;font-family:var(--serif);font-weight:400;font-size:22px;min-width:190px}
+.hw-calv-h h3{margin:0;font-weight:700;font-size:17px;min-width:170px}
 .hw-calv-dow{display:grid;grid-template-columns:repeat(7,1fr);border-top:1px solid var(--line);border-bottom:1px solid var(--line);flex:none}
 .hw-calv-dow span{padding:6px 10px;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink3)}
 .hw-calv-g{flex:1;min-height:0;display:flex;flex-direction:column;overflow-y:auto}

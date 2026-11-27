@@ -1,26 +1,26 @@
-// Helm "Tide" — the design language for the new Projects suite.
-// Warm paper, deep-sea ink, one teal accent. Everything is a CSS variable on
-// .hw so light/dark is a single attribute and other modules can adopt it later.
+// Styles for the new Projects suite. Colours and type come from Helm's theme:
+// every colour is a CSS variable on .hw, filled from the theme tokens by
+// themeVars() so the accent and light/dark setting in Settings apply here too.
 export const BASE_CSS = `
 .hw{
-  --paper:#F5F4EF;--surface:#FFFFFF;--sunken:#EEECE5;--raise:#FAF9F5;--hover:rgba(22,33,31,.045);--press:rgba(22,33,31,.08);
-  --ink:#16211F;--ink2:#4D5957;--ink3:#87918F;--ink4:#B6BDBA;
-  --line:#E6E3DA;--line2:#D5D1C5;
-  --accent:#0C7C74;--accent-h:#0A6962;--accent-soft:#DDEFEC;--accent-ink:#075E58;--on-accent:#FFFFFF;
-  --coral:#D2472B;--coral-soft:#FBE7E1;--amber:#B27405;--amber-soft:#FAEFD4;--green:#2A8755;--green-soft:#DDF1E5;
-  --violet:#6452C7;--violet-soft:#EAE6FA;--blue:#2C69DB;--blue-soft:#E1EAFC;--pink:#C43F87;--pink-soft:#FAE2EE;--slate:#65717A;--slate-soft:#E9ECEC;
-  --sh1:0 1px 2px rgba(22,33,31,.06);--sh2:0 4px 14px rgba(22,33,31,.08),0 1px 3px rgba(22,33,31,.06);--sh3:0 18px 44px rgba(22,33,31,.18),0 2px 8px rgba(22,33,31,.08);
+  --paper:#f8f9fb;--surface:#ffffff;--sunken:#f0f1f5;--raise:#f8f9fb;--hover:rgba(26,29,39,.05);--press:rgba(26,29,39,.09);
+  --ink:#1a1d27;--ink2:#5c6070;--ink3:#8b8f9e;--ink4:#c0c4d0;
+  --line:#e4e6ec;--line2:#d4d7e0;
+  --accent:#3b82f6;--accent-h:#2563eb;--accent-soft:#dbeafe;--accent-ink:#1d4ed8;--on-accent:#ffffff;
+  --coral:#dc2626;--coral-soft:#fee2e2;--amber:#b45309;--amber-soft:#fef3c7;--green:#16a34a;--green-soft:#dcfce7;
+  --violet:#9333ea;--violet-soft:#f3e8ff;--blue:#2563eb;--blue-soft:#dbeafe;--pink:#db2777;--pink-soft:#fce7f3;--slate:#5c6070;--slate-soft:#e8eaef;
+  --sh1:0 1px 2px rgba(26,29,39,.06);--sh2:0 4px 14px rgba(26,29,39,.08),0 1px 3px rgba(26,29,39,.06);--sh3:0 18px 44px rgba(26,29,39,.18),0 2px 8px rgba(26,29,39,.08);
   --r:8px;--row:36px;
-  --sans:'Instrument Sans','DM Sans',system-ui,-apple-system,sans-serif;--serif:'Instrument Serif','Iowan Old Style',Georgia,serif;
-  font-family:var(--sans);font-size:13.5px;line-height:1.4;color:var(--ink);-webkit-font-smoothing:antialiased;font-feature-settings:'ss01','cv11';
+  --sans:'DM Sans',system-ui,-apple-system,sans-serif;--serif:var(--sans);
+  font-family:var(--sans);font-size:13.5px;line-height:1.4;color:var(--ink);-webkit-font-smoothing:antialiased;
 }
 .hw[data-mode=dark]{
-  --paper:#0C1312;--surface:#131C1A;--sunken:#090F0E;--raise:#18221F;--hover:rgba(232,238,236,.06);--press:rgba(232,238,236,.1);
-  --ink:#E7EDEB;--ink2:#A5B1AD;--ink3:#6F7C78;--ink4:#4A5652;
-  --line:#212D2A;--line2:#2D3B37;
-  --accent:#3FC4B9;--accent-h:#5AD3C9;--accent-soft:#12322F;--accent-ink:#7CE0D7;--on-accent:#062522;
-  --coral:#F0785F;--coral-soft:#3A1A13;--amber:#E2AA3C;--amber-soft:#35270B;--green:#57C08A;--green-soft:#11301F;
-  --violet:#9C8DF0;--violet-soft:#231D45;--blue:#6C9DF2;--blue-soft:#14233F;--pink:#EE7DB5;--pink-soft:#3B1529;--slate:#93A0A8;--slate-soft:#1D2628;
+  --paper:#08090b;--surface:#0f1117;--sunken:#161922;--raise:#161922;--hover:rgba(230,233,240,.06);--press:rgba(230,233,240,.1);
+  --ink:#e6e9f0;--ink2:#8b93a8;--ink3:#5a6380;--ink4:#3a4256;
+  --line:#1e2330;--line2:#2f3748;
+  --accent:#3b82f6;--accent-h:#60a5fa;--accent-soft:#1d3a6a;--accent-ink:#93c5fd;--on-accent:#ffffff;
+  --coral:#ef4444;--coral-soft:#3d1111;--amber:#eab308;--amber-soft:#3d3000;--green:#22c55e;--green-soft:#0d3a20;
+  --violet:#a855f7;--violet-soft:#2d1854;--blue:#60a5fa;--blue-soft:#1d3a6a;--pink:#ec4899;--pink-soft:#3b1529;--slate:#8b93a8;--slate-soft:#1c2030;
   --sh1:0 1px 2px rgba(0,0,0,.4);--sh2:0 4px 14px rgba(0,0,0,.45);--sh3:0 18px 44px rgba(0,0,0,.6),0 0 0 1px rgba(255,255,255,.04);
 }
 .hw *,.hw *::before,.hw *::after{box-sizing:border-box}
@@ -35,7 +35,7 @@ export const BASE_CSS = `
 .hw-scroll::-webkit-scrollbar-thumb{background:var(--line2);border-radius:10px;border:3px solid transparent;background-clip:content-box}
 .hw-scroll::-webkit-scrollbar-thumb:hover{background:var(--ink4);background-clip:content-box;border:3px solid transparent}
 .hw-num{font-variant-numeric:tabular-nums}
-.hw-serif{font-family:var(--serif);font-weight:400;letter-spacing:-.01em}
+.hw-serif{font-weight:700;letter-spacing:-.01em}
 .hw-trunc{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .hw-eyebrow{font-size:10.5px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3)}
 
@@ -111,7 +111,7 @@ textarea.hw-input{height:auto;padding:8px 10px;resize:vertical;line-height:1.5}
 @keyframes hw-fade{from{opacity:0}to{opacity:1}}
 .hw-modal{background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:var(--sh3);width:min(560px,100%);max-height:84vh;display:flex;flex-direction:column;animation:hw-pop .16s cubic-bezier(.2,.8,.2,1)}
 .hw-modal-h{padding:18px 20px 0;display:flex;align-items:center;gap:10px}
-.hw-modal-h h3{margin:0;font-family:var(--serif);font-weight:400;font-size:22px;flex:1;letter-spacing:-.01em}
+.hw-modal-h h3{margin:0;font-weight:700;font-size:17px;flex:1}
 .hw-modal-b{padding:14px 20px;overflow:auto}
 .hw-modal-f{padding:12px 20px 16px;display:flex;justify-content:flex-end;gap:8px;border-top:1px solid var(--line)}
 .hw-field{display:flex;flex-direction:column;gap:5px;margin-bottom:12px}
@@ -140,7 +140,7 @@ textarea.hw-input{height:auto;padding:8px 10px;resize:vertical;line-height:1.5}
 .hw-seg button{border:none;background:transparent;height:24px;padding:0 9px;border-radius:6px;font-size:12px;font-weight:500;color:var(--ink2);cursor:pointer}
 .hw-seg button.on{background:var(--surface);color:var(--ink);box-shadow:var(--sh1)}
 .hw-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:56px 20px;color:var(--ink3);text-align:center}
-.hw-empty h4{margin:0;font-family:var(--serif);font-weight:400;font-size:24px;color:var(--ink)}
+.hw-empty h4{margin:0;font-weight:650;font-size:16px;color:var(--ink)}
 .hw-kbd{font-size:10.5px;font-weight:600;border:1px solid var(--line2);border-bottom-width:2px;border-radius:5px;padding:0 5px;color:var(--ink2);background:var(--raise);font-family:var(--sans)}
 .hw-progress{height:5px;border-radius:5px;background:var(--sunken);overflow:hidden}
 .hw-progress>i{display:block;height:100%;border-radius:5px;background:var(--c,var(--accent));transition:width .3s}
@@ -152,6 +152,19 @@ export const TONES = {
   blue: ["var(--blue)", "var(--blue-soft)"], pink: ["var(--pink)", "var(--pink-soft)"],
 };
 export const tone = (name) => { const t = TONES[name] || TONES.slate; return { "--c": t[0], "--c-soft": t[1] }; };
-// Project / section / label colours people can pick. Tuned to sit on paper and on ink.
-export const SWATCHES = ["#0C7C74", "#2C69DB", "#6452C7", "#C43F87", "#D2472B", "#D98A12", "#2A8755", "#65717A", "#0E8FB0", "#8A5A2B"];
-export const AVATAR_BG = ["#0C7C74", "#2C69DB", "#6452C7", "#C43F87", "#C2552D", "#A8770B", "#2A8755", "#516074"];
+// Project / section / label colours people can pick (Helm's section and avatar palettes).
+export const SWATCHES = ["#3b82f6", "#a855f7", "#ec4899", "#ef4444", "#f97316", "#eab308", "#22c55e", "#06b6d4", "#84cc16", "#6b7280"];
+export const AVATAR_BG = ["#3b82f6", "#a855f7", "#ec4899", "#06b6d4", "#f97316", "#22c55e", "#84cc16", "#ef4444"];
+
+// CSS variables for .hw from Helm's theme tokens (lib/theme). Spread into the root's style.
+export function themeVars(t, dark) {
+  if (!t || !t.bg) return undefined;
+  const mix = (a, pct, b) => `color-mix(in srgb, ${a} ${pct}%, ${b})`;
+  return {
+    "--paper": t.bg, "--surface": t.surface, "--sunken": t.surface2, "--raise": dark ? t.surface2 : t.bg, "--ink": t.text, "--ink2": t.text2, "--ink3": t.text3, "--ink4": dark ? t.border2 : t.border2,
+    "--line": mix(t.border, dark ? 80 : 62, t.surface), "--line2": t.border,
+    "--accent": t.accent, "--accent-h": dark ? t.accentHover : mix(t.accent, 86, "#000"), "--accent-soft": t.accentDim, "--accent-ink": dark ? t.accentHover : mix(t.accent, 78, "#000"),
+    "--coral": t.red, "--coral-soft": t.redDim, "--amber": dark ? t.yellow : mix(t.yellow, 82, "#000"), "--amber-soft": t.yellowDim, "--green": t.green, "--green-soft": t.greenDim,
+    "--violet": t.purple, "--violet-soft": t.purpleDim, "--pink": t.pink, "--pink-soft": mix(t.pink, 14, t.surface), "--slate": t.text2, "--slate-soft": t.surface3,
+  };
+}

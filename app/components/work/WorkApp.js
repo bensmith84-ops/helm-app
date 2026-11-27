@@ -2,7 +2,7 @@
 // Shell of the new Projects suite: navigation, project header and tabs, saved
 // views, the task pane, and the modals. Data comes from useWorkStore.
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import { BASE_CSS, SWATCHES, tone } from "./theme";
+import { BASE_CSS, SWATCHES, tone, themeVars } from "./theme";
 import { ModeProvider, Icon, Popover, usePop, MenuItem, MenuSep, MenuLabel, Avatar, AvatarStack, Chip, Modal, Field, Toasts, useToasts, PersonPicker, ColorPicker, DatePicker, OptionList, Empty, Seg } from "./ui";
 import { useWorkStore } from "./store";
 import { HEALTH, VIEW_TYPES, newView, same, isDone, personName, today, fmtDate, plural, emptyFilters, DEFAULT_COLS } from "./model";
@@ -20,7 +20,7 @@ const SHELL_CSS = `
 .hw-app{display:flex;flex:1;min-width:0;min-height:0;height:100%;background:var(--paper);position:relative;overflow:hidden}
 .hw-nav{width:252px;flex:none;display:flex;flex-direction:column;min-height:0;border-right:1px solid var(--line);background:var(--paper)}
 .hw-nav-h{padding:14px 14px 10px;display:flex;align-items:center;gap:8px}
-.hw-nav-h h2{margin:0;font-family:var(--serif);font-weight:400;font-size:23px;letter-spacing:-.01em;flex:1}
+.hw-nav-h h2{margin:0;font-weight:700;font-size:16px;flex:1}
 .hw-nav-b{flex:1;min-height:0;overflow-y:auto;padding:0 8px 10px}
 .hw-ni{display:flex;align-items:center;gap:9px;height:32px;padding:0 9px;border-radius:8px;cursor:pointer;color:var(--ink2);font-weight:500;position:relative;user-select:none;border:none;background:transparent;width:100%;text-align:left}
 .hw-ni:hover{background:var(--hover);color:var(--ink)}
@@ -35,14 +35,14 @@ const SHELL_CSS = `
 .hw-main{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;position:relative}
 .hw-top{background:var(--surface);border-bottom:1px solid var(--line);padding:12px 18px 0;flex:none}
 .hw-top-r{display:flex;align-items:center;gap:8px;min-height:36px}
-.hw-top h1{margin:0;font-family:var(--serif);font-weight:400;font-size:26px;line-height:1.15;letter-spacing:-.012em;min-width:80px;flex:0 1 auto}
+.hw-top h1{margin:0;font-weight:700;font-size:19px;line-height:1.2;min-width:80px;flex:0 1 auto}
 .hw-psq{width:30px;height:30px;border-radius:9px;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;cursor:pointer}
 .hw-body{flex:1;min-height:0;display:flex;position:relative}
 .hw-view{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;position:relative}
 .hw-beta{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--accent-ink);background:var(--accent-soft);padding:2px 8px;border-radius:10px}
 .hw-skel{height:14px;border-radius:6px;background:linear-gradient(90deg,var(--sunken),var(--line),var(--sunken));background-size:200% 100%;animation:hw-sh 1.2s infinite linear}
 @keyframes hw-sh{to{background-position:-200% 0}}
-@media (max-width:900px){.hw-nav{position:absolute;z-index:40;left:0;top:0;bottom:0;box-shadow:var(--sh3);width:min(300px,86vw)}.hw-pane{position:absolute;inset:0;width:auto;z-index:30}.hw-pane-rz{display:none}.hw-top{padding:10px 12px 0}.hw-top h1{font-size:21px}.hw-bar{padding:8px 12px}.hw-page-in{padding:14px 12px 40px;grid-template-columns:1fr !important}.hw-board{padding:10px 12px}}
+@media (max-width:900px){.hw-nav{position:absolute;z-index:40;left:0;top:0;bottom:0;box-shadow:var(--sh3);width:min(300px,86vw)}.hw-pane{position:absolute;inset:0;width:auto;z-index:30}.hw-pane-rz{display:none}.hw-top{padding:10px 12px 0}.hw-top h1{font-size:17px}.hw-bar{padding:8px 12px}.hw-page-in{padding:14px 12px 40px;grid-template-columns:1fr !important}.hw-board{padding:10px 12px}}
 `;
 const CSS = [BASE_CSS, SHELL_CSS, CELL_CSS, BAR_CSS, LIST_CSS, BOARD_CSS, TIMELINE_CSS, CALENDAR_CSS, PANE_CSS, PAGES_CSS].join("\n");
 const VIEW_ICON = { list: "list", board: "board", timeline: "timeline", calendar: "cal" };
@@ -50,8 +50,9 @@ const ls = { get: (k, d) => { try { const v = localStorage.getItem(k); return v 
 const isNarrow = () => typeof window !== "undefined" && window.innerWidth < 900;
 const MY_VIEW = { id: "my", name: "My tasks", type: "list", group: "due", sort: [{ key: "due", dir: "asc" }], filters: emptyFilters(), cols: [{ key: "project", w: 190 }, { key: "due", w: 130 }, { key: "priority", w: 110 }] };
 
-export default function WorkApp({ db, user, profile, mode = "light", onClassic, onCelebrate, pendingTaskId, clearPendingTask, pendingProjectId, clearPendingProject }) {
+export default function WorkApp({ db, user, profile, mode = "light", tokens, onClassic, onCelebrate, pendingTaskId, clearPendingTask, pendingProjectId, clearPendingProject }) {
   const { toasts, toast, dismiss } = useToasts();
+  const theme = useMemo(() => ({ mode, vars: themeVars(tokens, mode === "dark") }), [mode, tokens]);
   const store = useWorkStore({ db, user, profile, toast, onCelebrate });
   const [page, setPage] = useState(() => ls.get("hw.page", { kind: "my" })); // { kind: 'my' | 'project' | 'portfolios' | 'workload', id? }
   const [openId, setOpenId] = useState(null); const [sel, setSel] = useState(() => new Set());
@@ -107,9 +108,9 @@ export default function WorkApp({ db, user, profile, mode = "light", onClassic, 
     </button>); };
 
   return (
-    <ModeProvider value={mode}>
+    <ModeProvider value={theme}>
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
-      <div className="hw hw-app" data-mode={mode}>
+      <div className="hw hw-app" data-mode={mode} style={theme.vars}>
         {navOpen && <aside className="hw-nav">
           <div className="hw-nav-h"><h2>Projects</h2><span className="hw-beta">New</span>
             <button className="hw-icb" title="Hide sidebar" onClick={() => setNavOpen(false)}><Icon name="side" /></button></div>
