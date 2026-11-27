@@ -7,6 +7,7 @@ import { initials, personName, avatarColor, ymd, parseYmd, today, addDays, month
 
 const P = {
   check: "M5 12.5l4.2 4.2L19 7", chevD: "M6 9l6 6 6-6", chevR: "M9 6l6 6-6 6", chevL: "M15 6l-6 6 6 6", plus: "M12 5v14M5 12h14", x: "M6 6l12 12M18 6L6 18",
+  spark: "M12 3l1.8 4.6L18.5 9.4l-4.7 1.8L12 16l-1.8-4.8L5.5 9.4l4.7-1.8zM19 15l.8 2.1 2.2.9-2.2.8L19 21l-.8-2.2-2.2-.8 2.2-.9z", globe: "M12 3a9 9 0 100 18 9 9 0 000-18zM3.6 9h16.8M3.6 15h16.8M12 3c2.5 2.4 3.8 5.4 3.8 9s-1.3 6.6-3.8 9c-2.5-2.4-3.8-5.4-3.8-9S9.5 5.4 12 3z", box: "M12 3l8 4.5v9L12 21l-8-4.5v-9zM4 7.5l8 4.5 8-4.5M12 12v9", layers: "M12 3l9 5-9 5-9-5zM3 13l9 5 9-5", factory: "M3 21V10l6 4V10l6 4V5h3l1 9v7zM8 18h2M13 18h2",
   flask: "M9 3h6M10 3v6.5L4.6 18.4A1.8 1.8 0 006.2 21h11.6a1.8 1.8 0 001.6-2.6L14 9.5V3M7.5 15h9",
   search: "M11 4a7 7 0 100 14 7 7 0 000-14zM20 20l-3.8-3.8", filter: "M4 6h16M7 12h10M10 18h4", sort: "M7 5v14m0 0l-3-3m3 3l3-3M17 19V5m0 0l-3 3m3-3l3 3",
   group: "M4 5h16v5H4zM4 14h16v5H4z", cols: "M4 5h16v14H4zM9.5 5v14M14.5 5v14", cal: "M5 6h14v14H5zM5 10h14M9 3.5v4M15 3.5v4", user: "M12 12a4 4 0 100-8 4 4 0 000 8zM4.5 20c1-3.6 4-5 7.5-5s6.5 1.400 7.500 5",

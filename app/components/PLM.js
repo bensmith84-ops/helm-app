@@ -13,6 +13,7 @@ import { useAuth } from "../lib/auth";
 import PLMLibraryView from "./PLMLibrary";
 import { renderMarkdown } from "./plmMarkdown";
 import { askAdvisor } from "../lib/rdAdvisor";
+import ProgramWorkspace from "./PLMProgram";
 const PrintBatchRecord = lazy(() => import("./PrintBatchRecord"));
 const PLMSourcingTab  = lazy(() => import("./PLMSourcingTab"));
 const PrintFormulaSheet = lazy(() => import("./PrintFormulaSheet"));
@@ -3075,80 +3076,11 @@ const PROGRAM_GROUPS = [
 const SECTION_LABEL = Object.fromEntries(DETAIL_TABS.map(t=>[t.key, plainLabel(t.label)]));
 const SECTION_COUNT = { formulations:"formulations", experiments:"experiments", trials:"trials", skus:"skus", issues:"issues", claims_sub:"claims" };
 
-function ProgramDetail({ program, onBack, onUpdate, onDelete, navigateTo, navigateToProject, linkCount }) {
-  const { orgId } = useAuth();
-  const [tab, setTab] = useState("overview");
-  const [lastIn, setLastIn] = useState({});
-  const [counts, setCounts] = useState({});
-
-  useEffect(()=>{
-    const load=async()=>{
-      const[{count:formulations},{count:experiments},{count:trials},{count:skus},{count:claims},{count:issues}]=await Promise.all([
-        supabase.from("plm_formulations").select("*",{count:"exact",head:true}).eq("org_id", orgId).eq("program_id",program.id),
-        supabase.from("plm_experiments").select("*",{count:"exact",head:true}).eq("org_id", orgId).eq("program_id",program.id),
-        supabase.from("plm_manufacturing_trials").select("*",{count:"exact",head:true}).eq("org_id", orgId).eq("program_id",program.id),
-        supabase.from("plm_skus").select("*",{count:"exact",head:true}).eq("org_id", orgId).eq("program_id",program.id),
-        supabase.from("plm_claims").select("*",{count:"exact",head:true}).eq("org_id", orgId).eq("program_id",program.id),
-        supabase.from("plm_issues").select("*",{count:"exact",head:true}).eq("org_id", orgId).eq("program_id",program.id),
-      ]);
-      setCounts({formulations,experiments,trials,skus,claims,issues});
-    };
-    load();
-  },[program.id]);
-
-  const group = PROGRAM_GROUPS.find(g=>g.sections.includes(tab)) || PROGRAM_GROUPS[0];
-  const goto = (section) => { const g = PROGRAM_GROUPS.find(x=>x.sections.includes(section)); if (g) setLastIn(p=>({ ...p, [g.key]: section })); setTab(section); };
-  const openGroup = (g) => setTab(lastIn[g.key] || g.sections[0]);
-
-  const renderTab=()=>{
-    switch(tab){
-      case "overview":     return <OverviewTab program={program} onUpdate={onUpdate} counts={counts} goto={goto} navigateToProject={navigateToProject} />;
-      case "linked_work":  return <LinkedWorkTab programId={program.id} navigateTo={navigateTo} navigateToProject={navigateToProject} />;
-      case "ai_agent":     return <AIAgentTab program={program} />;
-      case "claims_sub":   return <ClaimsSubstantiationTab program={program} onUpdate={onUpdate} />;
-      case "gm_scenarios": return <GMScenarioTab program={program} />;
-      case "formulations": return <FormulationsTab programId={program.id} />;
-      case "sourcing":     return <Suspense fallback={<div style={{padding:30,color:T.text3}}>Loading sourcing…</div>}><PLMSourcingTab program={program} /></Suspense>;
-      case "experiments":  return <ExperimentsTab programId={program.id} />;
-      case "trials":       return <TrialsTab programId={program.id} />;
-      case "reg_claims":   return <RegClaimsTab programId={program.id} />;
-      case "skus":         return <SKUsTab programId={program.id} />;
-      case "issues":       return <IssuesTab programId={program.id} />;
-      case "test_results": return <TestResultsTab programId={program.id} />;
-      case "gate_reviews": return <GateReviewsTab programId={program.id} />;
-      default:             return null;
-    }
-  };
-
-  const stage = STAGE_MAP[program.current_stage];
-  const next = STAGES[STAGES.findIndex(s=>s.key===program.current_stage)+1];
-  const moveNext = async () => { if(!next||!confirm(`Move "${program.name}" to ${next.label}?`))return; await supabase.from("plm_programs").update({current_stage:next.key}).eq("org_id", orgId).eq("id",program.id); onUpdate({...program,current_stage:next.key}); };
-  return (
-    <PlmShell>
-      <div className="plm-top">
-        <button className="hw-btn ghost sm" style={{ marginLeft:-8 }} onClick={onBack}><Icon name="chevL" size={14} />All programs</button>
-        <div style={{ display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",minHeight:36,marginTop:2 }}>
-          <span style={{ width:28,height:28,borderRadius:8,background:stage?.color||T.accent,flex:"none" }} />
-          <h1 className="hw-trunc">{program.name}</h1>
-          <StageBadge stage={program.current_stage} />
-          <PriorityBadge priority={program.priority} />
-          {program.code&&<span style={{ fontSize:12,color:T.text3 }}>{program.code}</span>}
-          <span style={{ flex:1 }} />
-          {onDelete && <button className="hw-btn ghost sm danger" onClick={()=>{if(confirm(`Delete "${program.name}"? This will soft-delete the program and all its data. This cannot be undone from the UI.`))onDelete();}}><Icon name="trash" size={14} />Delete</button>}
-          {next && <button className="hw-btn primary" onClick={moveNext}>Move to {next.label}<Icon name="arrowR" size={14} /></button>}
-        </div>
-        <div className="hw-tabs hw-scroll" style={{ marginTop:8,overflowX:"auto" }}>
-          {PROGRAM_GROUPS.map(g=>(
-            <button key={g.key} className={"hw-tab"+(group.key===g.key?" on":"")} onClick={()=>openGroup(g)}>{g.label}{g.key==="projects"&&linkCount?<span className="hw-num" style={{ fontSize:11,color:T.text3 }}>{linkCount}</span>:null}</button>
-          ))}
-        </div>
-      </div>
-      {group.sections.length>1 && <div className="plm-bar">
-        <div className="hw-seg">{group.sections.map(s=>{ const c=SECTION_COUNT[s]?counts[SECTION_COUNT[s]]:null; return <button key={s} className={tab===s?"on":""} onClick={()=>goto(s)}>{SECTION_LABEL[s]}{c>0?<span className="hw-num" style={{ marginLeft:6,color:T.text3 }}>{c}</span>:null}</button>; })}</div>
-      </div>}
-      <div className="plm-body content-area" style={tab==="overview"?undefined:{ background:T.surface }}>{renderTab()}</div>
-    </PlmShell>
-  );
+// Program page: the v3 workspace (PLMProgram.js). The editors below stay available
+// inside it as sub-views, so nothing that worked before is lost.
+const LEGACY_VIEWS = { FormulationsTab, ExperimentsTab, TrialsTab, ClaimsSubstantiationTab, RegClaimsTab, TestResultsTab, SKUsTab, IssuesTab, GateReviewsTab, LinkedWorkTab, AIAgentTab, GMScenarioTab, PLMSourcingTab };
+function ProgramDetail(props) {
+  return <PlmShell><ProgramWorkspace {...props} legacy={LEGACY_VIEWS} /></PlmShell>;
 }
 
 // ─── NEW PROGRAM MODAL (3-step) ───────────────────────────────────────────────
