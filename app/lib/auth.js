@@ -200,3 +200,5 @@ export function AuthProvider({ children }) {
 }
 
 export const useAuth = () => useContext(AuthContext);
+// Exposed for tests and local previews that need a signed-in shape without Firebase.
+export { AuthContext };

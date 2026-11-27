@@ -28,8 +28,8 @@ export default function PrintAIChat({ conversationId, messages: propMessages, mo
 
   const today = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
   const title = conversation?.title || "AI Conversation";
-  const modeLabels = { advisor: "R&D Advisor", ingredient: "Source Ingredients", manufacturer: "Find Manufacturers", whitelabel: "White Label", formulate: "Formulate" };
-  const modeIcons = { advisor: "🧪", ingredient: "🧬", manufacturer: "🏭", whitelabel: "📦", formulate: "🔬" };
+  const modeLabels = { chemist: "R&D Advisor · Chemist", sourcing: "R&D Advisor · Sourcing", rfp: "R&D Advisor · RFP & quotes", advisor: "R&D Advisor", ingredient: "Source Ingredients", manufacturer: "Find Manufacturers", whitelabel: "White Label", formulate: "Formulate" };
+  const modeIcons = { chemist: "", sourcing: "", rfp: "", advisor: "🧪", ingredient: "🧬", manufacturer: "🏭", whitelabel: "📦", formulate: "🔬" };
   const displayMode = conversation?.mode || mode || "advisor";
   const totalTokens = messages.reduce((a, m) => a + (m.tokens ? m.tokens.input_tokens + m.tokens.output_tokens : 0), 0);
 

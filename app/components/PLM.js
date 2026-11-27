@@ -11,6 +11,8 @@ import { ProgramList, Runway, LaunchDashboard, todayStr, fmtDay, dayDiff, isLate
 import { useResponsive } from "../lib/responsive";
 import { useAuth } from "../lib/auth";
 import PLMLibraryView from "./PLMLibrary";
+import { renderMarkdown } from "./plmMarkdown";
+import { askAdvisor } from "../lib/rdAdvisor";
 const PrintBatchRecord = lazy(() => import("./PrintBatchRecord"));
 const PLMSourcingTab  = lazy(() => import("./PLMSourcingTab"));
 const PrintFormulaSheet = lazy(() => import("./PrintFormulaSheet"));
@@ -431,6 +433,89 @@ function SourcingItemCard({ item, onUpdate, onDelete }) {
 
 // ─── TAB: OVERVIEW ────────────────────────────────────────────────────────────
 
+// AI gate reviews on the program Overview: stage readiness (the "to leave this
+// stage" checklist) and a claims review. Runs on the R&D Advisor; the last result
+// is kept in this browser.
+const SEV_TONE = { critical: "coral", major: "amber", minor: "slate" };
+const CHECK_TONE = { complete: "green", in_progress: "blue", not_started: "slate" };
+const RATE_TONE = { high: "green", strong: "green", medium: "amber", moderate: "amber", low: "coral", weak: "coral", none: "coral" };
+const RISK_TONE = { high: "coral", medium: "amber", low: "green" };
+function GateReviewPanel({ program }) {
+  const key = (t) => `plm.review.${t}.${program.id}`;
+  const load = (t) => { try { return JSON.parse(localStorage.getItem(key(t)) || "null"); } catch { return null; } };
+  const [stage, setStage] = useState(() => load("stage_readiness"));
+  const [claims, setClaims] = useState(() => load("claims_review"));
+  const [busy, setBusy] = useState(null); const [err, setErr] = useState(null);
+  const [showAll, setShowAll] = useState(false); const [showClaims, setShowClaims] = useState(false);
+  useEffect(() => { setStage(load("stage_readiness")); setClaims(load("claims_review")); setErr(null); }, [program.id]);
+  const run = async (type) => {
+    setBusy(type); setErr(null);
+    const r = await askAdvisor({ action: "review", review_type: type, program_id: program.id });
+    setBusy(null);
+    if (!r.success) { setErr(r.error || "The review didn't finish. Try again."); return; }
+    const v = { ...r.result, generated_at: r.generated_at, stage_at_review: program.current_stage, sources: r.sources || [] };
+    try { localStorage.setItem(key(type), JSON.stringify(v)); } catch {}
+    if (type === "stage_readiness") setStage(v); else { setClaims(v); setShowClaims(true); }
+  };
+  const ago = (d) => { if (!d) return ""; const m = Math.round((Date.now() - new Date(d)) / 60000); return m < 1 ? "just now" : m < 60 ? m + " min ago" : m < 1440 ? Math.round(m / 60) + " h ago" : Math.round(m / 1440) + " d ago"; };
+  const stale = stage && stage.stage_at_review && stage.stage_at_review !== program.current_stage;
+  const list = stage?.checklist || []; const shown = showAll ? list : list.slice(0, 8);
+  const score = Math.max(0, Math.min(100, Math.round(Number(stage?.readiness_score) || 0)));
+  return (
+    <div className="plm-panel">
+      <div className="plm-h4" style={{ flexWrap: "wrap", gap: 8 }}>
+        <span style={{ flex: 1, minWidth: 160 }}>Gate readiness</span>
+        <button className="hw-btn sm" disabled={!!busy} onClick={() => run("claims_review")}><Icon name="stamp" size={14} />{busy === "claims_review" ? "Reviewing claims…" : claims ? "Claims review" : "Review claims"}</button>
+        <button className="hw-btn sm primary" disabled={!!busy} onClick={() => run("stage_readiness")}><Icon name="check" size={14} />{busy === "stage_readiness" ? "Checking…" : stage ? "Check again" : "Check readiness"}</button>
+      </div>
+      {busy && <div style={{ color: T.text3, fontSize: 12.5, marginBottom: 8 }}>Reading formulas, test results, claims, issues and sourcing{busy === "claims_review" ? ", and checking the rules that apply" : ""}. This takes about a minute.</div>}
+      {err && <div style={{ color: T.red, fontSize: 12.5, marginBottom: 8 }}>{err}</div>}
+      {claims && !busy && <button className="hw-btn ghost sm" style={{ marginBottom: 8 }} onClick={() => setShowClaims(true)}>Claims review from {ago(claims.generated_at)}: {(claims.claim_reviews || []).length} claims</button>}
+      {!stage ? (!busy && <div style={{ color: T.text3, lineHeight: 1.5 }}>Ask the R&D Advisor what stands between {STAGE_MAP[program.current_stage]?.label || "this stage"} and the next gate. It reads the program's own data and gives a checklist with evidence.</div>)
+      : <>
+        <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 10 }}>
+          <div className="plm-big" style={{ fontSize: 30, color: score >= 75 ? T.green : score >= 45 ? T.yellow : T.red }}>{score}<span style={{ fontSize: 14, color: T.text3, fontWeight: 600 }}>/100</span></div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 600 }}>Ready to move from {stage.current_stage} to {stage.next_stage}?</div>
+            <div style={{ fontSize: 12, color: stale ? T.red : T.text3 }}>Checked {ago(stage.generated_at)}{stale ? ". The stage has changed since, so check again." : ""}</div>
+          </div>
+        </div>
+        {stage.summary && <div style={{ lineHeight: 1.55, color: T.text2, marginBottom: 10 }}>{stage.summary}</div>}
+        {(stage.blockers || []).length > 0 && <>
+          <div className="hw-eyebrow" style={{ margin: "6px 0" }}>Blockers</div>
+          {stage.blockers.map((b, i) => <div key={i} className="plm-li" style={{ cursor: "default", alignItems: "flex-start", minHeight: 0, padding: "8px 4px" }}>
+            <Chip t={SEV_TONE[b.severity] || "slate"}>{b.severity}</Chip>
+            <span className="t" style={{ whiteSpace: "normal" }}><b style={{ fontWeight: 600 }}>{b.item}</b>{b.why && <div style={{ fontSize: 12.5, color: T.text3, marginTop: 2 }}>{b.why}</div>}{b.next_action && <div style={{ fontSize: 12.5, color: T.text2, marginTop: 2 }}>Next: {b.next_action}</div>}</span>
+          </div>)}
+        </>}
+        {list.length > 0 && <>
+          <div className="hw-eyebrow" style={{ margin: "12px 0 6px" }}>Checklist to leave this stage</div>
+          {shown.map((c, i) => <div key={i} className="plm-li" style={{ cursor: "default", alignItems: "flex-start", minHeight: 0, padding: "7px 4px" }}>
+            <Chip t={CHECK_TONE[c.status] || "slate"}>{(c.status || "").replace("_", " ")}</Chip>
+            <span className="t" style={{ whiteSpace: "normal" }}>{c.item}{c.required === false && <span style={{ color: T.text3 }}> (optional)</span>}{c.evidence && <div style={{ fontSize: 12, color: T.text3, marginTop: 2 }}>{c.evidence}</div>}</span>
+          </div>)}
+          {list.length > 8 && <button className="hw-btn ghost sm" onClick={() => setShowAll((v) => !v)}>{showAll ? "Show fewer" : `Show all ${list.length}`}</button>}
+        </>}
+      </>}
+      {showClaims && claims && <Modal title="Claims review" onClose={() => setShowClaims(false)} width={820} footer={<><span style={{ flex: 1, fontSize: 12, color: T.text3 }}>Generated {ago(claims.generated_at)}. A screening aid, not legal advice.</span><button className="hw-btn primary" onClick={() => setShowClaims(false)}>Done</button></>}>
+        {claims.overall_assessment && <div style={{ lineHeight: 1.6, marginBottom: 14 }}>{claims.overall_assessment}</div>}
+        <div style={{ overflowX: "auto" }}><table className="plm-table" style={{ width: "100%" }}><thead><tr><th style={{ textAlign: "left" }}>Claim</th><th>Feasibility</th><th>Evidence</th><th>Regulatory risk</th><th style={{ textAlign: "left" }}>Gaps and what to do</th></tr></thead>
+          <tbody>{(claims.claim_reviews || []).map((c, i) => <tr key={i}>
+            <td style={{ fontWeight: 600, minWidth: 160 }}>{c.claim}{(c.conflicting_ingredients || []).length > 0 && <div style={{ fontWeight: 400, fontSize: 12, color: T.red, marginTop: 3 }}>Conflicts: {c.conflicting_ingredients.join(", ")}</div>}</td>
+            <td style={{ textAlign: "center" }}><Chip t={RATE_TONE[c.feasibility] || "slate"}>{c.feasibility}</Chip></td>
+            <td style={{ textAlign: "center" }}><Chip t={RATE_TONE[c.evidence_strength] || "slate"}>{c.evidence_strength}</Chip></td>
+            <td style={{ textAlign: "center" }}><Chip t={RISK_TONE[c.regulatory_risk] || "slate"}>{c.regulatory_risk}</Chip></td>
+            <td style={{ fontSize: 12.5, minWidth: 240 }}>{(c.gaps || []).map((g, j) => <div key={"g" + j}>• {g}</div>)}{(c.recommendations || []).map((g, j) => <div key={"r" + j} style={{ color: T.text2 }}>→ {g}</div>)}</td>
+          </tr>)}</tbody></table></div>
+        {(claims.ingredient_flags || []).length > 0 && <><div className="hw-eyebrow" style={{ margin: "16px 0 6px" }}>Ingredient flags</div>
+          {claims.ingredient_flags.map((f, i) => <div key={i} style={{ fontSize: 13, lineHeight: 1.5, marginBottom: 6 }}><b>{f.ingredient}</b>{(f.markets || []).length > 0 && <span style={{ color: T.text3 }}> ({f.markets.join(", ")})</span>}: {f.concern}{f.source_url && <> <a href={f.source_url} target="_blank" rel="noopener noreferrer" style={{ color: T.accent }}>Source</a></>}</div>)}</>}
+        {(claims.next_steps || []).length > 0 && <><div className="hw-eyebrow" style={{ margin: "16px 0 6px" }}>Next steps</div><ol style={{ margin: 0, paddingLeft: 20, lineHeight: 1.6 }}>{claims.next_steps.map((x, i) => <li key={i}>{x}</li>)}</ol></>}
+        {(claims.sources || []).length > 0 && <><div className="hw-eyebrow" style={{ margin: "16px 0 6px" }}>Sources</div>{claims.sources.map((x, i) => <div key={i} style={{ fontSize: 12.5 }}><a href={x.url} target="_blank" rel="noopener noreferrer" style={{ color: T.accent }}>{x.title || x.url}</a></div>)}</>}
+      </Modal>}
+    </div>
+  );
+}
+
 function OverviewTab({ program, onUpdate, counts, goto, navigateToProject }) {
   const { orgId } = useAuth();
   const [editing, setEditing] = useState({});
@@ -515,6 +600,8 @@ function OverviewTab({ program, onUpdate, counts, goto, navigateToProject }) {
                 <span className="hw-num" style={{ fontSize:12.5,color:T.text3,whiteSpace:"nowrap" }}>{fmtDay(i.identified_date||i.created_at)}</span>
               </div>))}
           </div>
+
+          <GateReviewPanel program={program} />
         </div>
 
         <div style={{ flex:"1 1 320px",maxWidth:"100%",display:"flex",flexDirection:"column",gap:16 }}>
@@ -806,6 +893,7 @@ function IngredientSourcingView({ program }) {
   const [loading, setLoading] = useState(true);
   const [showNew, setShowNew] = useState(false);
   const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState(null);
   const [selected, setSelected] = useState(null);
   const [suppliers, setSuppliers] = useState([]);
   const [form, setForm] = useState({ search_type: "exact", ingredient_name: "", desired_function: "", desired_outcome: "", claims_compatibility: [], restrictions: [], target_cost_per_kg: "", additional_requirements: "" });
@@ -843,78 +931,33 @@ function IngredientSourcingView({ program }) {
   };
 
   const runAISearch = async (req) => {
-    setSearching(true);
+    setSearching(true); setSearchError(null);
     try {
-      const searchDesc = req.search_type === "exact" ? `Find ingredient: ${req.ingredient_name}` :
-        req.search_type === "function" ? `Find ingredients with function: ${req.desired_function}` :
-        `Find ingredients for outcome: ${req.desired_outcome}`;
-      
-      const context = `Product: ${program.name} (${program.category || "cleaning product"})
-Search: ${searchDesc}
-Claims to maintain: ${(req.claims_compatibility || []).join(", ") || "none specified"}
-Restrictions: ${(req.restrictions || []).join(", ") || "none"}
-Target cost: ${req.target_cost_per_kg ? "$" + req.target_cost_per_kg + "/kg" : "not specified"}
-Additional: ${req.additional_requirements || "none"}`;
-
-      const prompt = `You are a raw materials sourcing specialist for Earth Breeze (eco-friendly cleaning products).
-
-${context}
-
-${req.search_type === "exact" ? `Find suppliers and pricing for "${req.ingredient_name}". Include INCI name, CAS number, typical grades, and multiple supplier options.` :
-  req.search_type === "function" ? `Suggest 5-8 ingredients that serve the function: "${req.desired_function}". For each, explain why it fits, its typical cost range, and which suppliers carry it. Consider the claims and restrictions.` :
-  `Suggest 5-8 ingredients that achieve: "${req.desired_outcome}". For each, explain the mechanism, typical usage level, cost impact, and compatibility with the listed claims/restrictions.`}
-
-For EACH ingredient/supplier, provide:
-1. Ingredient name (INCI name)
-2. Trade name if common
-3. Supplier name
-4. Estimated price per kg (USD)
-5. Typical MOQ
-6. Why it's a good fit (0-100 score)
-7. Any claims compatibility notes
-
-Respond ONLY with a JSON array:
-[{"ingredient_name":"string","inci_name":"string","trade_name":"string or null","supplier_name":"string","supplier_website":"string or null","cas_number":"string or null","purity_pct":number or null,"grade":"string","origin_country":"string or null","certifications":["string"],"price_per_kg":number or null,"moq_kg":number or null,"lead_time_days":number or null,"claims_compatible":["string"],"ai_fit_score":number,"ai_reasoning":"string"}]`;
-
-      const resp = await fetch(supabase.supabaseUrl + "/functions/v1/plm-ai", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + (await supabase.auth.getSession()).data.session?.access_token },
-        body: JSON.stringify({ question: prompt, program_id: program.id }),
-      });
-      const result = await resp.json();
-      
-      // Parse JSON from AI response
-      let found = [];
-      try {
-        const jsonMatch = (result.response || "").match(/\[\s*\{[\s\S]*\}\s*\]/);
-        if (jsonMatch) found = JSON.parse(jsonMatch[0]);
-        else found = JSON.parse((result.response || "").replace(/```json|```/g, "").trim());
-      } catch (e) { console.error("Parse error:", e); }
-
-      // Save suppliers to DB
+      // The Sourcing mode of the R&D Advisor researches on the web and only returns
+      // suppliers backed by a page it found; prices and MOQs only when published.
+      const data = await askAdvisor({ action: "find_ingredient_suppliers", program_id: program.id || undefined, request: req });
+      if (!data.success) throw new Error(data.error || "The search didn't finish");
+      const found = data.results || [];
       if (found.length > 0) {
         const rows = found.map(s => ({
           request_id: req.id, org_id: program.org_id || orgId,
           ingredient_name: s.ingredient_name || s.inci_name || "Unknown",
           inci_name: s.inci_name, trade_name: s.trade_name,
           supplier_name: s.supplier_name || "Unknown", supplier_website: s.supplier_website,
-          cas_number: s.cas_number, purity_pct: s.purity_pct, grade: s.grade,
+          cas_number: s.cas_number, grade: s.grade,
           origin_country: s.origin_country, certifications: s.certifications || [],
-          price_per_kg: s.price_per_kg, moq_kg: s.moq_kg, lead_time_days: s.lead_time_days,
+          price_per_kg: s.price_per_kg, currency: s.currency || null, moq_kg: s.moq_kg, lead_time_days: s.lead_time_days,
           claims_compatible: s.claims_compatible || [], ai_fit_score: s.ai_fit_score,
-          ai_reasoning: s.ai_reasoning, source: "ai_search",
+          ai_reasoning: s.ai_reasoning, source: "ai_web_search", notes: "Source: " + s.source_url,
         }));
         const { data: created } = await supabase.from("ingredient_suppliers").insert(rows).select();
         if (created) setSuppliers(created);
-      }
-
-      // Update request
-      await supabase.from("ingredient_sourcing_requests").update({
-        ai_suggestions: found, ai_searched_at: new Date().toISOString(), status: "results_ready",
-      }).eq("id", req.id);
-      setRequests(p => p.map(r => r.id === req.id ? { ...r, ai_suggestions: found, status: "results_ready", ai_searched_at: new Date().toISOString() } : r));
+      } else setSearchError("No suppliers could be verified on the web for this search. Try a broader function or outcome.");
+      const stamp = new Date().toISOString();
+      await supabase.from("ingredient_sourcing_requests").update({ ai_suggestions: found, ai_searched_at: stamp, status: "results_ready" }).eq("id", req.id);
+      setRequests(p => p.map(r => r.id === req.id ? { ...r, ai_suggestions: found, status: "results_ready", ai_searched_at: stamp } : r));
       if (selected?.id === req.id) setSelected(p => ({ ...p, ai_suggestions: found, status: "results_ready" }));
-    } catch (e) { console.error("AI search error:", e); }
+    } catch (e) { console.error("AI search error:", e); setSearchError(String(e.message || e)); }
     setSearching(false);
   };
 
@@ -1062,12 +1105,13 @@ Respond ONLY with a JSON array:
                 <div style={{ display: "flex", gap: 6 }}>
                   <button onClick={() => runAISearch(selected)} disabled={searching}
                     style={{ padding: "6px 14px", fontSize: 12, fontWeight: 600, background: T.accent, color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", opacity: searching ? 0.6 : 1 }}>
-                    {searching ? "🔍 Searching..." : "🤖 AI Search"}
+                    {searching ? "Searching the web…" : "Find suppliers"}
                   </button>
                   <button onClick={() => deleteRequest(selected.id)}
                     style={{ padding: "6px 10px", fontSize: 12, background: "none", border: "1px solid #ef444440", borderRadius: 6, color: "#ef4444", cursor: "pointer" }}>✕</button>
                 </div>
               </div>
+              {(searching || searchError) && <div style={{ fontSize: 12, color: searchError ? "#ef4444" : T.text3, margin: "-4px 0 10px" }}>{searchError || "Researching suppliers on the web and checking each one against a source. This usually takes one to three minutes."}</div>}
 
               {/* Constraints summary */}
               {((selected.claims_compatibility?.length > 0) || (selected.restrictions?.length > 0)) && (
@@ -1114,7 +1158,7 @@ Respond ONLY with a JSON array:
                             {s.ai_fit_score || "-"}
                           </span>
                         </td>
-                        <td style={{ padding: "8px 10px", fontSize: 11, color: T.text2, maxWidth: 240, lineHeight: 1.5 }}>{s.ai_reasoning}</td>
+                        <td style={{ padding: "8px 10px", fontSize: 11, color: T.text2, maxWidth: 260, lineHeight: 1.5 }}>{s.ai_reasoning}<SupplierLinks s={s} /></td>
                       </tr>
                     ))}
                   </tbody>
@@ -1161,6 +1205,7 @@ function SourcingStandalone({ programs }) {
   const [suppliers, setSuppliers] = useState([]);
   const [showNew, setShowNew] = useState(false);
   const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState(null);
   const [form, setForm] = useState({ search_type: "exact", ingredient_name: "", desired_function: "", desired_outcome: "", claims_compatibility: [], restrictions: [], target_cost_per_kg: "", additional_requirements: "", program_id: "" });
 
   useEffect(() => {
@@ -1195,59 +1240,33 @@ function SourcingStandalone({ programs }) {
   };
 
   const runAISearch = async (req) => {
-    setSearching(true);
+    setSearching(true); setSearchError(null);
     try {
-      const searchDesc = req.search_type === "exact" ? `Find ingredient: ${req.ingredient_name}` :
-        req.search_type === "function" ? `Find ingredients with function: ${req.desired_function}` :
-        `Find ingredients for outcome: ${req.desired_outcome}`;
-      const prompt = `You are a raw materials sourcing specialist for Earth Breeze (eco-friendly cleaning products).
-Search: ${searchDesc}
-Claims: ${(req.claims_compatibility || []).join(", ") || "none"}
-Restrictions: ${(req.restrictions || []).join(", ") || "none"}
-Target cost: ${req.target_cost_per_kg ? "$" + req.target_cost_per_kg + "/kg" : "not specified"}
-Additional: ${req.additional_requirements || "none"}
-
-${req.search_type === "exact" ? `Find suppliers for "${req.ingredient_name}". Include INCI, CAS, grades, multiple suppliers.` :
-  req.search_type === "function" ? `Suggest 5-8 ingredients for function: "${req.desired_function}". Explain fit, cost, suppliers. Consider claims/restrictions.` :
-  `Suggest 5-8 ingredients to achieve: "${req.desired_outcome}". Explain mechanism, usage level, cost, compatibility.`}
-
-JSON array only:
-[{"ingredient_name":"string","inci_name":"string","trade_name":"string or null","supplier_name":"string","supplier_website":"string or null","cas_number":"string or null","purity_pct":null,"grade":"string","origin_country":"string or null","certifications":[],"price_per_kg":null,"moq_kg":null,"lead_time_days":null,"claims_compatible":[],"ai_fit_score":0,"ai_reasoning":"string"}]`;
-
-      const resp = await fetch(supabase.supabaseUrl + "/functions/v1/plm-ai", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + (await supabase.auth.getSession()).data.session?.access_token },
-        body: JSON.stringify({ question: prompt, program_id: req.program_id }),
-      });
-      const result = await resp.json();
-      let found = [];
-      try {
-        const jsonMatch = (result.response || "").match(/\[\s*\{[\s\S]*\}\s*\]/);
-        if (jsonMatch) found = JSON.parse(jsonMatch[0]);
-      } catch (e) { console.error("Parse error:", e); }
-
+      // The Sourcing mode of the R&D Advisor researches on the web and only returns
+      // suppliers backed by a page it found; prices and MOQs only when published.
+      const data = await askAdvisor({ action: "find_ingredient_suppliers", program_id: req.program_id || undefined, request: req });
+      if (!data.success) throw new Error(data.error || "The search didn't finish");
+      const found = data.results || [];
       if (found.length > 0) {
         const rows = found.map(s => ({
           request_id: req.id, org_id: orgId,
-          ingredient_name: s.ingredient_name || "Unknown", inci_name: s.inci_name,
-          trade_name: s.trade_name, supplier_name: s.supplier_name || "Unknown",
-          supplier_website: s.supplier_website, cas_number: s.cas_number,
-          purity_pct: s.purity_pct, grade: s.grade, origin_country: s.origin_country,
-          certifications: s.certifications || [], price_per_kg: s.price_per_kg,
-          moq_kg: s.moq_kg, lead_time_days: s.lead_time_days,
+          ingredient_name: s.ingredient_name || s.inci_name || "Unknown",
+          inci_name: s.inci_name, trade_name: s.trade_name,
+          supplier_name: s.supplier_name || "Unknown", supplier_website: s.supplier_website,
+          cas_number: s.cas_number, grade: s.grade,
+          origin_country: s.origin_country, certifications: s.certifications || [],
+          price_per_kg: s.price_per_kg, currency: s.currency || null, moq_kg: s.moq_kg, lead_time_days: s.lead_time_days,
           claims_compatible: s.claims_compatible || [], ai_fit_score: s.ai_fit_score,
-          ai_reasoning: s.ai_reasoning, source: "ai_search",
+          ai_reasoning: s.ai_reasoning, source: "ai_web_search", notes: "Source: " + s.source_url,
         }));
         const { data: created } = await supabase.from("ingredient_suppliers").insert(rows).select();
         if (created) setSuppliers(created);
-      }
-
-      await supabase.from("ingredient_sourcing_requests").update({
-        ai_suggestions: found, ai_searched_at: new Date().toISOString(), status: "results_ready",
-      }).eq("id", req.id);
-      setRequests(p => p.map(r => r.id === req.id ? { ...r, ai_suggestions: found, status: "results_ready" } : r));
+      } else setSearchError("No suppliers could be verified on the web for this search. Try a broader function or outcome.");
+      const stamp = new Date().toISOString();
+      await supabase.from("ingredient_sourcing_requests").update({ ai_suggestions: found, ai_searched_at: stamp, status: "results_ready" }).eq("id", req.id);
+      setRequests(p => p.map(r => r.id === req.id ? { ...r, ai_suggestions: found, status: "results_ready", ai_searched_at: stamp } : r));
       if (selected?.id === req.id) setSelected(p => ({ ...p, ai_suggestions: found, status: "results_ready" }));
-    } catch (e) { console.error("AI search error:", e); }
+    } catch (e) { console.error("AI search error:", e); setSearchError(String(e.message || e)); }
     setSearching(false);
   };
 
@@ -1382,12 +1401,13 @@ JSON array only:
                   <div style={{ display: "flex", gap: 6 }}>
                     <button onClick={() => runAISearch(selected)} disabled={searching}
                       style={{ padding: "6px 14px", fontSize: 12, fontWeight: 600, background: T.accent, color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", opacity: searching ? 0.6 : 1 }}>
-                      {searching ? "🔍 Searching..." : "🤖 AI Search"}
+                      {searching ? "Searching the web…" : "Find suppliers"}
                     </button>
                     <button onClick={() => deleteRequest(selected.id)}
                       style={{ padding: "6px 10px", fontSize: 12, background: "none", border: "1px solid #ef444440", borderRadius: 6, color: "#ef4444", cursor: "pointer" }}>✕</button>
                   </div>
                 </div>
+                {(searching || searchError) && <div style={{ fontSize: 12, color: searchError ? "#ef4444" : T.text3, margin: "-4px 0 10px" }}>{searchError || "Researching suppliers on the web and checking each one against a source. This usually takes one to three minutes."}</div>}
 
                 {/* Constraints */}
                 {((selected.claims_compatibility?.length > 0) || (selected.restrictions?.length > 0)) && (
@@ -1426,7 +1446,7 @@ JSON array only:
                         <td style={{ padding: "8px 10px", textAlign: "center" }}>
                           <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 36, height: 20, borderRadius: 10, fontSize: 11, fontWeight: 700, background: (s.ai_fit_score >= 80 ? "#22c55e" : s.ai_fit_score >= 60 ? "#eab308" : "#ef4444") + "20", color: s.ai_fit_score >= 80 ? "#22c55e" : s.ai_fit_score >= 60 ? "#eab308" : "#ef4444" }}>{s.ai_fit_score || "-"}</span>
                         </td>
-                        <td style={{ padding: "8px 10px", fontSize: 11, color: T.text2, maxWidth: 240, lineHeight: 1.5 }}>{s.ai_reasoning}</td>
+                        <td style={{ padding: "8px 10px", fontSize: 11, color: T.text2, maxWidth: 260, lineHeight: 1.5 }}>{s.ai_reasoning}<SupplierLinks s={s} /></td>
                       </tr>
                     ))}</tbody>
                   </table>
@@ -2655,107 +2675,59 @@ function ShareDropdown({ conversationId, onClose }) {
   );
 }
 
-// Markdown renderer for AI chat messages - handles tables, headers, bold, italic, code, lists
-function renderMarkdown(text) {
-  if (!text) return null;
-  const lines = text.split("\n");
-  const elements = [];
-  let i = 0;
-
-  while (i < lines.length) {
-    const line = lines[i];
-
-    // Table detection: line starts with | and next line has |---|
-    if (line.trim().startsWith("|") && i + 1 < lines.length && /^\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?$/.test(lines[i + 1]?.trim() || "")) {
-      const tableLines = [];
-      let j = i;
-      while (j < lines.length && lines[j].trim().startsWith("|")) { tableLines.push(lines[j]); j++; }
-      const cells = (r) => { const t = r.trim().replace(/^\|/, "").replace(/\|$/, ""); return t.split("|").map(c => c.trim()); };
-      const headers = cells(tableLines[0]);
-      const rows = tableLines.slice(2).map(cells);
-      elements.push(
-        <div key={`t${i}`} style={{ overflowX: "auto", margin: "8px 0" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-            <thead>
-              <tr style={{ background: T.surface3 }}>
-                {headers.map((h, hi) => <th key={hi} style={{ padding: "6px 10px", textAlign: "left", fontWeight: 700, color: T.text, borderBottom: `2px solid ${T.border}`, whiteSpace: "nowrap" }} dangerouslySetInnerHTML={{ __html: inlineMd(h) }} />)}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row, ri) => (
-                <tr key={ri} style={{ borderBottom: `1px solid ${T.border}`, background: ri % 2 ? T.surface2 + "60" : "transparent" }}>
-                  {row.map((cell, ci) => <td key={ci} style={{ padding: "5px 10px", color: T.text2, fontSize: 12 }} dangerouslySetInnerHTML={{ __html: inlineMd(cell) }} />)}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      );
-      i = j; continue;
-    }
-
-    // Code block
-    if (line.trim().startsWith("```")) {
-      const lang = line.trim().slice(3);
-      const codeLines = [];
-      i++;
-      while (i < lines.length && !lines[i].trim().startsWith("```")) { codeLines.push(lines[i]); i++; }
-      i++; // skip closing ```
-      elements.push(<pre key={`c${i}`} style={{ background: T.surface3, padding: "10px 12px", borderRadius: 8, overflow: "auto", fontSize: 11, fontFamily: "monospace", color: T.text, margin: "6px 0", border: `1px solid ${T.border}`, lineHeight: 1.5 }}>{codeLines.join("\n")}</pre>);
-      continue;
-    }
-
-    // Headers
-    if (/^#{1,4}\s/.test(line)) {
-      const level = line.match(/^(#+)/)[1].length;
-      const txt = line.replace(/^#+\s*/, "");
-      const sizes = { 1: 16, 2: 14, 3: 13, 4: 12 };
-      elements.push(<div key={`h${i}`} style={{ fontSize: sizes[level] || 13, fontWeight: 700, color: T.text, margin: `${level <= 2 ? 12 : 6}px 0 4px` }} dangerouslySetInnerHTML={{ __html: inlineMd(txt) }} />);
-      i++; continue;
-    }
-
-    // Horizontal rule
-    if (/^---+$/.test(line.trim())) {
-      elements.push(<hr key={`hr${i}`} style={{ border: "none", borderTop: `1px solid ${T.border}`, margin: "8px 0" }} />);
-      i++; continue;
-    }
-
-    // Bullet list
-    if (/^[-*]\s/.test(line.trim())) {
-      const listItems = [];
-      while (i < lines.length && /^[-*]\s/.test(lines[i].trim())) { listItems.push(lines[i].trim().slice(2)); i++; }
-      elements.push(<ul key={`ul${i}`} style={{ margin: "4px 0", paddingLeft: 20 }}>{listItems.map((li, idx) => <li key={idx} style={{ fontSize: 13, color: T.text2, lineHeight: 1.6, marginBottom: 2 }} dangerouslySetInnerHTML={{ __html: inlineMd(li) }} />)}</ul>);
-      continue;
-    }
-
-    // Numbered list
-    if (/^\d+[.)]\s/.test(line.trim())) {
-      const listItems = [];
-      while (i < lines.length && /^\d+[.)]\s/.test(lines[i].trim())) { listItems.push(lines[i].trim().replace(/^\d+[.)]\s*/, "")); i++; }
-      elements.push(<ol key={`ol${i}`} style={{ margin: "4px 0", paddingLeft: 20 }}>{listItems.map((li, idx) => <li key={idx} style={{ fontSize: 13, color: T.text2, lineHeight: 1.6, marginBottom: 2 }} dangerouslySetInnerHTML={{ __html: inlineMd(li) }} />)}</ol>);
-      continue;
-    }
-
-    // Empty line
-    if (!line.trim()) { elements.push(<div key={`br${i}`} style={{ height: 6 }} />); i++; continue; }
-
-    // Normal paragraph
-    elements.push(<div key={`p${i}`} style={{ fontSize: 13, color: T.text, lineHeight: 1.7, marginBottom: 2 }} dangerouslySetInnerHTML={{ __html: inlineMd(line) }} />);
-    i++;
-  }
-  return elements;
+// Website and evidence links for an AI-found supplier ("Source: <url>" is stored in notes).
+function SupplierLinks({ s }) {
+  const src = /^Source: (https?:\/\/\S+)/.exec(s.notes || "")?.[1];
+  if (!src && !s.supplier_website) return s.source === "ai_search" ? <div style={{ marginTop: 4, color: "#eab308" }}>Not verified on the web (older search)</div> : null;
+  const a = { color: T.accent, textDecoration: "underline" };
+  return <div style={{ marginTop: 4, display: "flex", gap: 10, flexWrap: "wrap" }}>
+    {s.supplier_website && <a href={s.supplier_website} target="_blank" rel="noopener noreferrer" style={a}>Website</a>}
+    {src && src !== s.supplier_website && <a href={src} target="_blank" rel="noopener noreferrer" style={a}>Source</a>}
+  </div>;
 }
 
-// Inline markdown: bold, italic, code, links, emoji
-function inlineMd(text) {
-  return (text || "")
-    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-    .replace(/`([^`]+)`/g, `<code style="background:${T.surface3};padding:1px 4px;border-radius:3px;font-size:11px;font-family:monospace">$1</code>`)
-    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-    .replace(/\*(.+?)\*/g, "<em>$1</em>")
-    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s"]+)\)/g, `<a href="$2" target="_blank" rel="noopener noreferrer" style="color:${T.accent};text-decoration:underline">$1</a>`)
-    .replace(/(^|[\s(])(https?:\/\/[^\s<)"]+)/g, `$1<a href="$2" target="_blank" rel="noopener noreferrer" style="color:${T.accent};text-decoration:underline;word-break:break-all">$2</a>`);
-}
+// The R&D Advisor's three modes share one engine (helm-api /rd-advisor); the mode
+// changes its focus, research budget and suggestions.
+const ADVISOR_MODES = {
+  chemist: {
+    label: "Chemist", title: "Formulation chemist", icon: "flask",
+    desc: "A PhD-level detergent chemist for fabrics, dishes, surfaces and stain removal: enzymes, surfactants, builders, bleach and polymers. Reads your formulas and test results, runs the numbers, and designs experiments",
+    placeholder: "Ask about a formula, a stain, a dissolution or stability problem, a claim, a DOE…",
+    busy: "Reading your formulas and working it through",
+    suggestions: [
+      "Our sheets aren't dissolving fully in cold water. What should we investigate first?",
+      "Analyse our latest formula: surfactant load, cost per unit and any ingredient flags",
+      "Which enzymes would lift grass, blood and sebum stains in a 20°C wash, and how do we keep them stable in a sheet?",
+      "Design a DOE for PVOH grade, glycerin and surfactant load against dissolution time and tensile strength",
+      "How can we take 15% out of raw material cost without losing stain removal?",
+      "What do we need to change to make our dish tablet phosphate-free and still pass filming tests in hard water?",
+    ],
+  },
+  sourcing: {
+    label: "Sourcing", title: "Sourcing lead", icon: "search",
+    desc: "Finds and verifies contract manufacturers and ingredient suppliers on the web, checks certifications against your claims, and saves the good ones to Helm",
+    placeholder: "Ask for manufacturers, suppliers, grades, certifications…",
+    busy: "Searching and checking suppliers (this can take a minute or two)",
+    suggestions: [
+      "Find contract manufacturers in the US that can cast PVOH detergent sheets",
+      "Who makes MGDA and GLDA, and which grades are on the Safer Choice CleanGredients list?",
+      "Find tablet press contract manufacturers for automatic dishwasher tablets in Australia",
+      "Find low 1,4-dioxane SLES suppliers and what test data they publish",
+      "Shortlist enzyme suppliers with granulated protease and amylase for powders and tablets",
+    ],
+  },
+  rfp: {
+    label: "RFP & quotes", title: "Procurement lead", icon: "note",
+    desc: "Writes RFPs that get comparable bids, and compares quotes on landed cost per unit with the freight, duty and currency assumptions spelled out",
+    placeholder: "Ask to draft an RFP section, or to compare quotes at a volume…",
+    busy: "Working through the RFP and quotes",
+    suggestions: [
+      "Draft the performance and testing section of an RFP for a laundry sheet contract manufacturer",
+      "Compare the quotes on our RFP at 500,000 units with $0.02 freight per unit and 6.5% duty",
+      "What should we ask suppliers so their quotes are comparable when we don't know volume yet?",
+    ],
+  },
+};
 
 function AIAgentTab({ program }) {
   const { isMobile } = useResponsive();
@@ -2766,20 +2738,12 @@ function AIAgentTab({ program }) {
   const [loading, setLoading] = useState(false);
   const [loadingConvs, setLoadingConvs] = useState(true);
   const [showShare, setShowShare] = useState(false);
-  const [mode, setMode] = useState("advisor");
+  const [mode, setMode] = useState(() => { try { const m = localStorage.getItem("plm.advisorMode"); return ADVISOR_MODES[m] ? m : "chemist"; } catch { return "chemist"; } });
+  const pickMode = (m) => { setMode(m); try { localStorage.setItem("plm.advisorMode", m); } catch {} };
   const [printingChat, setPrintingChat] = useState(false);
   const chatRef = useRef(null);
 
-  const SUGGESTIONS = [
-    "Our sheets aren't dissolving fully in cold water. What should we investigate?",
-    "Source me Australian-based contract manufacturers for dishwasher tablets",
-    "Create a formula for a concentrated floor cleaner - safe for kids and pets",
-    "Find EPA Safer Choice approved surfactants - need 3 supplier options with pricing",
-    "Help me design a DOE to optimize surfactant loading vs dissolution time",
-    "Find powder-to-tablet compression manufacturers for our new tablet line",
-    "How can we reduce COGS by 15% without hurting cleaning performance?",
-    "Find white label laundry sheet suppliers who can do custom branding",
-  ];
+  const SUGGESTIONS = ADVISOR_MODES[mode].suggestions;
 
   // Load conversations
   useEffect(() => {
@@ -2811,32 +2775,15 @@ function AIAgentTab({ program }) {
     setLoading(true);
 
     try {
-      const session = await supabase.auth.getSession();
-      const token = session.data.session?.access_token;
-      if (!token) {
-        setMessages(p => [...p, { role: "assistant", text: "Session expired - please refresh the page and try again.", isError: true }]);
-        setLoading(false);
-        return;
-      }
-      // R&D Advisor v2 runs on helm-api (Google Cloud) for both backends: it
-      // verifies this session token itself and reads data as this user.
-      const res = await fetch(`${HELM_API_BASE}/rd-advisor`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          question: userMsg,
-          conversation_id: activeConvId || undefined,
-          program_id: program?.id || undefined,
-          mode: mode,
-          history: messages.map(m => ({ role: m.role, content: m.text })),
-        }),
+      const data = await askAdvisor({
+        question: userMsg,
+        conversation_id: activeConvId || undefined,
+        program_id: program?.id || undefined,
+        mode,
+        history: messages.map(m => ({ role: m.role, content: m.text })),
       });
-      const data = await res.json();
       if (data.success) {
-        setMessages(p => [...p, { role: "assistant", text: data.response, tokens: data.usage, duration: data.duration_ms, createdItems: data.created_items }]);
+        setMessages(p => [...p, { role: "assistant", text: data.response, tokens: data.usage, duration: data.duration_ms, createdItems: data.created_items, mode: data.mode || mode }]);
         if (!activeConvId && data.conversation_id) {
           setActiveConvId(data.conversation_id);
           setConversations(p => [{ id: data.conversation_id, title: userMsg.slice(0, 80), updated_at: new Date().toISOString() }, ...p]);
@@ -2860,7 +2807,7 @@ function AIAgentTab({ program }) {
     if (activeConvId === id) startNew();
   };
 
-  const activeMode = { key: "advisor", icon: "🧪", label: "R&D Advisor", desc: "Formulation, sourcing, manufacturing, troubleshooting, DOE, regulatory - all in one place", color: "#8b5cf6" };
+  const activeMode = ADVISOR_MODES[mode];
 
   if (printingChat) return (
     <Suspense fallback={<div style={{ padding: 40, color: T.text3 }}>Loading print view...</div>}>
@@ -2900,10 +2847,9 @@ function AIAgentTab({ program }) {
       <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
         {/* Header */}
         <div style={{ padding: "6px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontSize: 14 }}>{activeMode.icon}</span>
-            <span style={{ fontSize: 13, fontWeight: 700, color: activeMode.color }}>{activeMode.label}</span>
-            {program && <span style={{ fontSize: 11, color: T.text3 }}>· {program.name}</span>}
+          <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flexWrap: "wrap" }}>
+            <Seg value={mode} options={Object.entries(ADVISOR_MODES).map(([k, m]) => [k, m.label])} onChange={pickMode} />
+            {program && <span style={{ fontSize: 11, color: T.text3 }}>{program.name}</span>}
           </div>
           {activeConvId && (
             <div style={{ position: "relative", display: "flex", alignItems: "center", gap: 6 }}>
@@ -2927,8 +2873,8 @@ function AIAgentTab({ program }) {
         <div ref={chatRef} style={{ flex: 1, overflow: "auto", padding: "16px", display: "flex", flexDirection: "column", gap: 12 }}>
           {messages.length === 0 && (
             <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 12 }}>
-              <div style={{ fontSize: 48 }}>{activeMode.icon}</div>
-              <div style={{ fontSize: 18, fontWeight: 700, color: T.text }}>{activeMode.label}</div>
+              <div style={{ width: 52, height: 52, borderRadius: 14, background: "var(--accent-soft)", color: "var(--accent-ink)", display: "flex", alignItems: "center", justifyContent: "center" }}><Icon name={activeMode.icon} size={26} /></div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: T.text }}>{activeMode.title}</div>
               <div style={{ fontSize: 13, color: T.text3, textAlign: "center", maxWidth: 520, lineHeight: 1.7 }}>
                 {activeMode.desc}
                 {program ? `. Context: ${program.name}.` : ""}
@@ -2938,7 +2884,7 @@ function AIAgentTab({ program }) {
                 {SUGGESTIONS.map((q, i) => (
                   <button key={i} onClick={() => setInput(q)} style={{ padding: "8px 14px", borderRadius: 8, border: `1px solid ${T.border}`,
                     background: T.surface2, color: T.text2, fontSize: 12, cursor: "pointer", textAlign: "left", lineHeight: 1.5 }}
-                    onMouseEnter={e => e.currentTarget.style.borderColor = activeMode.color}
+                    onMouseEnter={e => e.currentTarget.style.borderColor = T.accent}
                     onMouseLeave={e => e.currentTarget.style.borderColor = T.border}>{q}</button>
                 ))}
               </div>
@@ -2950,7 +2896,7 @@ function AIAgentTab({ program }) {
               <div style={{ width: 28, height: 28, borderRadius: 14, background: msg.role === "user" ? T.accent + "30" : "#8b5cf620",
                 display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, flexShrink: 0,
                 color: msg.role === "user" ? T.accent : "#8b5cf6" }}>
-                {msg.role === "user" ? "You" : "\uD83E\uDDEA"}
+                {msg.role === "user" ? "You" : <Icon name={(ADVISOR_MODES[msg.mode] || activeMode).icon} size={14} />}
               </div>
               <div style={{ maxWidth: "85%", padding: "10px 14px", borderRadius: 12,
                 background: msg.role === "user" ? T.accentDim : msg.isError ? "#ef444415" : T.surface2,
@@ -2960,8 +2906,7 @@ function AIAgentTab({ program }) {
                   <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
                     {msg.createdItems.map((item, ci) => (
                       <div key={ci} style={{ padding: "6px 10px", borderRadius: 6, background: "#22c55e15", border: "1px solid #22c55e40", fontSize: 11, display: "flex", alignItems: "center", gap: 6 }}>
-                        <span>{item.tool === "create_program" ? "📦" : item.tool === "create_formulation" ? "🧪" : "🔬"}</span>
-                        <span style={{ fontWeight: 600, color: "#22c55e" }}>Created:</span>
+                        <span style={{ fontWeight: 600, color: "#22c55e" }}>{item.tool === "save_supplier" ? "Saved:" : "Created:"}</span>
                         <span style={{ color: T.text }}>{item.result?.message || item.result?.name || "Item created"}</span>
                       </div>
                     ))}
@@ -2979,10 +2924,10 @@ function AIAgentTab({ program }) {
 
           {loading && (
             <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-              <div style={{ width: 28, height: 28, borderRadius: 14, background: "#8b5cf620", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12 }}>{"\uD83E\uDDEA"}</div>
+              <div style={{ width: 28, height: 28, borderRadius: 14, background: "#8b5cf620", color: "#8b5cf6", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12 }}><Icon name={activeMode.icon} size={14} /></div>
               <div style={{ padding: "10px 14px", borderRadius: 12, background: T.surface2, border: `1px solid ${T.border}` }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ fontSize: 13, color: T.text3 }}>Researching and checking your formulas (web research can take a minute)</span>
+                  <span style={{ fontSize: 13, color: T.text3 }}>{activeMode.busy}</span>
                   <span style={{ display: "inline-flex", gap: 3 }}>
                     {[0, 1, 2].map(j => <span key={j} style={{ width: 4, height: 4, borderRadius: 2, background: T.text3, animation: `pulse 1.4s ease-in-out ${j * 0.2}s infinite` }} />)}
                   </span>
@@ -2997,7 +2942,7 @@ function AIAgentTab({ program }) {
           <div style={{ display: "flex", gap: 8 }}>
             <textarea value={input} onChange={e => setInput(e.target.value)}
               onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
-              placeholder="Ask about formulation, manufacturing, stability, experiments, ingredients, regulatory, costs..."
+              placeholder={activeMode.placeholder}
               rows={2}
               style={{ flex: 1, padding: "10px 14px", borderRadius: 10, border: `1px solid ${T.border}`,
                 background: T.surface2, color: T.text, fontSize: 13, outline: "none", fontFamily: "inherit", resize: "none" }} />
@@ -3010,7 +2955,7 @@ function AIAgentTab({ program }) {
           </div>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 6 }}>
             <div style={{ fontSize: 10, color: T.text3 }}>
-              {program ? `Context: ${program.name}` : "General PLM"} · Shift+Enter for new line · All conversations saved
+              {program ? `Context: ${program.name}` : "All programs"} · Answers about outside companies are checked on the web and linked · Shift+Enter for a new line
             </div>
             {messages.length > 0 && !activeConvId && (
               <span style={{ fontSize: 10, color: T.text3 }}>Conversation will save on first response</span>
