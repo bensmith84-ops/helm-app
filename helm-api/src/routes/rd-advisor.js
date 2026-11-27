@@ -103,17 +103,18 @@ module.exports = function mount(app, { pool, anthropicFactory, verifyFirebase, f
       const run = await runAdvisor({ ...base, mode, question, history, program_id, rfp_id, extraContext: context });
 
       // persist (as the user, RLS applies) unless the caller keeps its own history
-      let convId = conversation_id || null;
+      let convId = conversation_id || null; let persistError = null;
       if (body.persist !== false) {
         try {
           if (!convId) { const c = await who.db.insert('plm_ai_conversations', { org_id: who.orgId, program_id: program_id || null, user_id: who.userId, title: String(question).slice(0, 80) }); convId = c?.id || null; }
           if (convId) await who.db.insertMany('plm_ai_messages', [
-            { org_id: who.orgId, conversation_id: convId, role: 'user', content: String(question) },
-            { org_id: who.orgId, conversation_id: convId, role: 'assistant', content: run.text, tokens_in: run.usage.input_tokens, tokens_out: run.usage.output_tokens, duration_ms: Date.now() - started },
+            // Same columns as before v3: the Google database rejects extra ones.
+            { conversation_id: convId, role: 'user', content: String(question) },
+            { conversation_id: convId, role: 'assistant', content: run.text, tokens_in: run.usage.input_tokens, tokens_out: run.usage.output_tokens },
           ]);
-        } catch (e) { console.error('[rd-advisor] persist failed:', e.message); }
+        } catch (e) { console.error('[rd-advisor] persist failed:', e.message); persistError = e.message; }
       }
-      return res.json({ success: true, response: run.text, conversation_id: convId, mode, model: run.model, usage: run.usage, duration_ms: Date.now() - started, created_items: run.created, sources: run.sources });
+      return res.json({ success: true, response: run.text, conversation_id: convId, mode, model: run.model, usage: run.usage, duration_ms: Date.now() - started, created_items: run.created, sources: run.sources, persist_error: persistError || undefined });
     } catch (e) {
       console.error('[rd-advisor]', e?.status || '', e?.message);
       return res.json({ success: false, error: e?.message || String(e) });
