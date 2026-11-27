@@ -1,7 +1,7 @@
 "use client";
 import { useState, useCallback, useMemo } from "react";
 import { supabase } from "../lib/supabase";
-import { T } from "../tokens";
+import { T } from "./work/tide";
 
 // Bullet-list value: render as newline-separated textarea (one item per line)
 function ListField({ label, value, onChange, placeholder }) {
@@ -86,8 +86,8 @@ export default function PLMRFPBrief({ rfp, program, onUpdate }) {
           <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>The structured requirements suppliers will receive. {saving && <span style={{ color: T.accent }}>· saving…</span>}</div>
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center" }} onClick={e => e.stopPropagation()}>
-          <button onClick={() => setShowParse(true)} style={{ ...ghostBtn, color: "#8b5cf6", borderColor: "#8b5cf650" }}>📄 Paste &amp; parse</button>
-          <button onClick={aiGenerate} disabled={aiBusy} style={{ ...ghostBtn, color: "#8b5cf6", borderColor: "#8b5cf650", opacity: aiBusy ? 0.5 : 1 }}>{aiBusy ? "Generating…" : "✨ Generate from program"}</button>
+          <button onClick={() => setShowParse(true)} style={{ ...ghostBtn, color: "#6452C7", borderColor: "#6452C750" }}>📄 Paste &amp; parse</button>
+          <button onClick={aiGenerate} disabled={aiBusy} style={{ ...ghostBtn, color: "#6452C7", borderColor: "#6452C750", opacity: aiBusy ? 0.5 : 1 }}>{aiBusy ? "Generating…" : "✨ Generate from program"}</button>
           <button onClick={() => setCollapsed(c => !c)} style={{ ...ghostBtn, padding: "4px 10px" }}>{collapsed ? "▼ Expand" : "▲ Collapse"}</button>
         </div>
       </div>
@@ -209,12 +209,12 @@ function ParseBriefModal({ onClose, onParsed }) {
         <textarea value={text} onChange={e => setText(e.target.value)} rows={16}
           placeholder="Paste the full brief text here..."
           style={{ ...textareaStyle, fontFamily: "ui-monospace, SFMono-Regular, monospace", fontSize: 12 }} />
-        {err && <div style={{ color: "#ef4444", fontSize: 12, marginTop: 8 }}>{err}</div>}
+        {err && <div style={{ color: "#D2472B", fontSize: 12, marginTop: 8 }}>{err}</div>}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 14 }}>
           <div style={{ fontSize: 11, color: T.text3 }}>{text.length.toLocaleString()} chars</div>
           <div style={{ display: "flex", gap: 8 }}>
             <button onClick={onClose} style={ghostBtn}>Cancel</button>
-            <button onClick={parse} disabled={busy || text.length < 50} style={{ ...primaryBtn, background: "#8b5cf6", opacity: (busy || text.length < 50) ? 0.5 : 1 }}>{busy ? "Parsing…" : "✨ Parse with AI"}</button>
+            <button onClick={parse} disabled={busy || text.length < 50} style={{ ...primaryBtn, background: "#6452C7", opacity: (busy || text.length < 50) ? 0.5 : 1 }}>{busy ? "Parsing…" : "✨ Parse with AI"}</button>
           </div>
         </div>
       </div>

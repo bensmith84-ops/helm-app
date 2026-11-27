@@ -2,7 +2,9 @@
 import { HELM_API_BASE } from "../lib/backend";
 import { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { supabase } from "../lib/supabase";
-import { T } from "../tokens";
+import { T, PLM_CSS } from "./work/tide";
+import { useTheme } from "../lib/theme";
+import { ModeProvider, Icon, Chip } from "./work/ui";
 import { useResponsive } from "../lib/responsive";
 import { useAuth } from "../lib/auth";
 import PLMLibraryView from "./PLMLibrary";
@@ -14,21 +16,22 @@ const PrintAIChat = lazy(() => import("./PrintAIChat"));
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 
 const STAGES = [
-  { key: "ideation",     label: "Ideation",     color: "#8b5cf6", desc: "Capturing new product ideas from market trends, customer feedback, internal brainstorms, and competitive analysis. Open exploration - no commitment yet, just building the idea backlog." },
-  { key: "concept",      label: "Concept",      color: "#6366f1", desc: "Defining the product opportunity. Formalizing the idea into a product brief with target consumer, positioning, high-level requirements, and initial business case. Answering: 'Should we pursue this?'" },
-  { key: "feasibility",  label: "Feasibility",  color: "#3b82f6", desc: "Evaluating technical and commercial viability. Preliminary formulations, rough cost estimates, initial supplier research, and regulatory screening. Answering: 'Can we make this within our constraints?'" },
-  { key: "development",  label: "Development",  color: "#0ea5e9", desc: "Active formulation and product development. Lab-scale work, iterative testing, packaging development, and initial stability studies. Building and refining the actual product." },
-  { key: "optimization", label: "Optimization", color: "#06b6d4", desc: "Refining for manufacturing. Scaling from lab to pilot to production, optimizing formula for cost/performance/manufacturability, manufacturing trials, finalizing packaging, completing stability studies, and substantiating claims." },
-  { key: "validation",   label: "Validation",   color: "#10b981", desc: "Final confirmation before launch. Production-scale validation runs, final quality testing, regulatory compliance sign-off, claims substantiation complete, packaging artwork approved, supply chain readiness confirmed." },
-  { key: "scale_up",     label: "Scale-Up",     color: "#84cc16", desc: "Transitioning from validated product to full production volume. Setting up production lines, qualifying contract manufacturers, establishing quality control procedures, and building initial inventory for launch." },
-  { key: "regulatory",   label: "Regulatory",   color: "#eab308", desc: "Securing all regulatory approvals and compliance certifications. Filing with relevant agencies, completing labeling requirements, obtaining market-specific certifications, and ensuring full legal compliance for all target markets." },
-  { key: "launch_ready", label: "Launch Ready", color: "#f97316", desc: "All gates passed - product is ready to ship. Final go/no-go review, marketing materials finalized, sales channels activated, inventory positioned, distribution confirmed. Awaiting launch date." },
-  { key: "launched",     label: "Launched",     color: "#22c55e", desc: "Product is live in market. Monitoring initial sales performance, collecting customer feedback, tracking quality metrics, managing post-launch optimizations, and feeding learnings back into the pipeline." },
+  { key: "ideation",     label: "Ideation",     color: "#7A63D2", desc: "Capturing new product ideas from market trends, customer feedback, internal brainstorms, and competitive analysis. Open exploration - no commitment yet, just building the idea backlog." },
+  { key: "concept",      label: "Concept",      color: "#5B6FD8", desc: "Defining the product opportunity. Formalizing the idea into a product brief with target consumer, positioning, high-level requirements, and initial business case. Answering: 'Should we pursue this?'" },
+  { key: "feasibility",  label: "Feasibility",  color: "#2C7BD6", desc: "Evaluating technical and commercial viability. Preliminary formulations, rough cost estimates, initial supplier research, and regulatory screening. Answering: 'Can we make this within our constraints?'" },
+  { key: "development",  label: "Development",  color: "#0E8FB0", desc: "Active formulation and product development. Lab-scale work, iterative testing, packaging development, and initial stability studies. Building and refining the actual product." },
+  { key: "optimization", label: "Optimization", color: "#0C8C7D", desc: "Refining for manufacturing. Scaling from lab to pilot to production, optimizing formula for cost/performance/manufacturability, manufacturing trials, finalizing packaging, completing stability studies, and substantiating claims." },
+  { key: "validation",   label: "Validation",   color: "#2A8755", desc: "Final confirmation before launch. Production-scale validation runs, final quality testing, regulatory compliance sign-off, claims substantiation complete, packaging artwork approved, supply chain readiness confirmed." },
+  { key: "scale_up",     label: "Scale-Up",     color: "#6E9A1F", desc: "Transitioning from validated product to full production volume. Setting up production lines, qualifying contract manufacturers, establishing quality control procedures, and building initial inventory for launch." },
+  { key: "regulatory",   label: "Regulatory",   color: "#B98A0B", desc: "Securing all regulatory approvals and compliance certifications. Filing with relevant agencies, completing labeling requirements, obtaining market-specific certifications, and ensuring full legal compliance for all target markets." },
+  { key: "launch_ready", label: "Launch Ready", color: "#D2672B", desc: "All gates passed - product is ready to ship. Final go/no-go review, marketing materials finalized, sales channels activated, inventory positioned, distribution confirmed. Awaiting launch date." },
+  { key: "launched",     label: "Launched",     color: "#1F7A4D", desc: "Product is live in market. Monitoring initial sales performance, collecting customer feedback, tracking quality metrics, managing post-launch optimizations, and feeding learnings back into the pipeline." },
 ];
 const STAGE_MAP = Object.fromEntries(STAGES.map(s => [s.key, s]));
 
-const PRIORITY_COLORS = { critical: "#ef4444", high: "#f97316", medium: "#eab308", low: "#22c55e" };
-const STATUS_COLORS   = { pass: "#22c55e", fail: "#ef4444", pending: "#eab308", in_progress: "#3b82f6", draft: "#8b93a8", open: "#f97316", resolved: "#22c55e" };
+const PRIORITY_COLORS = { critical: "#D2472B", high: "#C8621F", medium: "#B27405", low: "#65717A" };
+const PRIORITY_TONE = { critical: "coral", high: "amber", medium: "blue", low: "slate" };
+const STATUS_COLORS   = { pass: "#2A8755", fail: "#D2472B", pending: "#B27405", in_progress: "#2C69DB", draft: "#87918F", open: "#C8621F", resolved: "#2A8755" };
 
 const PROGRAM_TYPES = ["new_product","line_extension","reformulation","cost_reduction","packaging_change","claim_addition","market_expansion","renovation","private_label","co_manufacturing"];
 const TARGET_MARKETS = ["AU","CA","Global","UK","US"];
@@ -39,7 +42,7 @@ const SOURCING_TYPES = [
   { value: "contract_manufacturer", label: "Contract Manufacturer" },
   { value: "other",                 label: "Other"                 },
 ];
-const SOURCING_TYPE_COLORS = { ingredient:"#3b82f6", packaging:"#8b5cf6", contract_manufacturer:"#f97316", other:"#8b93a8" };
+const SOURCING_TYPE_COLORS = { ingredient:"#2C69DB", packaging:"#6452C7", contract_manufacturer:"#C8621F", other:"#87918F" };
 const UOM_OPTIONS = [
   'KG','g','lb','oz',
   'L','mL','gal','fl oz',
@@ -52,12 +55,12 @@ const DOC_ICONS = { document:"📄", link:"🔗", study:"🔬", lab_report:"🧪
 // ─── SHARED MINI-COMPONENTS ───────────────────────────────────────────────────
 
 function StageBadge({ stage }) {
-  const s = STAGE_MAP[stage] || { label: stage, color: "#8b93a8" };
-  return <span style={{ fontSize:10, fontWeight:700, padding:"2px 7px", borderRadius:4, background:s.color+"22", color:s.color, letterSpacing:0.3 }}>{s.label.toUpperCase()}</span>;
+  const s = STAGE_MAP[stage] || { label: stage, color: "#87918F" };
+  return <span className="hw-chip" style={{ "--c": s.color, "--c-soft": s.color + "1F" }}><i />{s.label}</span>;
 }
 function PriorityBadge({ priority }) {
-  const color = PRIORITY_COLORS[priority] || "#8b93a8";
-  return <span style={{ fontSize:10, fontWeight:700, padding:"2px 7px", borderRadius:4, background:color+"22", color, letterSpacing:0.3 }}>{(priority||"-").toUpperCase()}</span>;
+  if (!priority) return null;
+  return <Chip t={PRIORITY_TONE[priority] || "slate"}>{priority.charAt(0).toUpperCase() + priority.slice(1)}</Chip>;
 }
 const escHtml = (v) => String(v || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 // Shared: render manufacturing instructions with markdown formatting
@@ -86,13 +89,13 @@ function FormatMfgInstructions({ text }) {
 }
 
 function StatusDot({ status }) {
-  return <span style={{ display:"inline-block", width:8, height:8, borderRadius:"50%", background:STATUS_COLORS[status]||"#8b93a8", marginRight:5 }} />;
+  return <span style={{ display:"inline-block", width:8, height:8, borderRadius:"50%", background:STATUS_COLORS[status]||"#87918F", marginRight:5 }} />;
 }
 function Section({ title, children, action }) {
   return (
     <div style={{ marginBottom:24 }}>
       <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
-        <div style={{ fontSize:11, fontWeight:700, color:T.text3, letterSpacing:1, textTransform:"uppercase" }}>{title}</div>
+        <div style={{ fontSize:13, fontWeight:650, color:T.text }}>{title}</div>
         {action}
       </div>
       {children}
@@ -100,21 +103,21 @@ function Section({ title, children, action }) {
   );
 }
 function AddBtn({ onClick, label="Add" }) {
-  return <button onClick={onClick} style={{ fontSize:11, fontWeight:600, padding:"3px 10px", borderRadius:5, background:T.accentDim, color:T.accent, border:"1px solid "+T.accent+"40", cursor:"pointer" }}>+ {label}</button>;
+  return <button className="hw-btn sm" onClick={onClick}><Icon name="plus" size={13} />{label}</button>;
 }
 function EmptyState({ icon, text }) {
-  return <div style={{ padding:"32px 0", textAlign:"center", color:T.text3, fontSize:13 }}><div style={{ fontSize:28, marginBottom:8 }}>{icon}</div>{text}</div>;
+  return <div className="hw-empty" style={{ padding:"40px 0" }}><div style={{ fontSize:13 }}>{text}</div></div>;
 }
 function InlineField({ label, value, onChange, onBlur, type="text", placeholder, multiline, options, readOnly }) {
   const [local, setLocal] = useState(value || "");
   const [focused, setFocused] = useState(false);
   // Sync external value when not focused (e.g. parent updates after save)
   useEffect(() => { if (!focused) setLocal(value || ""); }, [value, focused]);
-  const base = { width:"100%", fontSize:13, color:readOnly?T.text2:T.text, background:readOnly?T.surface3:T.surface2, border:"1px solid "+T.border, borderRadius:6, padding:"6px 10px", outline:"none", fontFamily:"inherit", boxSizing:"border-box" };
+  const base = { width:"100%", fontSize:13, color:readOnly?T.text2:T.text, background:readOnly?T.surface3:T.surface, border:"1px solid "+T.border2, borderRadius:8, padding:"7px 10px", outline:"none", fontFamily:"inherit", boxSizing:"border-box" };
   const handleBlur = () => { setFocused(false); if (local !== (value || "")) onChange(local); if (onBlur) onBlur(); };
   return (
     <div style={{ marginBottom:12 }}>
-      {label && <div style={{ fontSize:11, color:T.text3, marginBottom:4, fontWeight:600 }}>{label}</div>}
+      {label && <div style={{ fontSize:12, color:T.text2, marginBottom:5, fontWeight:550 }}>{label}</div>}
       {options ? (
         <select value={value||""} onChange={e=>onChange(e.target.value)} onBlur={onBlur} disabled={readOnly} style={{ ...base, cursor:readOnly?"default":"pointer" }}>
           <option value="">-</option>
@@ -189,7 +192,7 @@ function FormulaIngredientCell({ value, itemType, onPick, onChange, onBlur }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
   const inputRef = useRef(null);
-  const typeColor = { ingredient:T.accent, packaging:"#8b5cf6", other:"#8b93a8" };
+  const typeColor = { ingredient:T.accent, packaging:"#6452C7", other:"#87918F" };
   const color = typeColor[itemType] || T.text3;
 
   // Sync draft if parent value changes (e.g. after picker sets it)
@@ -254,7 +257,7 @@ function FormulaItemRow({ item, onUpdate, onDelete }) {
   const td={padding:"4px 6px",verticalAlign:"middle"};
   const inp={width:"100%",fontSize:12,background:"transparent",border:"none",color:T.text,outline:"none",fontFamily:"inherit"};
   const sel={width:"100%",fontSize:11,background:"transparent",border:"none",color:T.text,outline:"none",fontFamily:"inherit",cursor:"pointer"};
-  const typeColor={ingredient:T.accent,packaging:"#8b5cf6",other:"#8b93a8"};
+  const typeColor={ingredient:T.accent,packaging:"#6452C7",other:"#87918F"};
   return (
     <tr style={{ borderBottom:"1px solid "+T.border }}>
       <td style={td}>
@@ -303,7 +306,7 @@ function ClaimRow({ claim, onUpdate, onDelete }) {
   const [editing, setEditing] = useState(false);
   const [vals, setVals] = useState(claim);
   const save = async () => { await supabase.from("plm_claims").update({claim_text:vals.claim_text,status:vals.status,claim_type:vals.claim_type}).eq("org_id", orgId).eq("id",claim.id); onUpdate(vals); setEditing(false); };
-  const sc = STATUS_COLORS[claim.status]||"#8b93a8";
+  const sc = STATUS_COLORS[claim.status]||"#87918F";
   return (
     <div style={{ padding:"10px 12px", background:T.surface2, borderRadius:8, border:"1px solid "+T.border, marginBottom:8 }}>
       {editing ? (
@@ -361,7 +364,7 @@ function SourcingItemCard({ item, onUpdate, onDelete }) {
   const [expanded, setExpanded] = useState(true); // open by default so tiers are immediately visible
   const [tiers, setTiers] = useState(item.volume_tiers||[]);
   const [vals, setVals] = useState(item);
-  const color = SOURCING_TYPE_COLORS[item.sourcing_type]||"#8b93a8";
+  const color = SOURCING_TYPE_COLORS[item.sourcing_type]||"#87918F";
 
   const saveField = async (field,val) => {
     const updated={...vals,[field]:val}; setVals(updated);
@@ -439,27 +442,27 @@ function OverviewTab({ program, onUpdate, counts }) {
   };
   const advanceStage=async k=>{ await supabase.from("plm_programs").update({current_stage:k}).eq("org_id", orgId).eq("id",program.id); onUpdate({...program,current_stage:k}); };
   return (
-    <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:24 }}>
-      <div>
-        <Section title="Stage Gate">
-          <div style={{ display:"flex",gap:4,flexWrap:"wrap" }}>
+    <div className="responsive-grid" style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:20,maxWidth:1240 }}>
+        <div className="plm-panel" style={{ gridColumn:"1 / -1",paddingBottom:2 }}>
+        <Section title="Stage gate">
+          <div className="plm-gate">
             {STAGES.map((s,i)=>{
               const cur=STAGES.findIndex(x=>x.key===program.current_stage),done=i<cur,active=i===cur;
-              return <div key={s.key} onClick={()=>advanceStage(s.key)} title={s.desc} style={{ flex:1,minWidth:58,textAlign:"center",padding:"8px 4px",borderRadius:6,fontSize:10,fontWeight:700,cursor:"pointer",background:active?s.color+"30":done?s.color+"15":T.surface2,border:"1px solid "+(active?s.color:done?s.color+"60":T.border),color:active?s.color:done?s.color+"99":T.text3,transition:"all 0.15s" }}>{s.label}</div>;
+              return <button key={s.key} className={active?"on":done?"done":""} style={{ "--c":s.color }} onClick={()=>advanceStage(s.key)} title={s.label+" — "+s.desc}><span className="bar" /><span className="lb">{s.label}</span></button>;
             })}
           </div>
+          <div style={{ fontSize:12.5,color:T.text2,marginTop:12,lineHeight:1.5,maxWidth:820 }}>{STAGE_MAP[program.current_stage]?.desc}</div>
         </Section>
-        <Section title="KPIs">
-          <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8 }}>
-            {[{label:"Formulas",val:counts.formulations,icon:"⚗️"},{label:"Experiments",val:counts.experiments,icon:"🔬"},{label:"Trials",val:counts.trials,icon:"🏭"},{label:"SKUs",val:counts.skus,icon:"📦"},{label:"Claims",val:counts.claims,icon:"✅"},{label:"Issues",val:counts.issues,icon:"⚠️"}].map(k=>(
-              <div key={k.label} style={{ background:T.surface2,border:"1px solid "+T.border,borderRadius:8,padding:"10px 12px" }}>
-                <div style={{ fontSize:18 }}>{k.icon}</div>
-                <div style={{ fontSize:22,fontWeight:700,color:T.text,lineHeight:1.2 }}>{k.val??0}</div>
-                <div style={{ fontSize:11,color:T.text3 }}>{k.label}</div>
-              </div>
+        </div>
+      <div>
+        <div style={{ marginBottom:16 }}>
+          <div className="plm-kpis">
+            {[{label:"Formulas",val:counts.formulations},{label:"Experiments",val:counts.experiments},{label:"Trials",val:counts.trials},{label:"SKUs",val:counts.skus},{label:"Claims",val:counts.claims},{label:"Open issues",val:counts.issues}].map(k=>(
+              <div key={k.label}><b>{k.val??0}</b><span>{k.label}</span></div>
             ))}
           </div>
-        </Section>
+        </div>
+        <div className="plm-panel">
         <Section title="Financial Targets">
           <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
             <InlineField label="GM% Target" value={fv("target_gross_margin_pct")} onChange={v=>set("target_gross_margin_pct",v)} type="number" placeholder="e.g. 65" />
@@ -467,9 +470,10 @@ function OverviewTab({ program, onUpdate, counts }) {
           </div>
           <InlineField label="Development Budget ($)" value={fv("development_budget")} onChange={v=>set("development_budget",v)} type="number" />
         </Section>
+        </div>
       </div>
-      <div>
-        <Section title="Program Details">
+      <div className="plm-panel">
+        <Section title="Program details">
           <InlineField label="Program Name" value={fv("name")} onChange={v=>set("name",v)} />
           <InlineField label="Type" value={fv("program_type")} onChange={v=>set("program_type",v)} options={["new_product","line_extension","reformulation","cost_reduction","packaging_change","claim_addition","market_expansion","renovation","private_label","co_manufacturing"].map(t=>({value:t,label:t.replace(/_/g," ")}))} />
           <InlineField label="Priority" value={fv("priority")} onChange={v=>set("priority",v)} options={["critical","high","medium","low"].map(p=>({value:p,label:p}))} />
@@ -479,8 +483,8 @@ function OverviewTab({ program, onUpdate, counts }) {
           <MultiSelectDropdown label="Channels" value={fv("channels_v2")||[]} onChange={v=>set("channels_v2",v)} options={CHANNELS_LIST} />
           <InlineField label="Description" value={fv("description")} onChange={v=>set("description",v)} multiline />
         </Section>
-        <button onClick={saveAll} style={{ width:"100%",padding:10,fontSize:13,fontWeight:600,borderRadius:6,cursor:"pointer",background:Object.keys(editing).length?T.accent:T.surface2,color:Object.keys(editing).length?"#fff":T.text3,border:"1px solid "+(Object.keys(editing).length?T.accent:T.border),transition:"all 0.15s" }}>
-          {Object.keys(editing).length?"Save Changes":"No Unsaved Changes"}
+        <button className={"hw-btn"+(Object.keys(editing).length?" primary":"")} disabled={!Object.keys(editing).length} onClick={saveAll} style={{ width:"100%",justifyContent:"center",height:36 }}>
+          {Object.keys(editing).length?"Save changes":"All changes saved"}
         </button>
       </div>
     </div>
@@ -841,7 +845,7 @@ Respond ONLY with a JSON array:
 
   const typeIcon = { exact: "🔍", function: "⚙", outcome: "🎯" };
   const typeLabel = { exact: "Exact Ingredient", function: "By Function", outcome: "By Outcome" };
-  const statusColor = { draft: T.text3, searching: "#f59e0b", results_ready: "#22c55e", sourcing: T.accent, ordered: "#8b5cf6" };
+  const statusColor = { draft: T.text3, searching: "#B27405", results_ready: "#2A8755", sourcing: T.accent, ordered: "#6452C7" };
 
   if (loading) return <div style={{ color: T.text3, fontSize: 13 }}>Loading…</div>;
 
@@ -898,7 +902,7 @@ Respond ONLY with a JSON array:
               <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
                 {CLAIMS.map(c => (
                   <button key={c} onClick={() => setForm(p => ({ ...p, claims_compatibility: p.claims_compatibility.includes(c) ? p.claims_compatibility.filter(x => x !== c) : [...p.claims_compatibility, c] }))}
-                    style={{ padding: "3px 8px", fontSize: 10, fontWeight: 600, borderRadius: 12, cursor: "pointer", border: "1px solid " + (form.claims_compatibility.includes(c) ? "#22c55e" : T.border), background: form.claims_compatibility.includes(c) ? "#22c55e15" : "transparent", color: form.claims_compatibility.includes(c) ? "#22c55e" : T.text3 }}>{c}</button>
+                    style={{ padding: "3px 8px", fontSize: 10, fontWeight: 600, borderRadius: 12, cursor: "pointer", border: "1px solid " + (form.claims_compatibility.includes(c) ? "#2A8755" : T.border), background: form.claims_compatibility.includes(c) ? "#2A875515" : "transparent", color: form.claims_compatibility.includes(c) ? "#2A8755" : T.text3 }}>{c}</button>
                 ))}
               </div>
             </div>
@@ -907,7 +911,7 @@ Respond ONLY with a JSON array:
               <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
                 {RESTRICTIONS.map(r => (
                   <button key={r} onClick={() => setForm(p => ({ ...p, restrictions: p.restrictions.includes(r) ? p.restrictions.filter(x => x !== r) : [...p.restrictions, r] }))}
-                    style={{ padding: "3px 8px", fontSize: 10, fontWeight: 600, borderRadius: 12, cursor: "pointer", border: "1px solid " + (form.restrictions.includes(r) ? "#ef4444" : T.border), background: form.restrictions.includes(r) ? "#ef444415" : "transparent", color: form.restrictions.includes(r) ? "#ef4444" : T.text3 }}>{r}</button>
+                    style={{ padding: "3px 8px", fontSize: 10, fontWeight: 600, borderRadius: 12, cursor: "pointer", border: "1px solid " + (form.restrictions.includes(r) ? "#D2472B" : T.border), background: form.restrictions.includes(r) ? "#D2472B15" : "transparent", color: form.restrictions.includes(r) ? "#D2472B" : T.text3 }}>{r}</button>
                 ))}
               </div>
             </div>
@@ -978,15 +982,15 @@ Respond ONLY with a JSON array:
                     {searching ? "🔍 Searching..." : "🤖 AI Search"}
                   </button>
                   <button onClick={() => deleteRequest(selected.id)}
-                    style={{ padding: "6px 10px", fontSize: 12, background: "none", border: "1px solid #ef444440", borderRadius: 6, color: "#ef4444", cursor: "pointer" }}>✕</button>
+                    style={{ padding: "6px 10px", fontSize: 12, background: "none", border: "1px solid #D2472B40", borderRadius: 6, color: "#D2472B", cursor: "pointer" }}>✕</button>
                 </div>
               </div>
 
               {/* Constraints summary */}
               {((selected.claims_compatibility?.length > 0) || (selected.restrictions?.length > 0)) && (
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 12 }}>
-                  {(selected.claims_compatibility || []).map(c => <span key={c} style={{ padding: "2px 8px", fontSize: 10, fontWeight: 600, borderRadius: 10, background: "#22c55e15", color: "#22c55e", border: "1px solid #22c55e40" }}>✓ {c}</span>)}
-                  {(selected.restrictions || []).map(r => <span key={r} style={{ padding: "2px 8px", fontSize: 10, fontWeight: 600, borderRadius: 10, background: "#ef444415", color: "#ef4444", border: "1px solid #ef444440" }}>✕ {r}</span>)}
+                  {(selected.claims_compatibility || []).map(c => <span key={c} style={{ padding: "2px 8px", fontSize: 10, fontWeight: 600, borderRadius: 10, background: "#2A875515", color: "#2A8755", border: "1px solid #2A875540" }}>✓ {c}</span>)}
+                  {(selected.restrictions || []).map(r => <span key={r} style={{ padding: "2px 8px", fontSize: 10, fontWeight: 600, borderRadius: 10, background: "#D2472B15", color: "#D2472B", border: "1px solid #D2472B40" }}>✕ {r}</span>)}
                   {selected.target_cost_per_kg && <span style={{ padding: "2px 8px", fontSize: 10, fontWeight: 600, borderRadius: 10, background: T.surface2, color: T.text3, border: "1px solid " + T.border }}>Target: ${selected.target_cost_per_kg}/kg</span>}
                 </div>
               )}
@@ -1011,7 +1015,7 @@ Respond ONLY with a JSON array:
                           {s.inci_name && s.inci_name !== s.ingredient_name && <div style={{ fontSize: 10, color: T.text3 }}>{s.inci_name}</div>}
                           {s.cas_number && <div style={{ fontSize: 10, color: T.text3 }}>CAS: {s.cas_number}</div>}
                           <div style={{ display: "flex", flexWrap: "wrap", gap: 2, marginTop: 3 }}>
-                            {(s.certifications || []).map(c => <span key={c} style={{ fontSize: 9, padding: "1px 5px", borderRadius: 6, background: "#22c55e15", color: "#22c55e" }}>{c}</span>)}
+                            {(s.certifications || []).map(c => <span key={c} style={{ fontSize: 9, padding: "1px 5px", borderRadius: 6, background: "#2A875515", color: "#2A8755" }}>{c}</span>)}
                           </div>
                         </td>
                         <td style={{ padding: "8px 10px" }}>
@@ -1023,7 +1027,7 @@ Respond ONLY with a JSON array:
                           {s.price_per_kg ? "$" + Number(s.price_per_kg).toFixed(2) : "-"}
                         </td>
                         <td style={{ padding: "8px 10px", textAlign: "center" }}>
-                          <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 36, height: 20, borderRadius: 10, fontSize: 11, fontWeight: 700, background: (s.ai_fit_score >= 80 ? "#22c55e" : s.ai_fit_score >= 60 ? "#f59e0b" : "#ef4444") + "20", color: s.ai_fit_score >= 80 ? "#22c55e" : s.ai_fit_score >= 60 ? "#f59e0b" : "#ef4444" }}>
+                          <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 36, height: 20, borderRadius: 10, fontSize: 11, fontWeight: 700, background: (s.ai_fit_score >= 80 ? "#2A8755" : s.ai_fit_score >= 60 ? "#B27405" : "#D2472B") + "20", color: s.ai_fit_score >= 80 ? "#2A8755" : s.ai_fit_score >= 60 ? "#B27405" : "#D2472B" }}>
                             {s.ai_fit_score || "-"}
                           </span>
                         </td>
@@ -1173,7 +1177,7 @@ JSON array only:
   };
 
   const typeIcon = { exact: "🔍", function: "⚙", outcome: "🎯" };
-  const statusColor = { draft: T.text3, searching: "#f59e0b", results_ready: "#22c55e", sourcing: T.accent };
+  const statusColor = { draft: T.text3, searching: "#B27405", results_ready: "#2A8755", sourcing: T.accent };
 
   return (
     <div>
@@ -1238,13 +1242,13 @@ JSON array only:
             <div>
               <div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 6 }}>Must be compatible with:</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                {CLAIMS.map(c => <button key={c} onClick={() => setForm(p => ({ ...p, claims_compatibility: p.claims_compatibility.includes(c) ? p.claims_compatibility.filter(x => x !== c) : [...p.claims_compatibility, c] }))} style={{ padding: "3px 8px", fontSize: 10, fontWeight: 600, borderRadius: 12, cursor: "pointer", border: "1px solid " + (form.claims_compatibility.includes(c) ? "#22c55e" : T.border), background: form.claims_compatibility.includes(c) ? "#22c55e15" : "transparent", color: form.claims_compatibility.includes(c) ? "#22c55e" : T.text3 }}>{c}</button>)}
+                {CLAIMS.map(c => <button key={c} onClick={() => setForm(p => ({ ...p, claims_compatibility: p.claims_compatibility.includes(c) ? p.claims_compatibility.filter(x => x !== c) : [...p.claims_compatibility, c] }))} style={{ padding: "3px 8px", fontSize: 10, fontWeight: 600, borderRadius: 12, cursor: "pointer", border: "1px solid " + (form.claims_compatibility.includes(c) ? "#2A8755" : T.border), background: form.claims_compatibility.includes(c) ? "#2A875515" : "transparent", color: form.claims_compatibility.includes(c) ? "#2A8755" : T.text3 }}>{c}</button>)}
               </div>
             </div>
             <div>
               <div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 6 }}>Restrictions (avoid):</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                {RESTRICTIONS.map(r => <button key={r} onClick={() => setForm(p => ({ ...p, restrictions: p.restrictions.includes(r) ? p.restrictions.filter(x => x !== r) : [...p.restrictions, r] }))} style={{ padding: "3px 8px", fontSize: 10, fontWeight: 600, borderRadius: 12, cursor: "pointer", border: "1px solid " + (form.restrictions.includes(r) ? "#ef4444" : T.border), background: form.restrictions.includes(r) ? "#ef444415" : "transparent", color: form.restrictions.includes(r) ? "#ef4444" : T.text3 }}>{r}</button>)}
+                {RESTRICTIONS.map(r => <button key={r} onClick={() => setForm(p => ({ ...p, restrictions: p.restrictions.includes(r) ? p.restrictions.filter(x => x !== r) : [...p.restrictions, r] }))} style={{ padding: "3px 8px", fontSize: 10, fontWeight: 600, borderRadius: 12, cursor: "pointer", border: "1px solid " + (form.restrictions.includes(r) ? "#D2472B" : T.border), background: form.restrictions.includes(r) ? "#D2472B15" : "transparent", color: form.restrictions.includes(r) ? "#D2472B" : T.text3 }}>{r}</button>)}
               </div>
             </div>
           </div>
@@ -1298,15 +1302,15 @@ JSON array only:
                       {searching ? "🔍 Searching..." : "🤖 AI Search"}
                     </button>
                     <button onClick={() => deleteRequest(selected.id)}
-                      style={{ padding: "6px 10px", fontSize: 12, background: "none", border: "1px solid #ef444440", borderRadius: 6, color: "#ef4444", cursor: "pointer" }}>✕</button>
+                      style={{ padding: "6px 10px", fontSize: 12, background: "none", border: "1px solid #D2472B40", borderRadius: 6, color: "#D2472B", cursor: "pointer" }}>✕</button>
                   </div>
                 </div>
 
                 {/* Constraints */}
                 {((selected.claims_compatibility?.length > 0) || (selected.restrictions?.length > 0)) && (
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 12 }}>
-                    {(selected.claims_compatibility || []).map(c => <span key={c} style={{ padding: "2px 8px", fontSize: 10, fontWeight: 600, borderRadius: 10, background: "#22c55e15", color: "#22c55e", border: "1px solid #22c55e40" }}>✓ {c}</span>)}
-                    {(selected.restrictions || []).map(r => <span key={r} style={{ padding: "2px 8px", fontSize: 10, fontWeight: 600, borderRadius: 10, background: "#ef444415", color: "#ef4444", border: "1px solid #ef444440" }}>✕ {r}</span>)}
+                    {(selected.claims_compatibility || []).map(c => <span key={c} style={{ padding: "2px 8px", fontSize: 10, fontWeight: 600, borderRadius: 10, background: "#2A875515", color: "#2A8755", border: "1px solid #2A875540" }}>✓ {c}</span>)}
+                    {(selected.restrictions || []).map(r => <span key={r} style={{ padding: "2px 8px", fontSize: 10, fontWeight: 600, borderRadius: 10, background: "#D2472B15", color: "#D2472B", border: "1px solid #D2472B40" }}>✕ {r}</span>)}
                   </div>
                 )}
 
@@ -1327,7 +1331,7 @@ JSON array only:
                           {s.inci_name && s.inci_name !== s.ingredient_name && <div style={{ fontSize: 10, color: T.text3 }}>{s.inci_name}</div>}
                           {s.cas_number && <div style={{ fontSize: 10, color: T.text3 }}>CAS: {s.cas_number}</div>}
                           <div style={{ display: "flex", flexWrap: "wrap", gap: 2, marginTop: 2 }}>
-                            {(s.certifications || []).map(c => <span key={c} style={{ fontSize: 9, padding: "1px 5px", borderRadius: 6, background: "#22c55e15", color: "#22c55e" }}>{c}</span>)}
+                            {(s.certifications || []).map(c => <span key={c} style={{ fontSize: 9, padding: "1px 5px", borderRadius: 6, background: "#2A875515", color: "#2A8755" }}>{c}</span>)}
                           </div>
                         </td>
                         <td style={{ padding: "8px 10px" }}>
@@ -1337,7 +1341,7 @@ JSON array only:
                         </td>
                         <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: 700, color: T.text }}>{s.price_per_kg ? "$" + Number(s.price_per_kg).toFixed(2) : "-"}</td>
                         <td style={{ padding: "8px 10px", textAlign: "center" }}>
-                          <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 36, height: 20, borderRadius: 10, fontSize: 11, fontWeight: 700, background: (s.ai_fit_score >= 80 ? "#22c55e" : s.ai_fit_score >= 60 ? "#f59e0b" : "#ef4444") + "20", color: s.ai_fit_score >= 80 ? "#22c55e" : s.ai_fit_score >= 60 ? "#f59e0b" : "#ef4444" }}>{s.ai_fit_score || "-"}</span>
+                          <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 36, height: 20, borderRadius: 10, fontSize: 11, fontWeight: 700, background: (s.ai_fit_score >= 80 ? "#2A8755" : s.ai_fit_score >= 60 ? "#B27405" : "#D2472B") + "20", color: s.ai_fit_score >= 80 ? "#2A8755" : s.ai_fit_score >= 60 ? "#B27405" : "#D2472B" }}>{s.ai_fit_score || "-"}</span>
                         </td>
                         <td style={{ padding: "8px 10px", fontSize: 11, color: T.text2, maxWidth: 240, lineHeight: 1.5 }}>{s.ai_reasoning}</td>
                       </tr>
@@ -1437,24 +1441,24 @@ function GMScenarioTab({ program }) {
               </thead>
               <tbody>
                 {scenarios.map((s,i)=>(
-                  <tr key={i} style={{ borderBottom:"1px solid "+T.border, background:s.targetMet?"#22c55e08":i%2===0?"transparent":T.surface2+"40" }}>
+                  <tr key={i} style={{ borderBottom:"1px solid "+T.border, background:s.targetMet?"#2A875508":i%2===0?"transparent":T.surface2+"40" }}>
                     <td style={{ padding:"10px 12px",fontSize:13,fontWeight:700,color:T.text }}>{s.qty.toLocaleString()}</td>
                     <td style={{ padding:"10px 12px",fontSize:13,color:T.text2 }}>${s.rawCOGS.toFixed(3)}</td>
                     <td style={{ padding:"10px 12px",fontSize:13,color:T.text2 }}>${s.totalCOGS.toFixed(3)}</td>
                     <td style={{ padding:"10px 12px",fontSize:13,color:T.text }}>${Number(unitPrice).toFixed(2)}</td>
-                    <td style={{ padding:"10px 12px",fontSize:13,fontWeight:600,color:s.gmDollars>=0?T.text:"#ef4444" }}>${s.gmDollars.toFixed(2)}</td>
+                    <td style={{ padding:"10px 12px",fontSize:13,fontWeight:600,color:s.gmDollars>=0?T.text:"#D2472B" }}>${s.gmDollars.toFixed(2)}</td>
                     <td style={{ padding:"10px 12px" }}>
                       <div style={{ display:"flex",alignItems:"center",gap:8 }}>
                         <div style={{ flex:1,height:6,background:T.surface3,borderRadius:3,minWidth:60,overflow:"hidden" }}>
-                          <div style={{ height:"100%",width:Math.min(100,Math.max(0,s.gmPct))+"%",background:s.targetMet?"#22c55e":s.gmPct>Number(targetGM)*0.8?"#eab308":"#ef4444",borderRadius:3 }} />
+                          <div style={{ height:"100%",width:Math.min(100,Math.max(0,s.gmPct))+"%",background:s.targetMet?"#2A8755":s.gmPct>Number(targetGM)*0.8?"#B27405":"#D2472B",borderRadius:3 }} />
                         </div>
-                        <span style={{ fontSize:13,fontWeight:700,color:s.targetMet?"#22c55e":s.gmPct>0?T.text:"#ef4444",minWidth:44,textAlign:"right" }}>{s.gmPct.toFixed(1)}%</span>
+                        <span style={{ fontSize:13,fontWeight:700,color:s.targetMet?"#2A8755":s.gmPct>0?T.text:"#D2472B",minWidth:44,textAlign:"right" }}>{s.gmPct.toFixed(1)}%</span>
                       </div>
                     </td>
                     <td style={{ padding:"10px 12px" }}>
-                      {s.targetMet?<span style={{ fontSize:11,fontWeight:700,color:"#22c55e",background:"#22c55e15",padding:"2px 8px",borderRadius:4 }}>✓ YES</span>:<span style={{ fontSize:11,fontWeight:700,color:"#ef4444",background:"#ef444415",padding:"2px 8px",borderRadius:4 }}>✗ NO</span>}
+                      {s.targetMet?<span style={{ fontSize:11,fontWeight:700,color:"#2A8755",background:"#2A875515",padding:"2px 8px",borderRadius:4 }}>✓ YES</span>:<span style={{ fontSize:11,fontWeight:700,color:"#D2472B",background:"#D2472B15",padding:"2px 8px",borderRadius:4 }}>✗ NO</span>}
                     </td>
-                    <td style={{ padding:"10px 12px",fontSize:13,fontWeight:600,color:s.bepPrice<=Number(unitPrice)?"#22c55e":T.accent }}>${s.bepPrice.toFixed(2)}</td>
+                    <td style={{ padding:"10px 12px",fontSize:13,fontWeight:600,color:s.bepPrice<=Number(unitPrice)?"#2A8755":T.accent }}>${s.bepPrice.toFixed(2)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -1470,19 +1474,19 @@ function GMScenarioTab({ program }) {
                 <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:16 }}>
                   <div>
                     <div style={{ fontSize:11,color:T.text3,marginBottom:4 }}>Best achievable GM%</div>
-                    <div style={{ fontSize:22,fontWeight:700,color:best.gmPct>=targetGM?"#22c55e":"#eab308" }}>{best.gmPct.toFixed(1)}%</div>
+                    <div style={{ fontSize:22,fontWeight:700,color:best.gmPct>=targetGM?"#2A8755":"#B27405" }}>{best.gmPct.toFixed(1)}%</div>
                     <div style={{ fontSize:11,color:T.text3 }}>at {best.qty.toLocaleString()} units</div>
                   </div>
                   {first?(
                     <div>
                       <div style={{ fontSize:11,color:T.text3,marginBottom:4 }}>Target GM% first hit at</div>
-                      <div style={{ fontSize:22,fontWeight:700,color:"#22c55e" }}>{first.qty.toLocaleString()}</div>
+                      <div style={{ fontSize:22,fontWeight:700,color:"#2A8755" }}>{first.qty.toLocaleString()}</div>
                       <div style={{ fontSize:11,color:T.text3 }}>units ({first.gmPct.toFixed(1)}% GM)</div>
                     </div>
                   ):(
                     <div>
                       <div style={{ fontSize:11,color:T.text3,marginBottom:4 }}>Target {targetGM}% GM not achievable</div>
-                      <div style={{ fontSize:13,color:"#ef4444",fontWeight:600 }}>Min price needed: ${scenarios[scenarios.length-1]?.bepPrice.toFixed(2)}</div>
+                      <div style={{ fontSize:13,color:"#D2472B",fontWeight:600 }}>Min price needed: ${scenarios[scenarios.length-1]?.bepPrice.toFixed(2)}</div>
                       <div style={{ fontSize:11,color:T.text3 }}>at highest volume tier</div>
                     </div>
                   )}
@@ -1539,7 +1543,7 @@ function IngredientPickerModal({ onPick, onClose }) {
     onPick({ name, uom: uom||"", type: type||"ingredient" });
   };
 
-  const typeColor = { ingredient:T.accent, packaging:"#8b5cf6", other:"#8b93a8" };
+  const typeColor = { ingredient:T.accent, packaging:"#6452C7", other:"#87918F" };
 
   return (
     <div style={{ position:"fixed",inset:0,background:"#00000060",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center" }}
@@ -1685,7 +1689,7 @@ function FormulationsTab({ programId }) {
                 </div>
               </div>
               <div style={{ display:"flex",alignItems:"center",gap:8,marginTop:4 }}>
-                <span style={{ fontSize:12,color:totalPct>100.5?"#ef4444":totalPct>99.4?"#22c55e":"#eab308",fontWeight:600 }}>Total: {totalPct.toFixed(2)}%</span>
+                <span style={{ fontSize:12,color:totalPct>100.5?"#D2472B":totalPct>99.4?"#2A8755":"#B27405",fontWeight:600 }}>Total: {totalPct.toFixed(2)}%</span>
                 <button onClick={()=>setShowPicker(true)} style={{ display:"flex",alignItems:"center",gap:5,padding:"5px 12px",fontSize:12,fontWeight:600,background:T.accent,color:"#fff",border:"none",borderRadius:6,cursor:"pointer" }}>+ Ingredient</button>
                 <button onClick={()=>setPrintingFormula(selected.id)} style={{ padding:"5px 10px",fontSize:12,background:"none",border:`1px solid ${T.border}`,borderRadius:6,color:T.text3,cursor:"pointer",display:"flex",alignItems:"center",gap:4 }} title="Print formula sheet">🖨 Print</button>
                 <button onClick={deleteFormula} style={{ padding:"5px 10px",fontSize:12,background:"none",border:`1px solid ${T.border}`,borderRadius:6,color:T.text3,cursor:"pointer" }} title="Delete formula">🗑</button>
@@ -1706,7 +1710,7 @@ function FormulationsTab({ programId }) {
                   {selected.manufacturing_process && <span style={{ fontSize: 10, color: T.text3, background: T.surface2, padding: "2px 6px", borderRadius: 4 }}>{Math.round(selected.manufacturing_process.length / 5)} words</span>}
                 </div>
                 <button onClick={() => setEditingMfg(!editingMfg)}
-                  style={{ fontSize: 11, color: editingMfg ? "#ef4444" : T.accent, background: "none", border: `1px solid ${editingMfg ? "#ef444440" : T.accent + "40"}`, borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontWeight: 600 }}>
+                  style={{ fontSize: 11, color: editingMfg ? "#D2472B" : T.accent, background: "none", border: `1px solid ${editingMfg ? "#D2472B40" : T.accent + "40"}`, borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontWeight: 600 }}>
                   {editingMfg ? "Done Editing" : "✎ Edit"}
                 </button>
               </div>
@@ -1955,8 +1959,8 @@ function ExperimentsTab({ programId }) {
                       <thead>
                         <tr style={{ borderBottom:`1px solid ${T.border}` }}>
                           <th style={{ padding:"6px 8px",textAlign:"left",fontSize:10,fontWeight:700,color:T.text3,textTransform:"uppercase",width:40 }}>#</th>
-                          {factors.map(f => <th key={f.id} style={{ padding:"6px 8px",textAlign:"left",fontSize:10,fontWeight:700,color:"#3b82f6",textTransform:"uppercase" }}>{f.name||"Factor"}{f.unit?` (${f.unit})`:""}</th>)}
-                          {responses.map(r => <th key={r.id} style={{ padding:"6px 8px",textAlign:"left",fontSize:10,fontWeight:700,color:"#22c55e",textTransform:"uppercase" }}>{r.name||"Response"}{r.unit?` (${r.unit})`:""}</th>)}
+                          {factors.map(f => <th key={f.id} style={{ padding:"6px 8px",textAlign:"left",fontSize:10,fontWeight:700,color:"#2C69DB",textTransform:"uppercase" }}>{f.name||"Factor"}{f.unit?` (${f.unit})`:""}</th>)}
+                          {responses.map(r => <th key={r.id} style={{ padding:"6px 8px",textAlign:"left",fontSize:10,fontWeight:700,color:"#2A8755",textTransform:"uppercase" }}>{r.name||"Response"}{r.unit?` (${r.unit})`:""}</th>)}
                           <th style={{ padding:"6px 8px",textAlign:"left",fontSize:10,fontWeight:700,color:T.text3,textTransform:"uppercase" }}>Notes</th>
                           <th style={{ width:30 }} />
                         </tr>
@@ -1966,7 +1970,7 @@ function ExperimentsTab({ programId }) {
                           <tr key={run.id} style={{ borderBottom:`1px solid ${T.border}` }}>
                             <td style={{ padding:"4px 8px",fontWeight:600,color:T.text3 }}>{run.run_number}</td>
                             {factors.map(f => <td key={f.id} style={{ padding:"4px 4px" }}><input value={run.factor_values?.[f.id]??""} onChange={e=>updateRunFactor(run.id,f.id,e.target.value)} style={{ width:"100%",padding:"3px 6px",fontSize:12,background:T.surface,border:`1px solid ${T.border}`,borderRadius:4,color:T.text,outline:"none",boxSizing:"border-box" }} /></td>)}
-                            {responses.map(r => <td key={r.id} style={{ padding:"4px 4px" }}><input value={run.response_values?.[r.id]??""} onChange={e=>updateRunResponse(run.id,r.id,e.target.value)} placeholder="-" style={{ width:"100%",padding:"3px 6px",fontSize:12,background:"#22c55e08",border:`1px solid #22c55e30`,borderRadius:4,color:T.text,outline:"none",boxSizing:"border-box" }} /></td>)}
+                            {responses.map(r => <td key={r.id} style={{ padding:"4px 4px" }}><input value={run.response_values?.[r.id]??""} onChange={e=>updateRunResponse(run.id,r.id,e.target.value)} placeholder="-" style={{ width:"100%",padding:"3px 6px",fontSize:12,background:"#2A875508",border:`1px solid #2A875530`,borderRadius:4,color:T.text,outline:"none",boxSizing:"border-box" }} /></td>)}
                             <td style={{ padding:"4px 4px" }}><input value={run.notes||""} onChange={e=>updateRun(run.id,"notes",e.target.value)} placeholder="..." style={{ width:"100%",padding:"3px 6px",fontSize:12,background:T.surface,border:`1px solid ${T.border}`,borderRadius:4,color:T.text,outline:"none",boxSizing:"border-box" }} /></td>
                             <td><button onClick={()=>removeRun(run.id)} style={{ background:"none",border:"none",color:T.text3,cursor:"pointer",fontSize:11 }}>✕</button></td>
                           </tr>
@@ -1991,7 +1995,7 @@ function ExperimentsTab({ programId }) {
                 setTrialRuns(p => p.map(r => r.id === runId ? { ...r, response_results: results } : r));
               };
               const SO = ["planned","in_progress","completed","failed","skipped"];
-              const SC = { planned: T.text3, in_progress: "#eab308", completed: "#22c55e", failed: "#ef4444", skipped: "#8b93a8" };
+              const SC = { planned: T.text3, in_progress: "#B27405", completed: "#2A8755", failed: "#D2472B", skipped: "#87918F" };
               if (trialsLoading) return <div style={{ color: T.text3, fontSize: 12, padding: 16 }}>Loading trials...</div>;
               if (trialRuns.length === 0) return (
                 <div style={{ textAlign: "center", padding: "40px 16px", color: T.text3 }}>
@@ -2008,7 +2012,7 @@ function ExperimentsTab({ programId }) {
                   <div style={{ display: "flex", gap: 12, marginBottom: 16, alignItems: "center" }}>
                     <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{trialRuns.length} Trials</div>
                     <div style={{ flex: 1, height: 6, borderRadius: 3, background: T.surface3 }}>
-                      <div style={{ width: `${(completed / trialRuns.length) * 100}%`, height: "100%", borderRadius: 3, background: "#22c55e", transition: "width 0.4s" }} />
+                      <div style={{ width: `${(completed / trialRuns.length) * 100}%`, height: "100%", borderRadius: 3, background: "#2A8755", transition: "width 0.4s" }} />
                     </div>
                     <div style={{ fontSize: 11, color: T.text3 }}>{completed}/{trialRuns.length} complete</div>
                   </div>
@@ -2073,7 +2077,7 @@ function ExperimentsTab({ programId }) {
                                       <span style={{ fontSize: 12, fontWeight: 700, color: T.text }}>⚗️ {hasFormula ? `Formula: ${trialFormula?.name || "-"}` : "Ingredient Table"}</span>
                                       {trialFormula?.version && <span style={{ fontSize: 10, color: T.text3 }}>{trialFormula.version}</span>}
                                       {trialFormula?.target_batch_size && <span style={{ fontSize: 10, color: T.accent, fontWeight: 600 }}>Batch: {trialFormula.target_batch_size} {trialFormula.batch_size_unit || "kg"}</span>}
-                                      {hasFormula && <span style={{ fontSize: 9, padding: "2px 6px", borderRadius: 3, background: "#f9731620", color: "#f97316", fontWeight: 600 }}>🔸 = changed by DOE factors</span>}
+                                      {hasFormula && <span style={{ fontSize: 9, padding: "2px 6px", borderRadius: 3, background: "#C8621F20", color: "#C8621F", fontWeight: 600 }}>🔸 = changed by DOE factors</span>}
                                     </div>
                                     {hasFormula ? (
                                       <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -2087,14 +2091,14 @@ function ExperimentsTab({ programId }) {
                                             const affected = isAffected(item);
                                             const wt = trialFormula?.target_batch_size ? (item.quantity / 100 * trialFormula.target_batch_size * 1000).toFixed(1) : "-";
                                             return (
-                                              <tr key={item.id} style={{ borderBottom: `1px solid ${T.border}`, background: affected ? "#f9731608" : "transparent" }}>
-                                                <td style={{ padding: "5px 2px", width: 8 }}>{affected && <span style={{ color: "#f97316", fontSize: 12 }}>🔸</span>}</td>
+                                              <tr key={item.id} style={{ borderBottom: `1px solid ${T.border}`, background: affected ? "#C8621F08" : "transparent" }}>
+                                                <td style={{ padding: "5px 2px", width: 8 }}>{affected && <span style={{ color: "#C8621F", fontSize: 12 }}>🔸</span>}</td>
                                                 <td style={{ padding: "5px 8px", fontSize: 11, color: T.text3 }}>{item.addition_order || i + 1}</td>
-                                                <td style={{ padding: "5px 8px", fontSize: 12, fontWeight: affected ? 700 : 500, color: affected ? "#f97316" : T.text }}>{item.ingredient_name}</td>
+                                                <td style={{ padding: "5px 8px", fontSize: 12, fontWeight: affected ? 700 : 500, color: affected ? "#C8621F" : T.text }}>{item.ingredient_name}</td>
                                                 <td style={{ padding: "5px 8px", fontSize: 11, color: T.text3 }}>{item.function_in_formula || "-"}</td>
                                                 <td style={{ padding: "5px 8px", fontSize: 11, color: T.text3 }}>{item.phase || "-"}</td>
                                                 <td style={{ padding: "5px 8px", fontSize: 12, color: affected ? T.text3 : T.text, textAlign: "right", textDecoration: affected ? "line-through" : "none" }}>{item.quantity}</td>
-                                                <td style={{ padding: "5px 8px", fontSize: 12, fontWeight: 700, color: affected ? "#f97316" : T.text, textAlign: "right" }}>{affected ? "→ see factors" : item.quantity}</td>
+                                                <td style={{ padding: "5px 8px", fontSize: 12, fontWeight: 700, color: affected ? "#C8621F" : T.text, textAlign: "right" }}>{affected ? "→ see factors" : item.quantity}</td>
                                                 <td style={{ padding: "5px 8px", fontSize: 12, color: T.text2, textAlign: "right" }}>{wt}</td>
                                                 <td style={{ padding: "5px 8px", fontSize: 11, color: T.text3, textAlign: "right" }}>{item.addition_temp_c || "-"}</td>
                                               </tr>
@@ -2117,8 +2121,8 @@ function ExperimentsTab({ programId }) {
                                     )}
                                     {/* Factor adjustments callout */}
                                     {hasFormula && Object.keys(fs).length > 0 && (
-                                      <div style={{ marginTop: 8, padding: "10px 14px", borderRadius: 8, background: "#f9731608", border: "1px solid #f9731630" }}>
-                                        <div style={{ fontSize: 10, fontWeight: 700, color: "#f97316", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>DOE Factor Adjustments for Run {run.run_number}</div>
+                                      <div style={{ marginTop: 8, padding: "10px 14px", borderRadius: 8, background: "#C8621F08", border: "1px solid #C8621F30" }}>
+                                        <div style={{ fontSize: 10, fontWeight: 700, color: "#C8621F", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>DOE Factor Adjustments for Run {run.run_number}</div>
                                         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 6 }}>
                                           {Object.entries(fs).map(([k,v]) => {
                                             const factorDef = (Array.isArray(selected.factors) ? selected.factors : []).find(f => f.name === k);
@@ -2127,7 +2131,7 @@ function ExperimentsTab({ programId }) {
                                                 <span style={{ fontSize: 14 }}>🔸</span>
                                                 <div>
                                                   <div style={{ fontSize: 11, fontWeight: 700, color: T.text }}>{k}</div>
-                                                  <div style={{ fontSize: 13, fontWeight: 800, color: "#f97316" }}>{String(v)} {factorDef?.unit || ""}</div>
+                                                  <div style={{ fontSize: 13, fontWeight: 800, color: "#C8621F" }}>{String(v)} {factorDef?.unit || ""}</div>
                                                   {factorDef && (factorDef.low != null || factorDef.high != null) && (
                                                     <div style={{ fontSize: 9, color: T.text3 }}>Range: {factorDef.low} – {factorDef.high} {factorDef.unit || ""}</div>
                                                   )}
@@ -2177,12 +2181,12 @@ function ExperimentsTab({ programId }) {
                                     {responses.map(resp => {
                                       const val = run.response_results?.[resp.name];
                                       return (
-                                        <div key={resp.name || resp.id} style={{ padding: "10px 12px", borderRadius: 8, background: T.surface2, border: `1px solid ${val != null ? "#22c55e40" : T.border}` }}>
+                                        <div key={resp.name || resp.id} style={{ padding: "10px 12px", borderRadius: 8, background: T.surface2, border: `1px solid ${val != null ? "#2A875540" : T.border}` }}>
                                           <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, marginBottom: 4 }}>{resp.name}</div>
                                           <input type="number" step="any" value={val ?? ""}
                                             onChange={e => updateResult(run.id, resp.name, e.target.value)}
                                             placeholder={`${resp.target === "maximize" ? "↑" : resp.target === "minimize" ? "↓" : "◎"} ${resp.target}`}
-                                            style={{ width: "100%", padding: "4px 0", fontSize: 16, fontWeight: 700, background: "none", border: "none", color: val != null ? "#22c55e" : T.text3, outline: "none", boxSizing: "border-box" }} />
+                                            style={{ width: "100%", padding: "4px 0", fontSize: 16, fontWeight: 700, background: "none", border: "none", color: val != null ? "#2A8755" : T.text3, outline: "none", boxSizing: "border-box" }} />
                                           {resp.unit && <div style={{ fontSize: 9, color: T.text3, marginTop: 2 }}>{resp.unit}{resp.target_value ? ` · target: ${resp.target_value}` : ""}</div>}
                                         </div>
                                       );
@@ -2383,7 +2387,7 @@ function IssuesTab({ programId }) {
   useEffect(()=>{ supabase.from("plm_issues").select("*").eq("org_id", orgId).eq("program_id",programId).order("created_at",{ascending:false}).then(({data})=>{setIssues(data||[]);setLoading(false);}); },[programId]);
   const add=async()=>{ const{data}=await supabase.from("plm_issues").insert({program_id:programId,title:"New Issue",issue_type:"formulation",severity:"minor",status:"open",org_id:orgId}).select().single(); if(data){setIssues(p=>[data,...p]);setSelected(data);} };
   const update=async(field,val)=>{ await supabase.from("plm_issues").update({[field]:val}).eq("org_id", orgId).eq("id",selected.id); const u={...selected,[field]:val}; setSelected(u); setIssues(p=>p.map(x=>x.id===u.id?u:x)); };
-  const sc={critical:"#ef4444",high:"#f97316",medium:"#eab308",low:"#22c55e"};
+  const sc={critical:"#D2472B",high:"#C8621F",medium:"#B27405",low:"#2A8755"};
   if(loading)return <div style={{ color:T.text3,fontSize:13 }}>Loading…</div>;
   return (
     <div style={{ display:"grid",gridTemplateColumns:isMobile ? "1fr" : "260px 1fr",gap:16 }}>
@@ -2393,7 +2397,7 @@ function IssuesTab({ programId }) {
           <AddBtn onClick={add} label="New" />
         </div>
         {issues.length===0&&<EmptyState icon="⚠️" text="No issues" />}
-        {issues.map(i=><div key={i.id} onClick={()=>setSelected(i)} style={{ padding:"8px 10px",borderRadius:6,cursor:"pointer",marginBottom:4,background:selected?.id===i.id?T.accentDim:T.surface2,border:"1px solid "+(selected?.id===i.id?T.accent+"60":T.border) }}><div style={{ display:"flex",gap:6,alignItems:"center",marginBottom:2 }}><span style={{ width:7,height:7,borderRadius:"50%",background:sc[i.severity]||"#8b93a8",flexShrink:0 }} /><div style={{ fontSize:13,fontWeight:500,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{i.title}</div></div><div style={{ fontSize:11,color:T.text3 }}>{i.issue_type} · {i.status}</div></div>)}
+        {issues.map(i=><div key={i.id} onClick={()=>setSelected(i)} style={{ padding:"8px 10px",borderRadius:6,cursor:"pointer",marginBottom:4,background:selected?.id===i.id?T.accentDim:T.surface2,border:"1px solid "+(selected?.id===i.id?T.accent+"60":T.border) }}><div style={{ display:"flex",gap:6,alignItems:"center",marginBottom:2 }}><span style={{ width:7,height:7,borderRadius:"50%",background:sc[i.severity]||"#87918F",flexShrink:0 }} /><div style={{ fontSize:13,fontWeight:500,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{i.title}</div></div><div style={{ fontSize:11,color:T.text3 }}>{i.issue_type} · {i.status}</div></div>)}
       </div>
       <div>
         {!selected?<EmptyState icon="⚠️" text="Select an issue" />:(
@@ -2433,7 +2437,7 @@ function TestResultsTab({ programId }) {
       <table style={{ width:"100%",borderCollapse:"collapse" }}>
         <thead><tr style={{ borderBottom:"1px solid "+T.border }}>{["Test Name","Category","Spec","Result","Status","Date"].map(h=><th key={h} style={{ padding:"6px 10px",textAlign:"left",fontSize:10,fontWeight:700,color:T.text3,textTransform:"uppercase" }}>{h}</th>)}</tr></thead>
         <tbody>
-          {results.map(r=>{const sc=STATUS_COLORS[r.status]||"#8b93a8";return(
+          {results.map(r=>{const sc=STATUS_COLORS[r.status]||"#87918F";return(
             <tr key={r.id} style={{ borderBottom:"1px solid "+T.border }}>
               <td style={{ padding:"8px 10px",fontSize:13,color:T.text,fontWeight:500 }}>{r.test_name}</td>
               <td style={{ padding:"8px 10px",fontSize:12,color:T.text2 }}>{r.test_category}</td>
@@ -2456,7 +2460,7 @@ function GateReviewsTab({ programId }) {
   const [reviews, setReviews] = useState([]);
   const [loading, setLoading] = useState(true);
   useEffect(()=>{ supabase.from("plm_gate_reviews").select("*").eq("org_id", orgId).eq("program_id",programId).order("review_date",{ascending:false}).then(({data})=>{setReviews(data||[]);setLoading(false);}); },[programId]);
-  const dc={approved:"#22c55e",rejected:"#ef4444",conditional:"#eab308",deferred:"#8b93a8"};
+  const dc={approved:"#2A8755",rejected:"#D2472B",conditional:"#B27405",deferred:"#87918F"};
   if(loading)return <div style={{ color:T.text3,fontSize:13 }}>Loading…</div>;
   return (
     <div>
@@ -2465,7 +2469,7 @@ function GateReviewsTab({ programId }) {
         <div key={r.id} style={{ padding:"14px 16px",background:T.surface2,border:"1px solid "+T.border,borderRadius:8,marginBottom:10 }}>
           <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start" }}>
             <div><div style={{ fontSize:14,fontWeight:600,color:T.text }}>{r.from_stage} → {r.to_stage}</div><div style={{ fontSize:12,color:T.text3,marginTop:2 }}>{r.review_date||"Date TBD"}</div></div>
-            {r.decision&&<span style={{ fontSize:11,fontWeight:700,color:dc[r.decision]||"#8b93a8",background:(dc[r.decision]||"#8b93a8")+"20",padding:"3px 10px",borderRadius:5 }}>{r.decision.toUpperCase()}</span>}
+            {r.decision&&<span style={{ fontSize:11,fontWeight:700,color:dc[r.decision]||"#87918F",background:(dc[r.decision]||"#87918F")+"20",padding:"3px 10px",borderRadius:5 }}>{r.decision.toUpperCase()}</span>}
           </div>
           {r.meeting_notes&&<div style={{ marginTop:10,fontSize:13,color:T.text2,lineHeight:1.6,borderTop:"1px solid "+T.border,paddingTop:10 }}>{r.meeting_notes}</div>}
         </div>
@@ -2535,7 +2539,7 @@ function ShareDropdown({ conversationId, onClose }) {
             return (
               <div key={s.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "4px 0" }}>
                 <span style={{ fontSize: 12, color: T.text }}>{u?.display_name || u?.email || "User"}</span>
-                <button onClick={() => removeShare(s.id)} style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: 11, padding: "2px 6px" }}>Remove</button>
+                <button onClick={() => removeShare(s.id)} style={{ background: "none", border: "none", color: "#D2472B", cursor: "pointer", fontSize: 11, padding: "2px 6px" }}>Remove</button>
               </div>
             );
           })}
@@ -2773,7 +2777,7 @@ function AIAgentTab({ program }) {
     if (activeConvId === id) startNew();
   };
 
-  const activeMode = { key: "advisor", icon: "🧪", label: "R&D Advisor", desc: "Formulation, sourcing, manufacturing, troubleshooting, DOE, regulatory - all in one place", color: "#a855f7" };
+  const activeMode = { key: "advisor", icon: "🧪", label: "R&D Advisor", desc: "Formulation, sourcing, manufacturing, troubleshooting, DOE, regulatory - all in one place", color: "#6452C7" };
 
   if (printingChat) return (
     <Suspense fallback={<div style={{ padding: 40, color: T.text3 }}>Loading print view...</div>}>
@@ -2860,21 +2864,21 @@ function AIAgentTab({ program }) {
 
           {messages.map((msg, i) => (
             <div key={i} style={{ display: "flex", gap: 10, flexDirection: msg.role === "user" ? "row-reverse" : "row" }}>
-              <div style={{ width: 28, height: 28, borderRadius: 14, background: msg.role === "user" ? T.accent + "30" : "#a855f720",
+              <div style={{ width: 28, height: 28, borderRadius: 14, background: msg.role === "user" ? T.accent + "30" : "#6452C720",
                 display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, flexShrink: 0,
-                color: msg.role === "user" ? T.accent : "#a855f7" }}>
+                color: msg.role === "user" ? T.accent : "#6452C7" }}>
                 {msg.role === "user" ? "You" : "\uD83E\uDDEA"}
               </div>
               <div style={{ maxWidth: "85%", padding: "10px 14px", borderRadius: 12,
-                background: msg.role === "user" ? T.accentDim : msg.isError ? "#ef444415" : T.surface2,
-                border: `1px solid ${msg.isError ? "#ef444440" : T.border}` }}>
-                <div style={{ fontSize: 13, color: msg.isError ? "#ef4444" : T.text, lineHeight: 1.7, wordBreak: "break-word" }}>{msg.role === "user" ? <span style={{ whiteSpace: "pre-wrap" }}>{msg.text}</span> : renderMarkdown(msg.text)}</div>
+                background: msg.role === "user" ? T.accentDim : msg.isError ? "#D2472B15" : T.surface2,
+                border: `1px solid ${msg.isError ? "#D2472B40" : T.border}` }}>
+                <div style={{ fontSize: 13, color: msg.isError ? "#D2472B" : T.text, lineHeight: 1.7, wordBreak: "break-word" }}>{msg.role === "user" ? <span style={{ whiteSpace: "pre-wrap" }}>{msg.text}</span> : renderMarkdown(msg.text)}</div>
                 {msg.createdItems && msg.createdItems.length > 0 && (
                   <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
                     {msg.createdItems.map((item, ci) => (
-                      <div key={ci} style={{ padding: "6px 10px", borderRadius: 6, background: "#22c55e15", border: "1px solid #22c55e40", fontSize: 11, display: "flex", alignItems: "center", gap: 6 }}>
+                      <div key={ci} style={{ padding: "6px 10px", borderRadius: 6, background: "#2A875515", border: "1px solid #2A875540", fontSize: 11, display: "flex", alignItems: "center", gap: 6 }}>
                         <span>{item.tool === "create_program" ? "📦" : item.tool === "create_formulation" ? "🧪" : "🔬"}</span>
-                        <span style={{ fontWeight: 600, color: "#22c55e" }}>Created:</span>
+                        <span style={{ fontWeight: 600, color: "#2A8755" }}>Created:</span>
                         <span style={{ color: T.text }}>{item.result?.message || item.result?.name || "Item created"}</span>
                       </div>
                     ))}
@@ -2892,7 +2896,7 @@ function AIAgentTab({ program }) {
 
           {loading && (
             <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-              <div style={{ width: 28, height: 28, borderRadius: 14, background: "#a855f720", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12 }}>{"\uD83E\uDDEA"}</div>
+              <div style={{ width: 28, height: 28, borderRadius: 14, background: "#6452C720", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12 }}>{"\uD83E\uDDEA"}</div>
               <div style={{ padding: "10px 14px", borderRadius: 12, background: T.surface2, border: `1px solid ${T.border}` }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <span style={{ fontSize: 13, color: T.text3 }}>Researching and checking your formulas (web research can take a minute)</span>
@@ -2973,8 +2977,8 @@ function LinkedWorkTab({ programId, navigateTo, navigateToProject }) {
     return () => { alive = false; };
   }, [programId, orgId]);
 
-  const PSTATUS = { active:["#22c55e","Active"], on_hold:["#eab308","On Hold"], completed:["#3b82f6","Completed"], archived:["#6b7280","Archived"] };
-  const TSTATUS = { todo:["#6b7280","To Do"], in_progress:["#3b82f6","In Progress"], in_review:["#a855f7","In Review"], blocked:["#ef4444","Blocked"], done:["#22c55e","Done"], cancelled:["#6b7280","Cancelled"] };
+  const PSTATUS = { active:["#2A8755","Active"], on_hold:["#B27405","On Hold"], completed:["#2C69DB","Completed"], archived:["#6b7280","Archived"] };
+  const TSTATUS = { todo:["#6b7280","To Do"], in_progress:["#2C69DB","In Progress"], in_review:["#6452C7","In Review"], blocked:["#D2472B","Blocked"], done:["#2A8755","Done"], cancelled:["#6b7280","Cancelled"] };
   const pill = (def) => { const [c,l] = def; return <span style={{ fontSize:10,fontWeight:700,background:c+"18",color:c,padding:"2px 8px",borderRadius:4,whiteSpace:"nowrap" }}>{l}</span>; };
 
   if (projects === null) return <div style={{ color:T.text3,fontSize:13 }}>Loading linked work…</div>;
@@ -3020,6 +3024,15 @@ function LinkedWorkTab({ programId, navigateTo, navigateToProject }) {
   );
 }
 
+// Wraps PLM in the Tide theme: fonts, tokens and the shared component styles.
+function PlmShell({ children }) {
+  const { mode } = useTheme();
+  const m = mode === "dark" ? "dark" : "light";
+  return <ModeProvider value={m}><style dangerouslySetInnerHTML={{ __html: PLM_CSS }} /><div className="hw plm" data-mode={m}>{children}</div></ModeProvider>;
+}
+// Tab labels used to carry emoji; the new look is text only.
+const plainLabel = (l) => String(l).replace(/^[^A-Za-z0-9]+/, "");
+
 function ProgramDetail({ program, onBack, onUpdate, onDelete, navigateTo, navigateToProject, linkCount }) {
   const { orgId } = useAuth();
   const [tab, setTab] = useState("overview");
@@ -3059,32 +3072,33 @@ function ProgramDetail({ program, onBack, onUpdate, onDelete, navigateTo, naviga
     }
   };
 
+  const stage = STAGE_MAP[program.current_stage];
   return (
-    <div style={{ display:"flex",flexDirection:"column",height:"100%" }}>
-      <div style={{ padding:"14px 24px",borderBottom:"1px solid "+T.border,display:"flex",alignItems:"center",gap:12,flexShrink:0 }}>
-        <button onClick={onBack} style={{ background:"none",border:"1px solid "+T.border,color:T.text2,cursor:"pointer",borderRadius:6,padding:"4px 10px",fontSize:12 }}>← Back</button>
-        <div style={{ flex:1 }}>
-          <div style={{ display:"flex",alignItems:"center",gap:10,flexWrap:"wrap" }}>
-            <div style={{ fontSize:18,fontWeight:700,color:T.text }}>{program.name}</div>
-            <StageBadge stage={program.current_stage} />
-            <PriorityBadge priority={program.priority} />
-            {program.target_gross_margin_pct&&<span style={{ fontSize:11,fontWeight:700,background:"#22c55e15",color:"#22c55e",padding:"2px 8px",borderRadius:4 }}>GM% Target: {program.target_gross_margin_pct}%</span>}
-            {(program.target_markets_v2||[]).map(m=><span key={m} style={{ fontSize:10,fontWeight:700,background:T.surface3,color:T.text3,padding:"2px 7px",borderRadius:4 }}>{m}</span>)}
+    <PlmShell>
+      <div className="plm-top">
+        <div style={{ display:"flex",alignItems:"center",gap:10,minHeight:36 }}>
+          <button className="hw-icb" onClick={onBack} title="Back to all programs"><Icon name="chevL" /></button>
+          <span style={{ width:30,height:30,borderRadius:9,background:stage?.color||T.accent,flex:"none" }} />
+          <div style={{ minWidth:0,flex:1 }}>
+            <div style={{ display:"flex",alignItems:"center",gap:10,flexWrap:"wrap" }}>
+              <h1 className="hw-trunc">{program.name}</h1>
+              <StageBadge stage={program.current_stage} />
+              <PriorityBadge priority={program.priority} />
+              {program.target_gross_margin_pct&&<Chip t="green">GM target {program.target_gross_margin_pct}%</Chip>}
+              {(program.target_markets_v2||[]).map(m=><Chip key={m} line>{m}</Chip>)}
+              {program.code&&<span style={{ fontSize:12,color:T.text3 }}>{program.code}</span>}
+            </div>
           </div>
-          {program.code&&<div style={{ fontSize:11,color:T.text3,marginTop:2 }}>{program.code}</div>}
+          {onDelete && <button className="hw-btn ghost sm danger" onClick={()=>{if(confirm(`Delete "${program.name}"? This will soft-delete the program and all its data. This cannot be undone from the UI.`))onDelete();}}><Icon name="trash" size={14} />Delete</button>}
         </div>
-        {onDelete && <button onClick={()=>{if(confirm(`Delete "${program.name}"? This will soft-delete the program and all its data. This cannot be undone from the UI.`))onDelete();}} style={{ background:"none",border:"1px solid #ef444440",color:"#ef4444",cursor:"pointer",borderRadius:6,padding:"4px 12px",fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:4 }} onMouseEnter={e=>{e.currentTarget.style.background="#ef444415";}} onMouseLeave={e=>{e.currentTarget.style.background="none";}}>
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>
-          Delete
-        </button>}
+        <div className="hw-tabs hw-scroll" style={{ marginTop:8,overflowX:"auto" }}>
+          {DETAIL_TABS.map(t=>(
+            <button key={t.key} className={"hw-tab"+(tab===t.key?" on":"")} onClick={()=>setTab(t.key)}>{plainLabel(t.label)}{t.key==="linked_work"&&linkCount?<span className="hw-num" style={{ fontSize:11,color:T.text3 }}>{linkCount}</span>:null}</button>
+          ))}
+        </div>
       </div>
-      <div style={{ display:"flex",gap:0,borderBottom:"1px solid "+T.border,paddingLeft:24,flexShrink:0,overflowX:"auto" }}>
-        {DETAIL_TABS.map(t=>(
-          <button key={t.key} onClick={()=>setTab(t.key)} style={{ background:"none",border:"none",cursor:"pointer",padding:"10px 12px",fontSize:11,fontWeight:600,whiteSpace:"nowrap",color:tab===t.key?T.accent:T.text3,borderBottom:"2px solid "+(tab===t.key?T.accent:"transparent"),transition:"color 0.15s" }}>{t.key==="linked_work"&&linkCount?`${t.label} (${linkCount})`:t.label}</button>
-        ))}
-      </div>
-      <div style={{ flex:1,overflow:"auto",padding:"20px 24px" }} className="content-area">{renderTab()}</div>
-    </div>
+      <div className="plm-body content-area" style={tab==="overview"?undefined:{ background:T.surface }}>{renderTab()}</div>
+    </PlmShell>
   );
 }
 
@@ -3214,14 +3228,14 @@ function ProductRoadmap({ programs, allSkus, onSelectProgram, isMobile }) {
 
   const items = [];
   programs.filter(p => p.target_launch_date && p.current_stage !== "launched").forEach(p => {
-    items.push({ id: "prog-" + p.id, type: "program", name: p.name, brand: p.brand, stage: p.current_stage, priority: p.priority, date: p.target_launch_date, color: STAGE_MAP[p.current_stage]?.color || "#6366f1", program: p });
+    items.push({ id: "prog-" + p.id, type: "program", name: p.name, brand: p.brand, stage: p.current_stage, priority: p.priority, date: p.target_launch_date, color: STAGE_MAP[p.current_stage]?.color || "#5B6FD8", program: p });
   });
   programs.filter(p => p.current_stage === "launched").forEach(p => {
-    items.push({ id: "live-" + p.id, type: "live", name: p.name, brand: p.brand, stage: "launched", date: p.target_launch_date || p.created_at?.split("T")[0], color: "#22c55e", program: p });
+    items.push({ id: "live-" + p.id, type: "live", name: p.name, brand: p.brand, stage: "launched", date: p.target_launch_date || p.created_at?.split("T")[0], color: "#2A8755", program: p });
   });
   allSkus.filter(sku => sku.launch_date || sku.status === "active").forEach(sku => {
     const prog = programs.find(p => p.id === sku.program_id);
-    items.push({ id: "sku-" + sku.id, type: "sku", name: sku.name || sku.sku_code, brand: prog?.brand, stage: sku.status, date: sku.launch_date || sku.created_at?.split("T")[0], endDate: sku.discontinue_date, color: sku.status === "active" ? "#22c55e" : sku.status === "draft" ? "#8b93a8" : "#eab308", programName: prog?.name, program: prog });
+    items.push({ id: "sku-" + sku.id, type: "sku", name: sku.name || sku.sku_code, brand: prog?.brand, stage: sku.status, date: sku.launch_date || sku.created_at?.split("T")[0], endDate: sku.discontinue_date, color: sku.status === "active" ? "#2A8755" : sku.status === "draft" ? "#87918F" : "#B27405", programName: prog?.name, program: prog });
   });
   items.sort((a, b) => (a.date || "").localeCompare(b.date || ""));
 
@@ -3295,9 +3309,9 @@ function ProductRoadmap({ programs, allSkus, onSelectProgram, isMobile }) {
       <div style={{ display: "flex", gap: 16, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
         <span style={{ fontSize: 15, fontWeight: 700, color: T.text }}>Product Roadmap</span>
         <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 4 }}><div style={{ width: 20, height: 8, borderRadius: 4, background: "linear-gradient(90deg, #22c55e60, #22c55e)" }} /><span style={{ fontSize: 10, color: T.text3 }}>Live</span></div>
-          <div style={{ display: "flex", alignItems: "center", gap: 4 }}><div style={{ width: 10, height: 10, transform: "rotate(45deg)", borderRadius: 1, background: "#6366f130", border: "2px solid #6366f1" }} /><span style={{ fontSize: 10, color: T.text3 }}>Pipeline</span></div>
-          <div style={{ display: "flex", alignItems: "center", gap: 4 }}><div style={{ width: 8, height: 8, borderRadius: 4, background: "#8b93a8" }} /><span style={{ fontSize: 10, color: T.text3 }}>SKU</span></div>
+          <div style={{ display: "flex", alignItems: "center", gap: 4 }}><div style={{ width: 20, height: 8, borderRadius: 4, background: "linear-gradient(90deg, #2A875560, #2A8755)" }} /><span style={{ fontSize: 10, color: T.text3 }}>Live</span></div>
+          <div style={{ display: "flex", alignItems: "center", gap: 4 }}><div style={{ width: 10, height: 10, transform: "rotate(45deg)", borderRadius: 1, background: "#5B6FD830", border: "2px solid #5B6FD8" }} /><span style={{ fontSize: 10, color: T.text3 }}>Pipeline</span></div>
+          <div style={{ display: "flex", alignItems: "center", gap: 4 }}><div style={{ width: 8, height: 8, borderRadius: 4, background: "#87918F" }} /><span style={{ fontSize: 10, color: T.text3 }}>SKU</span></div>
         </div>
       </div>
       <div style={{ display: "flex", border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden", background: T.surface }}>
@@ -3369,68 +3383,61 @@ export default function PLMView({ navigateTo, navigateToProject } = {}) {
 
   if(selected)return <ProgramDetail program={selected} onBack={()=>setSelected(null)} onUpdate={handleUpdate} onDelete={()=>deleteProgram(selected.id)} navigateTo={navigateTo} navigateToProject={navigateToProject} linkCount={linkCounts[selected.id]||0} />;
 
+  const stats=[{label:"programs",val:programs.length},{label:"in development",val:programs.filter(p=>["development","optimization","validation"].includes(p.current_stage)).length},{label:"launch ready",val:programs.filter(p=>p.current_stage==="launch_ready").length},{label:"launched",val:programs.filter(p=>p.current_stage==="launched").length}];
+  const fmtLaunch=d=>{ if(!d)return ""; const x=new Date(String(d).slice(0,10)+"T12:00:00"); return isNaN(x)?d:x.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}); };
   return (
-    <div style={{ display:"flex",flexDirection:"column",height:"100%" }}>
-      <div style={{ padding:"14px 24px",borderBottom:"1px solid "+T.border,display:"flex",alignItems:"center",gap:12,flexShrink:0 }}>
-        <div style={{ fontSize:18,fontWeight:700,color:T.text,flex:1 }}>Product Lifecycle</div>
-        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search programs…" style={{ fontSize:12,padding:"6px 12px",background:T.surface2,border:"1px solid "+T.border,borderRadius:7,color:T.text,width:200,outline:"none" }} />
-        <div style={{ display:"flex",background:T.surface2,border:"1px solid "+T.border,borderRadius:6,overflow:"hidden" }}>
-          {[["pipeline","⬢ Pipeline"],["roadmap","📅 Roadmap"],["list","☰ List"],["library","🧪 Library"],["ai","🤖 AI Agent"]].map(([k,label])=>(
-            <button key={k} onClick={()=>setView(k)} style={{ padding:"5px 12px",fontSize:12,fontWeight:600,background:view===k?T.accent:"transparent",color:view===k?"#fff":T.text3,border:"none",cursor:"pointer" }}>{label}</button>
+    <PlmShell>
+      <div className="plm-top">
+        <div style={{ display:"flex",alignItems:"center",gap:18,flexWrap:"wrap",minHeight:36 }}>
+          <h1>Product lifecycle</h1>
+          <div style={{ display:"flex",gap:18,flexWrap:"wrap",flex:1 }}>{stats.map(k=><span key={k.label} className="plm-stat"><b>{k.val}</b>{k.label}</span>)}</div>
+          {view!=="ai"&&view!=="library"&&<label className="hw-search" style={{ display:"flex",alignItems:"center",gap:7,height:30,padding:"0 10px",borderRadius:7,border:"1px solid var(--line2)",color:"var(--ink3)",width:220,background:"var(--surface)" }}><Icon name="search" size={15} /><input className="hw-bare" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search programs" /></label>}
+          <button className="hw-btn primary" onClick={()=>setShowNew(true)}><Icon name="plus" size={15} sw={2.2} />New program</button>
+        </div>
+        <div className="hw-tabs" style={{ marginTop:8 }}>
+          {[["pipeline","Pipeline","board"],["roadmap","Roadmap","timeline"],["list","List","list"],["library","Library","folder"],["ai","AI agent","zap"]].map(([k,label,icon])=>(
+            <button key={k} className={"hw-tab"+(view===k?" on":"")} onClick={()=>setView(k)}><Icon name={icon} size={15} />{label}</button>
           ))}
         </div>
-        <button onClick={()=>setShowNew(true)} style={{ padding:"6px 14px",fontSize:12,fontWeight:600,background:T.accent,color:"#fff",border:"none",borderRadius:6,cursor:"pointer" }}>+ New Program</button>
-      </div>
-
-      <div style={{ display:"flex",gap:0,borderBottom:"1px solid "+T.border,padding:"0 24px",flexShrink:0 }}>
-        {[{label:"Total Programs",val:programs.length},{label:"In Development",val:programs.filter(p=>["development","optimization","validation"].includes(p.current_stage)).length},{label:"Launch Ready",val:programs.filter(p=>p.current_stage==="launch_ready").length},{label:"Launched",val:programs.filter(p=>p.current_stage==="launched").length}].map(k=>(
-          <div key={k.label} style={{ padding:"12px 20px",borderRight:"1px solid "+T.border }}>
-            <div style={{ fontSize:18,fontWeight:700,color:T.text }}>{k.val}</div>
-            <div style={{ fontSize:11,color:T.text3 }}>{k.label}</div>
-          </div>
-        ))}
       </div>
 
       {view==="ai" ? (
-        <div style={{ flex:1,overflow:"hidden",display:"flex",flexDirection:"column",padding:"0 24px 0 24px" }}>
+        <div style={{ flex:1,overflow:"hidden",display:"flex",flexDirection:"column",padding:"0 24px 0 24px",background:T.surface }}>
           <AIAgentTab program={null} />
         </div>
       ) : view==="library" ? (
-        <div style={{ flex:1,overflow:"hidden",display:"flex",flexDirection:"column" }}>
+        <div style={{ flex:1,overflow:"hidden",display:"flex",flexDirection:"column",background:T.surface }}>
           <PLMLibraryView />
         </div>
       ) : view==="roadmap" ? (
-        <div style={{ flex:1,overflow:"auto",padding:"20px 24px" }}>
+        <div className="plm-body">
           <ProductRoadmap programs={programs} allSkus={allSkus} onSelectProgram={setSelected} isMobile={isMobile} />
         </div>
       ) : (
-        <div style={{ flex:1,overflow:"auto",padding:"20px 24px" }}>
+        <div className="plm-body">
         {loading?<div style={{ color:T.text3,fontSize:13 }}>Loading programs…</div>
-        :filtered.length===0?<EmptyState icon="⬡" text={search?"No programs match your search":"No programs yet - create your first one"} />
+        :filtered.length===0?<EmptyState text={search?"No programs match your search":"No programs yet. Create your first one."} />
         :view==="pipeline"?(
-          <div style={{ display:"flex",gap:12,overflowX:"auto",paddingBottom:16 }}>
+          <div className="plm-pipe">
             {STAGES.map(stage=>{
               const sp=filtered.filter(p=>p.current_stage===stage.key);
+              if(!sp.length)return <div key={stage.key} className="plm-col slim" title={stage.label+" — "+stage.desc}><span className="hw-dot" style={{ background:stage.color }} /><span className="vt">{stage.label}</span></div>;
               return (
-                <div key={stage.key} style={{ minWidth:200,flexShrink:0 }}>
-                  <div style={{ display:"flex",alignItems:"center",gap:6,marginBottom:10 }} title={stage.desc}>
-                    <div style={{ width:8,height:8,borderRadius:"50%",background:stage.color }} />
-                    <div style={{ fontSize:11,fontWeight:700,color:T.text2,textTransform:"uppercase",letterSpacing:0.5 }}>{stage.label}</div>
-                    <div style={{ marginLeft:"auto",fontSize:11,color:T.text3,background:T.surface2,borderRadius:4,padding:"1px 6px" }}>{sp.length}</div>
-                  </div>
+                <div key={stage.key} className="plm-col">
+                  <div className="plm-col-h" title={stage.desc}><span className="hw-dot" style={{ background:stage.color }} /><b>{stage.label}</b><span>{sp.length}</span></div>
                   {sp.map(p=>(
-                    <div key={p.id} onClick={()=>setSelected(p)} style={{ padding:"10px 12px",background:T.surface2,border:"1px solid "+T.border,borderRadius:8,cursor:"pointer",marginBottom:8 }}
-                      onMouseEnter={e=>{e.currentTarget.style.borderColor=stage.color+"80";e.currentTarget.style.background=T.surface3;}}
-                      onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.background=T.surface2;}}>
-                      {p.brand&&<div style={{ fontSize:10,color:T.text3,marginBottom:2,fontWeight:600,textTransform:"uppercase" }}>{p.brand}</div>}
-                      <div style={{ fontSize:13,fontWeight:600,color:T.text,marginBottom:4 }}>{p.name}</div>
-                      <div style={{ display:"flex",gap:4,flexWrap:"wrap" }}>
+                    <div key={p.id} className="plm-card" style={{ "--c":stage.color }} onClick={()=>setSelected(p)}>
+                      {p.brand&&<div className="hw-eyebrow" style={{ fontSize:10 }}>{p.brand}</div>}
+                      <div className="nm">{p.name}</div>
+                      <div style={{ display:"flex",gap:5,flexWrap:"wrap" }}>
                         <PriorityBadge priority={p.priority} />
-                        {linkCounts[p.id]>0&&<span style={{ fontSize:10,fontWeight:700,background:T.accent+"18",color:T.accent,padding:"2px 7px",borderRadius:4 }}>🔗 {linkCounts[p.id]}</span>}
-                        {p.target_gross_margin_pct&&<span style={{ fontSize:10,fontWeight:700,background:"#22c55e15",color:"#22c55e",padding:"2px 7px",borderRadius:4 }}>GM {p.target_gross_margin_pct}%</span>}
+                        {p.target_gross_margin_pct&&<Chip t="green">GM {p.target_gross_margin_pct}%</Chip>}
+                        {linkCounts[p.id]>0&&<Chip t="teal" title="Linked projects and tasks"><Icon name="link" size={11} />{linkCounts[p.id]}</Chip>}
                       </div>
-                      {(p.target_markets_v2||[]).length>0&&<div style={{ marginTop:4,fontSize:10,color:T.text3 }}>📍 {p.target_markets_v2.join(" · ")}</div>}
-                      {p.target_launch_date&&<div style={{ fontSize:10,color:T.text3,marginTop:3 }}>🎯 {p.target_launch_date}</div>}
+                      {((p.target_markets_v2||[]).length>0||p.target_launch_date)&&<div className="ft">
+                        {(p.target_markets_v2||[]).length>0&&<span><Icon name="pin" size={12} />{p.target_markets_v2.join(" · ")}</span>}
+                        {p.target_launch_date&&<span style={{ marginLeft:"auto" }}><Icon name="cal" size={12} />{fmtLaunch(p.target_launch_date)}</span>}
+                      </div>}
                     </div>
                   ))}
                 </div>
@@ -3438,22 +3445,20 @@ export default function PLMView({ navigateTo, navigateToProject } = {}) {
             })}
           </div>
         ):(
-          <table style={{ width:"100%",borderCollapse:"collapse" }}>
-            <thead><tr style={{ borderBottom:"1px solid "+T.border }}>{["Program","Type","Stage","Priority","Markets","Channels","GM% Target","Launch",""].map(h=><th key={h} style={{ padding:"7px 12px",textAlign:"left",fontSize:10,fontWeight:700,color:T.text3,textTransform:"uppercase",letterSpacing:0.5 }}>{h}</th>)}</tr></thead>
+          <table className="plm-table">
+            <thead><tr>{["Program","Type","Stage","Priority","Markets","Channels","GM target","Launch",""].map(h=><th key={h}>{h}</th>)}</tr></thead>
             <tbody>
               {filtered.map(p=>(
-                <tr key={p.id} onClick={()=>setSelected(p)} style={{ borderBottom:"1px solid "+T.border,cursor:"pointer" }}
-                  onMouseEnter={e=>e.currentTarget.style.background=T.surface2}
-                  onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-                  <td style={{ padding:"10px 12px",fontSize:13,fontWeight:500,color:T.text }}>{p.name}{linkCounts[p.id]>0&&<span style={{ marginLeft:8,fontSize:10,fontWeight:700,background:T.accent+"18",color:T.accent,padding:"2px 7px",borderRadius:4,whiteSpace:"nowrap" }}>🔗 {linkCounts[p.id]}</span>}</td>
-                  <td style={{ padding:"10px 12px",fontSize:12,color:T.text2 }}>{p.program_type?.replace(/_/g," ")}</td>
-                  <td style={{ padding:"10px 12px" }}><StageBadge stage={p.current_stage} /></td>
-                  <td style={{ padding:"10px 12px" }}><PriorityBadge priority={p.priority} /></td>
-                  <td style={{ padding:"10px 12px",fontSize:11,color:T.text3 }}>{(p.target_markets_v2||[]).join(", ")||"-"}</td>
-                  <td style={{ padding:"10px 12px",fontSize:11,color:T.text3,maxWidth:160,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{(p.channels_v2||[]).join(", ")||"-"}</td>
-                  <td style={{ padding:"10px 12px",fontSize:12,fontWeight:600,color:p.target_gross_margin_pct?"#22c55e":T.text3 }}>{p.target_gross_margin_pct?p.target_gross_margin_pct+"%":"-"}</td>
-                  <td style={{ padding:"10px 12px",fontSize:12,color:T.text3 }}>{p.target_launch_date||"-"}</td>
-                  <td style={{ padding:"10px 12px" }}><button onClick={e=>{e.stopPropagation();if(confirm("Delete this program?"))deleteProgram(p.id);}} style={{ background:"none",border:"none",color:T.text3,cursor:"pointer",fontSize:11,opacity:0.6 }}>✕</button></td>
+                <tr key={p.id} onClick={()=>setSelected(p)}>
+                  <td style={{ fontWeight:550,color:T.text }}>{p.name}{linkCounts[p.id]>0&&<span style={{ marginLeft:8 }}><Chip t="teal"><Icon name="link" size={11} />{linkCounts[p.id]}</Chip></span>}</td>
+                  <td style={{ color:T.text2,textTransform:"capitalize" }}>{p.program_type?.replace(/_/g," ")}</td>
+                  <td><StageBadge stage={p.current_stage} /></td>
+                  <td><PriorityBadge priority={p.priority} /></td>
+                  <td style={{ color:T.text2 }}>{(p.target_markets_v2||[]).join(", ")||"—"}</td>
+                  <td style={{ color:T.text2,maxWidth:180,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{(p.channels_v2||[]).join(", ")||"—"}</td>
+                  <td style={{ fontWeight:600,color:p.target_gross_margin_pct?T.green:T.text3 }}>{p.target_gross_margin_pct?p.target_gross_margin_pct+"%":"—"}</td>
+                  <td style={{ color:T.text2,whiteSpace:"nowrap" }}>{fmtLaunch(p.target_launch_date)||"—"}</td>
+                  <td><button className="hw-icb sm" title="Delete program" onClick={e=>{e.stopPropagation();if(confirm("Delete this program?"))deleteProgram(p.id);}}><Icon name="trash" size={14} /></button></td>
                 </tr>
               ))}
             </tbody>
@@ -3462,6 +3467,6 @@ export default function PLMView({ navigateTo, navigateToProject } = {}) {
       </div>
       )}
       {showNew&&<NewProgramModal onClose={()=>setShowNew(false)} onCreated={handleCreated} orgId={orgId} />}
-    </div>
+    </PlmShell>
   );
 }

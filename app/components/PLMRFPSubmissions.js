@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { supabase } from "../lib/supabase";
-import { T } from "../tokens";
+import { T } from "./work/tide";
 import { useAuth } from "../lib/auth";
 
 const ATTACH_KINDS = [
@@ -16,12 +16,12 @@ const ATTACH_KINDS = [
 ];
 
 const STATUS = {
-  submitted: { label: "Submitted", color: "#3b82f6" },
-  under_review: { label: "Under Review", color: "#eab308" },
-  clarification_requested: { label: "Clarification", color: "#f97316" },
-  shortlisted: { label: "Shortlisted", color: "#06b6d4" },
-  rejected: { label: "Rejected", color: "#ef4444" },
-  accepted: { label: "Accepted", color: "#22c55e" },
+  submitted: { label: "Submitted", color: "#2C69DB" },
+  under_review: { label: "Under Review", color: "#B27405" },
+  clarification_requested: { label: "Clarification", color: "#C8621F" },
+  shortlisted: { label: "Shortlisted", color: "#0E8FB0" },
+  rejected: { label: "Rejected", color: "#D2472B" },
+  accepted: { label: "Accepted", color: "#2A8755" },
 };
 
 const fmtMoney = (n, c = "USD") => n == null || n === "" ? "-" : ({USD:"$",GBP:"£",AUD:"A$",EUR:"€",CAD:"C$"}[c]||"$") + Number(n).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:4});
@@ -106,16 +106,16 @@ export default function PLMRFPSubmissions({ rfp, brief, providers, items }) {
           <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>📥 Provider Submissions ({subs.length})</div>
           <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>Each provider can submit multiple formulations (Best Performance / Best Cost / Balanced).</div>
         </div>
-        <button onClick={aiAnalyze} disabled={aiBusy || subs.length === 0} style={{ ...primaryBtn, background: "#8b5cf6", opacity: (aiBusy || subs.length === 0) ? 0.5 : 1 }}>
+        <button onClick={aiAnalyze} disabled={aiBusy || subs.length === 0} style={{ ...primaryBtn, background: "#6452C7", opacity: (aiBusy || subs.length === 0) ? 0.5 : 1 }}>
           {aiBusy ? "Analyzing…" : "✨ AI Analyze Submissions"}
         </button>
       </div>
 
       {/* AI analysis result */}
       {aiResult && (
-        <div style={{ background: "#8b5cf610", border: "1px solid #8b5cf640", borderRadius: 8, padding: 14, marginBottom: 16 }}>
+        <div style={{ background: "#6452C710", border: "1px solid #6452C740", borderRadius: 8, padding: 14, marginBottom: 16 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: "#8b5cf6" }}>✨ AI Analysis</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#6452C7" }}>✨ AI Analysis</div>
             <button onClick={() => setAiResult(null)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer" }}>✕</button>
           </div>
           {aiResult.summary && <div style={{ fontSize: 12, color: T.text2, marginBottom: 10, fontStyle: "italic", lineHeight: 1.5 }}>{aiResult.summary}</div>}
@@ -127,17 +127,17 @@ export default function PLMRFPSubmissions({ rfp, brief, providers, items }) {
                   <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>#{i+1} {rk.company_name}</span>
                   {rk.submission_name && <span style={{ fontSize: 11, color: T.text3, marginLeft: 6 }}>({rk.submission_name})</span>}
                 </div>
-                <div style={{ fontSize: 16, fontWeight: 800, color: rk.score >= 70 ? "#22c55e" : rk.score >= 50 ? "#eab308" : "#ef4444" }}>{Math.round(rk.score)}</div>
+                <div style={{ fontSize: 16, fontWeight: 800, color: rk.score >= 70 ? "#2A8755" : rk.score >= 50 ? "#B27405" : "#D2472B" }}>{Math.round(rk.score)}</div>
               </div>
-              <div style={{ fontSize: 10, color: T.text3, marginTop: 2 }}>{rk.recommendation}{!rk.meets_must_haves && <span style={{ color: "#ef4444", marginLeft: 6 }}>· Misses must-haves</span>}</div>
-              {rk.must_have_gaps?.length > 0 && <div style={{ fontSize: 11, color: "#ef4444", marginTop: 4 }}>Gaps: {rk.must_have_gaps.join(", ")}</div>}
-              {rk.strengths?.length > 0 && <div style={{ fontSize: 11, color: "#22c55e", marginTop: 4 }}>+ {rk.strengths.join("; ")}</div>}
-              {rk.concerns?.length > 0 && <div style={{ fontSize: 11, color: "#ef4444", marginTop: 2 }}>− {rk.concerns.join("; ")}</div>}
+              <div style={{ fontSize: 10, color: T.text3, marginTop: 2 }}>{rk.recommendation}{!rk.meets_must_haves && <span style={{ color: "#D2472B", marginLeft: 6 }}>· Misses must-haves</span>}</div>
+              {rk.must_have_gaps?.length > 0 && <div style={{ fontSize: 11, color: "#D2472B", marginTop: 4 }}>Gaps: {rk.must_have_gaps.join(", ")}</div>}
+              {rk.strengths?.length > 0 && <div style={{ fontSize: 11, color: "#2A8755", marginTop: 4 }}>+ {rk.strengths.join("; ")}</div>}
+              {rk.concerns?.length > 0 && <div style={{ fontSize: 11, color: "#D2472B", marginTop: 2 }}>− {rk.concerns.join("; ")}</div>}
             </div>
           ))}
           {aiResult.clarifications_needed?.length > 0 && (
-            <div style={{ marginTop: 10, padding: 10, background: "#eab30815", borderLeft: "3px solid #eab308", borderRadius: 4 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: "#eab308", marginBottom: 4 }}>Clarifications to request</div>
+            <div style={{ marginTop: 10, padding: 10, background: "#B2740515", borderLeft: "3px solid #B27405", borderRadius: 4 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#B27405", marginBottom: 4 }}>Clarifications to request</div>
               {aiResult.clarifications_needed.map((q, i) => <div key={i} style={{ fontSize: 11, color: T.text2 }}>• {q}</div>)}
             </div>
           )}
@@ -199,7 +199,7 @@ function SubmissionRow({ sub, onEdit, onDelete }) {
         <div style={{ fontSize: 10, color: T.text3 }}>Status / AI</div>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 3, background: st.color + "20", color: st.color }}>{st.label}</span>
-          {sub.ai_score != null && <span style={{ fontSize: 11, fontWeight: 700, color: sub.ai_score >= 70 ? "#22c55e" : sub.ai_score >= 50 ? "#eab308" : "#ef4444" }}>{Math.round(sub.ai_score)}</span>}
+          {sub.ai_score != null && <span style={{ fontSize: 11, fontWeight: 700, color: sub.ai_score >= 70 ? "#2A8755" : sub.ai_score >= 50 ? "#B27405" : "#D2472B" }}>{Math.round(sub.ai_score)}</span>}
         </div>
         <div style={{ fontSize: 9, color: T.text3, marginTop: 2 }}>{tiers.length > 0 && tiers.length + " tiers"} {(sub.attachments || []).length > 0 && "· " + (sub.attachments).length + " files"}</div>
       </div>
@@ -317,7 +317,7 @@ function SubmissionModal({ sub, rfp, provider, items, onClose, onSaved }) {
                 </div>
               </div>
 
-              <div style={{ marginTop: 14, padding: 12, background: "#22c55e10", borderRadius: 8, border: "1px solid #22c55e40" }}>
+              <div style={{ marginTop: 14, padding: 12, background: "#2A875510", borderRadius: 8, border: "1px solid #2A875540" }}>
                 <Label>Maximum price break (lowest achievable price)</Label>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                   <Inline label="At quantity" type="number" value={form.max_break_quantity} onChange={v => set("max_break_quantity", v ? Number(v) : null)} />
@@ -453,7 +453,7 @@ function SubmissionModal({ sub, rfp, provider, items, onClose, onSaved }) {
 
         {/* Footer */}
         <div style={{ padding: "12px 20px", borderTop: "1px solid " + T.border, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div style={{ fontSize: 11, color: T.text3 }}>{err && <span style={{ color: "#ef4444" }}>{err}</span>}</div>
+          <div style={{ fontSize: 11, color: T.text3 }}>{err && <span style={{ color: "#D2472B" }}>{err}</span>}</div>
           <div style={{ display: "flex", gap: 8 }}>
             <button onClick={onClose} style={ghostBtn}>Cancel</button>
             <button onClick={save} disabled={saving} style={{ ...primaryBtn, opacity: saving ? 0.5 : 1 }}>{saving ? "Saving…" : (isNew ? "Add submission" : "Save changes")}</button>

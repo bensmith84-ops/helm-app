@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef } from "react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth";
-import { T } from "../tokens";
+import { T } from "./work/tide";
 import { useResponsive } from "../lib/responsive";
 
 const UOM_OPTIONS = ["kg","g","lb","oz","L","mL","units","each","case","drum","tote","pallet","MT"];
@@ -18,7 +18,7 @@ const CATEGORIES = [
   "Packaging - Tertiary","Contract Service","Other",
 ];
 const SUPPLIER_STATUSES = ["active","evaluating","approved","inactive","disqualified"];
-const STATUS_COLORS = { active:"#22c55e", approved:"#22c55e", evaluating:"#eab308", inactive:"#8b93a8", disqualified:"#ef4444" };
+const STATUS_COLORS = { active:"#2A8755", approved:"#2A8755", evaluating:"#B27405", inactive:"#87918F", disqualified:"#D2472B" };
 
 function InlineField({ label, value, onChange, onBlur, type="text", placeholder, options, multiline }) {
   const base = { width:"100%", fontSize:13, color:T.text, background:T.surface2, border:`1px solid ${T.border}`, borderRadius:6, padding:"6px 10px", outline:"none", fontFamily:"inherit", boxSizing:"border-box" };
@@ -131,13 +131,13 @@ function SupplierCard({ supplier, onUpdate, onDelete, defaultUom }) {
     onUpdate(updated);
   };
 
-  const sc = STATUS_COLORS[supplier.status] || "#8b93a8";
+  const sc = STATUS_COLORS[supplier.status] || "#87918F";
 
   return (
     <div style={{ background:T.surface2, border:`1px solid ${T.border}`, borderRadius:8, marginBottom:8, overflow:"hidden" }}>
       {/* Header */}
       <div style={{ padding:"10px 14px", display:"flex", alignItems:"center", gap:10, cursor:"pointer" }} onClick={() => setExpanded(e => !e)}>
-        {supplier.is_preferred && <span style={{ fontSize:10, fontWeight:700, color:"#f97316", flexShrink:0 }}>★</span>}
+        {supplier.is_preferred && <span style={{ fontSize:10, fontWeight:700, color:"#C8621F", flexShrink:0 }}>★</span>}
         <div style={{ fontSize:13, fontWeight:600, color:T.text, flex:1 }}>{supplier.supplier_name}</div>
         {supplier.contact_email && <div style={{ fontSize:11, color:T.text3 }}>{supplier.contact_email}</div>}
         <span style={{ fontSize:10, fontWeight:700, padding:"2px 7px", borderRadius:4, background:sc+"20", color:sc }}>{supplier.status}</span>
@@ -225,8 +225,8 @@ function IngredientDetail({ ingredient, onUpdate, onClose }) {
           {ingredient.inci_name && <div style={{ fontSize:12, color:T.text3, marginTop:2 }}>INCI: {ingredient.inci_name}</div>}
         </div>
         <span style={{ fontSize:11, fontWeight:700, padding:"3px 10px", borderRadius:6,
-          background: ingredient.ingredient_type==="packaging"?"#8b5cf620":"#3b82f620",
-          color: ingredient.ingredient_type==="packaging"?"#8b5cf6":"#3b82f6" }}>
+          background: ingredient.ingredient_type==="packaging"?"#6452C720":"#2C69DB20",
+          color: ingredient.ingredient_type==="packaging"?"#6452C7":"#2C69DB" }}>
           {ingredient.ingredient_type}
         </span>
         {preferredSupplier && (
@@ -467,8 +467,8 @@ export default function PLMLibraryView() {
                   <td style={{ padding:"11px 16px", fontSize:12, color:T.text3 }}>{item.category||"-"}</td>
                   <td style={{ padding:"11px 16px" }}>
                     <span style={{ fontSize:10, fontWeight:700, padding:"2px 7px", borderRadius:4,
-                      background:item.ingredient_type==="packaging"?"#8b5cf620":"#3b82f620",
-                      color:item.ingredient_type==="packaging"?"#8b5cf6":"#3b82f6" }}>
+                      background:item.ingredient_type==="packaging"?"#6452C720":"#2C69DB20",
+                      color:item.ingredient_type==="packaging"?"#6452C7":"#2C69DB" }}>
                       {item.ingredient_type}
                     </span>
                   </td>

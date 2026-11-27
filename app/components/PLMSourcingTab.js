@@ -2,27 +2,27 @@
 import { useState, useEffect, useCallback, useMemo, lazy, Suspense } from "react";
 import CopyInviteButton from "./CopyInviteButton";
 import { supabase } from "../lib/supabase";
-import { T } from "../tokens";
+import { T } from "./work/tide";
 import { useAuth } from "../lib/auth";
 
 const PLMRFPDetail = lazy(() => import("./PLMRFPDetail"));
 const PortalAdmin  = lazy(() => import("./ThreePLParcelRFP"));
 
 const SOURCING_TYPES = [
-  { key: "ingredient",            label: "Ingredient",            icon: "🧪", color: "#3b82f6" },
-  { key: "packaging",             label: "Packaging",             icon: "📦", color: "#8b5cf6" },
-  { key: "contract_manufacturer", label: "Contract Manufacturer", icon: "🏭", color: "#f97316" },
-  { key: "other",                 label: "Other",                 icon: "🔧", color: "#8b93a8" },
+  { key: "ingredient",            label: "Ingredient",            icon: "🧪", color: "#2C69DB" },
+  { key: "packaging",             label: "Packaging",             icon: "📦", color: "#6452C7" },
+  { key: "contract_manufacturer", label: "Contract Manufacturer", icon: "🏭", color: "#C8621F" },
+  { key: "other",                 label: "Other",                 icon: "🔧", color: "#87918F" },
 ];
 
 const STATUS_COLORS = {
   draft:           { bg: "#94a3b815", color: "#94a3b8", label: "Draft" },
-  review:          { bg: "#eab30815", color: "#eab308", label: "In review" },
-  sent:            { bg: "#3b82f615", color: "#3b82f6", label: "Sent" },
-  responses_open:  { bg: "#06b6d415", color: "#06b6d4", label: "Responses open" },
+  review:          { bg: "#B2740515", color: "#B27405", label: "In review" },
+  sent:            { bg: "#2C69DB15", color: "#2C69DB", label: "Sent" },
+  responses_open:  { bg: "#0E8FB015", color: "#0E8FB0", label: "Responses open" },
   closed:          { bg: "#64748b15", color: "#64748b", label: "Closed" },
-  awarded:         { bg: "#22c55e15", color: "#22c55e", label: "Awarded" },
-  cancelled:       { bg: "#ef444415", color: "#ef4444", label: "Cancelled" },
+  awarded:         { bg: "#2A875515", color: "#2A8755", label: "Awarded" },
+  cancelled:       { bg: "#D2472B15", color: "#D2472B", label: "Cancelled" },
 };
 
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString(undefined, { month:"short", day:"numeric", year:"numeric" }) : "-";
@@ -211,8 +211,8 @@ export default function PLMSourcingTab({ program }) {
                 return (
                   <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 11px", background: T.surface, border: "1px solid " + T.border, borderRadius: 8 }}>
                     <span style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{p.title || p.rfp_code}</span>
-                    <span style={{ fontSize: 10.5, fontWeight: 700, padding: "1px 7px", borderRadius: 99, background: p.status === "active" ? "#22c55e18" : "#64748b18", color: p.status === "active" ? "#22c55e" : "#64748b" }}>{p.status}</span>
-                    <button onClick={() => setManagePortal(p)} style={{ fontSize: 11.5, fontWeight: 600, padding: "4px 10px", borderRadius: 6, border: "none", cursor: "pointer", background: "#3b82f6", color: "#fff" }}>Manage</button>
+                    <span style={{ fontSize: 10.5, fontWeight: 700, padding: "1px 7px", borderRadius: 99, background: p.status === "active" ? "#2A875518" : "#64748b18", color: p.status === "active" ? "#2A8755" : "#64748b" }}>{p.status}</span>
+                    <button onClick={() => setManagePortal(p)} style={{ fontSize: 11.5, fontWeight: 600, padding: "4px 10px", borderRadius: 6, border: "none", cursor: "pointer", background: "#2C69DB", color: "#fff" }}>Manage</button>
                     <CopyInviteButton rfpCode={p.rfp_code} rfpType={p.rfp_type} style={{ fontSize: 11.5, fontWeight: 600, padding: "4px 10px", borderRadius: 6, cursor: "pointer", background: "transparent", color: T.text2, border: "1px solid " + T.border }} />
                     <a href={"https://helm.earthbreeze.com/rfp/index.html?rfp=" + encodeURIComponent(p.rfp_code)} target="_blank" rel="noreferrer" style={{ fontSize: 11.5, fontWeight: 600, padding: "4px 10px", borderRadius: 6, border: "1px solid " + T.border, background: T.surface2, color: T.text2, textDecoration: "none" }}>Open ↗</a>
                   </div>
@@ -251,7 +251,7 @@ export default function PLMSourcingTab({ program }) {
                     <tr key={r.id} onClick={() => setSelectedRFP(r)} style={{ cursor: "pointer", borderTop: "1px solid " + T.border + "60" }}
                         onMouseEnter={e => e.currentTarget.style.background = T.surface2}
                         onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                      <td style={td}><div style={{ fontSize: 13, color: T.text, fontWeight: 600 }}>{r.name}{portalMap[r.id] && <span title={"External portal " + portalMap[r.id].status} style={{ marginLeft: 7, fontSize: 10.5, fontWeight: 700, padding: "1px 7px", borderRadius: 99, background: portalMap[r.id].status === "active" ? "#22c55e18" : "#64748b18", color: portalMap[r.id].status === "active" ? "#22c55e" : "#64748b" }}>🌐 portal</span>}</div>{r.description && <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>{truncate(r.description, 80)}</div>}</td>
+                      <td style={td}><div style={{ fontSize: 13, color: T.text, fontWeight: 600 }}>{r.name}{portalMap[r.id] && <span title={"External portal " + portalMap[r.id].status} style={{ marginLeft: 7, fontSize: 10.5, fontWeight: 700, padding: "1px 7px", borderRadius: 99, background: portalMap[r.id].status === "active" ? "#2A875518" : "#64748b18", color: portalMap[r.id].status === "active" ? "#2A8755" : "#64748b" }}>🌐 portal</span>}</div>{r.description && <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>{truncate(r.description, 80)}</div>}</td>
                       <td style={td}><span style={{ fontSize: 11, fontWeight: 600, color: meta.color }}>{meta.icon} {meta.label}</span></td>
                       <td style={td}><span style={{ fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 4, background: sc.bg, color: sc.color }}>{sc.label}</span></td>
                       <td style={td}>{r.plm_rfp_items?.[0]?.count ?? 0}</td>
@@ -274,7 +274,7 @@ export default function PLMSourcingTab({ program }) {
       {aiOpen ? (
         <div style={{ width: 360, flexShrink: 0, position: "sticky", top: 0, background: T.surface2, border: "1px solid " + T.border, borderRadius: 10, padding: 14, maxHeight: "calc(100vh - 80px)", overflow: "auto" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: "#8b5cf6" }}>✨ AI Sourcing Assistant</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#6452C7" }}>✨ AI Sourcing Assistant</div>
             <button onClick={() => setAiOpen(false)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 16 }}>✕</button>
           </div>
           <div style={{ fontSize: 11, color: T.text3, marginBottom: 12 }}>Get help deciding what to source and which suppliers to consider for <strong>{program.name}</strong>.</div>
@@ -283,7 +283,7 @@ export default function PLMSourcingTab({ program }) {
             <button onClick={aiSuggestProviders} disabled={aiBusy} style={{ background: T.surface, border: "1px solid " + T.border, color: T.text2, borderRadius: 6, padding: "8px 10px", fontSize: 11, fontWeight: 600, cursor: aiBusy ? "default" : "pointer", textAlign: "left", opacity: aiBusy ? 0.5 : 1 }}>🔍 Suggest providers</button>
           </div>
           {aiBusy && <div style={{ padding: 12, textAlign: "center", color: T.text3, fontSize: 12 }}>AI is thinking…</div>}
-          {aiResult?.kind === "error" && <div style={{ padding: 10, background: "#ef444415", color: "#ef4444", borderRadius: 6, fontSize: 11, marginBottom: 10 }}>{aiResult.message}</div>}
+          {aiResult?.kind === "error" && <div style={{ padding: 10, background: "#D2472B15", color: "#D2472B", borderRadius: 6, fontSize: 11, marginBottom: 10 }}>{aiResult.message}</div>}
           {aiResult?.kind === "items_suggestion" && (
             <div style={{ marginBottom: 12 }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.text, marginBottom: 6 }}>Suggested items</div>
@@ -307,8 +307,8 @@ export default function PLMSourcingTab({ program }) {
           <div style={{ borderTop: "1px solid " + T.border, paddingTop: 10 }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 }}>Chat with an expert agent</div>
             <div style={{ display: "flex", gap: 4, marginBottom: 8 }}>
-              <button onClick={() => setSelectedAgent("sourcing_expert")} style={{ flex: 1, padding: "7px 8px", fontSize: 10, fontWeight: 700, border: "1px solid " + (selectedAgent === "sourcing_expert" ? "#8b5cf6" : T.border), background: selectedAgent === "sourcing_expert" ? "#8b5cf6" : T.surface, color: selectedAgent === "sourcing_expert" ? "#fff" : T.text2, borderRadius: 5, cursor: "pointer", textAlign: "left" }}>🧭 Sourcing Expert</button>
-              <button onClick={() => setSelectedAgent("rfp_writer")} style={{ flex: 1, padding: "7px 8px", fontSize: 10, fontWeight: 700, border: "1px solid " + (selectedAgent === "rfp_writer" ? "#8b5cf6" : T.border), background: selectedAgent === "rfp_writer" ? "#8b5cf6" : T.surface, color: selectedAgent === "rfp_writer" ? "#fff" : T.text2, borderRadius: 5, cursor: "pointer", textAlign: "left" }}>📝 RFP Writer</button>
+              <button onClick={() => setSelectedAgent("sourcing_expert")} style={{ flex: 1, padding: "7px 8px", fontSize: 10, fontWeight: 700, border: "1px solid " + (selectedAgent === "sourcing_expert" ? "#6452C7" : T.border), background: selectedAgent === "sourcing_expert" ? "#6452C7" : T.surface, color: selectedAgent === "sourcing_expert" ? "#fff" : T.text2, borderRadius: 5, cursor: "pointer", textAlign: "left" }}>🧭 Sourcing Expert</button>
+              <button onClick={() => setSelectedAgent("rfp_writer")} style={{ flex: 1, padding: "7px 8px", fontSize: 10, fontWeight: 700, border: "1px solid " + (selectedAgent === "rfp_writer" ? "#6452C7" : T.border), background: selectedAgent === "rfp_writer" ? "#6452C7" : T.surface, color: selectedAgent === "rfp_writer" ? "#fff" : T.text2, borderRadius: 5, cursor: "pointer", textAlign: "left" }}>📝 RFP Writer</button>
             </div>
             <div style={{ maxHeight: 240, overflow: "auto", marginBottom: 6 }}>
               {aiChat.length === 0 && (
@@ -320,7 +320,7 @@ export default function PLMSourcingTab({ program }) {
               )}
               {aiChat.map((m, i) => (
                 <div key={i} style={{ marginBottom: 6, padding: 8, background: m.role === "user" ? T.accent + "15" : T.surface, borderRadius: 6, fontSize: 11, color: T.text2, lineHeight: 1.4, whiteSpace: "pre-wrap" }}>
-                  {m.role === "assistant" && m.agent_emoji && <div style={{ fontSize: 9, fontWeight: 700, color: "#8b5cf6", marginBottom: 4, letterSpacing: 0.3 }}>{m.agent_emoji} {m.agent_name?.toUpperCase()}</div>}
+                  {m.role === "assistant" && m.agent_emoji && <div style={{ fontSize: 9, fontWeight: 700, color: "#6452C7", marginBottom: 4, letterSpacing: 0.3 }}>{m.agent_emoji} {m.agent_name?.toUpperCase()}</div>}
                   {m.content}
                 </div>
               ))}
@@ -328,12 +328,12 @@ export default function PLMSourcingTab({ program }) {
             </div>
             <div style={{ display: "flex", gap: 4 }}>
               <input value={aiInput} onChange={e => setAiInput(e.target.value)} onKeyDown={e => e.key === "Enter" && aiChatSend()} placeholder={selectedAgent === "sourcing_expert" ? "e.g. Find me liquid-fill CMs in the US Midwest" : "e.g. Draft the pricing-tier table for this RFP"} style={{ flex: 1, background: T.surface, border: "1px solid " + T.border, color: T.text, fontSize: 12, padding: "7px 10px", borderRadius: 5, outline: "none" }} />
-              <button onClick={aiChatSend} disabled={aiBusy || !aiInput.trim()} style={{ background: "#8b5cf6", color: "#fff", border: "none", borderRadius: 5, padding: "7px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer", opacity: (aiBusy || !aiInput.trim()) ? 0.5 : 1 }}>→</button>
+              <button onClick={aiChatSend} disabled={aiBusy || !aiInput.trim()} style={{ background: "#6452C7", color: "#fff", border: "none", borderRadius: 5, padding: "7px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer", opacity: (aiBusy || !aiInput.trim()) ? 0.5 : 1 }}>→</button>
             </div>
           </div>
         </div>
       ) : (
-        <button onClick={() => setAiOpen(true)} style={{ position: "fixed", bottom: 24, right: 24, background: "#8b5cf6", color: "#fff", border: "none", borderRadius: 999, padding: "12px 18px", fontSize: 13, fontWeight: 700, cursor: "pointer", boxShadow: "0 4px 12px rgba(139,92,246,0.4)", zIndex: 100 }}>✨ AI Assistant</button>
+        <button onClick={() => setAiOpen(true)} style={{ position: "fixed", bottom: 24, right: 24, background: "#6452C7", color: "#fff", border: "none", borderRadius: 999, padding: "12px 18px", fontSize: 13, fontWeight: 700, cursor: "pointer", boxShadow: "0 4px 12px rgba(139,92,246,0.4)", zIndex: 100 }}>✨ AI Assistant</button>
       )}
     </div>
   );
@@ -412,7 +412,7 @@ function NewRFPModal({ program, items, onClose, onCreated }) {
             <Field label="Target volume" type="number" value={targetVolume} onChange={setTargetVolume} />
             <Field label="Volume unit" value={targetUnit} onChange={setTargetUnit} placeholder="kg, units, /yr…" />
           </div>
-          {err && <div style={{ color: "#ef4444", fontSize: 12, marginTop: 8 }}>{err}</div>}
+          {err && <div style={{ color: "#D2472B", fontSize: 12, marginTop: 8 }}>{err}</div>}
           <ModalActions>
             <button onClick={onClose} style={ghostBtn}>Cancel</button>
             <button onClick={() => setStep(2)} disabled={!name.trim()} style={{ ...primaryBtn, opacity: !name.trim() ? 0.5 : 1 }}>Next →</button>
@@ -443,7 +443,7 @@ function NewRFPModal({ program, items, onClose, onCreated }) {
               })}
             </div>
           )}
-          {err && <div style={{ color: "#ef4444", fontSize: 12, marginTop: 8 }}>{err}</div>}
+          {err && <div style={{ color: "#D2472B", fontSize: 12, marginTop: 8 }}>{err}</div>}
           <ModalActions>
             <button onClick={() => setStep(1)} style={ghostBtn}>← Back</button>
             <button onClick={create} disabled={busy} style={{ ...primaryBtn, opacity: busy ? 0.5 : 1 }}>{busy ? "Creating…" : "Create RFP"}</button>
