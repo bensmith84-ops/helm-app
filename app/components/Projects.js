@@ -1853,7 +1853,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
   };
   const ProjectSidebar = () => (
     <div style={{ width: showSidebar ? 260 : 0, flexShrink: 0, borderRight: `1px solid ${T.border}`, background: T.surface, overflow: "hidden", transition: "width 0.2s", display: "flex", flexDirection: "column" }}>
-      {onTryNew && <button onClick={onTryNew} title="Switch to the redesigned Projects. You can come back any time." style={{ margin: "12px 12px 0", padding: "8px 10px", borderRadius: 8, border: "none", background: "#0C7C74", color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer", textAlign: "left", whiteSpace: "nowrap" }}>✦ Try the new Projects</button>}
+      {onTryNew && <button onClick={onTryNew} title="Switch to the redesigned Projects. You can come back any time." style={{ margin: "12px 12px 0", padding: "8px 10px", borderRadius: 8, border: "none", background: T.accent, color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer", textAlign: "left", whiteSpace: "nowrap" }}>✦ Try the new Projects</button>}
       <div style={{ padding: "16px 16px 8px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <span style={{ fontSize: 13, fontWeight: 700, color: T.text2, textTransform: "uppercase", letterSpacing: "0.06em" }}>Projects</span>
         <div style={{ display: "flex", gap: 4 }}>

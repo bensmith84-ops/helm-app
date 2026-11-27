@@ -18,7 +18,7 @@ export const PANE_CSS = `
 .hw-pane-h{display:flex;align-items:center;gap:4px;padding:10px 12px 10px 18px;border-bottom:1px solid var(--line);flex:none}
 .hw-pane-b{flex:1;min-height:0;overflow-y:auto}
 .hw-pane-in{padding:16px 22px 28px}
-.hw-pane-title{width:100%;border:1px solid transparent;border-radius:8px;background:transparent;outline:none;resize:none;font-family:var(--serif);font-size:27px;line-height:1.18;letter-spacing:-.012em;padding:4px 8px;margin:0 -8px 8px;overflow:hidden;display:block}
+.hw-pane-title{width:100%;border:1px solid transparent;border-radius:8px;background:transparent;outline:none;resize:none;font-weight:700;font-size:21px;line-height:1.25;padding:4px 8px;margin:0 -8px 8px;overflow:hidden;display:block}
 .hw-pane-title:hover{border-color:var(--line2)}
 .hw-pane-title:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
 .hw-frow{display:grid;grid-template-columns:118px 1fr;align-items:center;min-height:34px;gap:8px}

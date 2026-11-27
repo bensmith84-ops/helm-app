@@ -29,13 +29,13 @@ export function Icon({ name, size = 16, sw = 1.75, style, fill }) {
 }
 
 // The shell sets this so portalled popovers inherit the theme.
-const ModeCtx = createContext("light");
+const ModeCtx = createContext({ mode: "light", vars: undefined });
 export const ModeProvider = ModeCtx.Provider;
 export const useMode = () => useContext(ModeCtx);
 
 function Portal({ children }) {
-  const mode = useMode();
-  return typeof document === "undefined" ? null : createPortal(<div className="hw" data-mode={mode}>{children}</div>, document.body);
+  const { mode, vars } = useMode();
+  return typeof document === "undefined" ? null : createPortal(<div className="hw" data-mode={mode} style={vars}>{children}</div>, document.body);
 }
 
 // Popover anchored to an element or a {x,y} point. Closes on outside press / Escape.

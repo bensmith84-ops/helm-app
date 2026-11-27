@@ -10,12 +10,12 @@ import WorkApp from "./WorkApp";
 
 export default function Work({ onClassic, ...rest }) {
   const { user, profile } = useAuth();
-  const { mode } = useTheme();
+  const { mode, tokens } = useTheme();
   const [swim, setSwim] = useState(null);
   const celebrate = useCallback(() => { if (typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return; setSwim({ k: Date.now(), v: pickCelebration() }); }, []);
   if (!user || !profile) return null;
   return (<>
-    <WorkApp db={supabase} user={user} profile={profile} mode={mode === "dark" ? "dark" : "light"} onClassic={onClassic} onCelebrate={celebrate} {...rest} />
+    <WorkApp db={supabase} user={user} profile={profile} mode={mode === "dark" ? "dark" : "light"} tokens={tokens} onClassic={onClassic} onCelebrate={celebrate} {...rest} />
     {swim && <CelebrationSwim key={swim.k} variant={swim.v} onDone={() => setSwim(null)} />}
   </>);
 }
