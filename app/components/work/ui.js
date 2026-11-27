@@ -7,6 +7,7 @@ import { initials, personName, avatarColor, ymd, parseYmd, today, addDays, month
 
 const P = {
   check: "M5 12.5l4.2 4.2L19 7", chevD: "M6 9l6 6 6-6", chevR: "M9 6l6 6-6 6", chevL: "M15 6l-6 6 6 6", plus: "M12 5v14M5 12h14", x: "M6 6l12 12M18 6L6 18",
+  flask: "M9 3h6M10 3v6.5L4.6 18.4A1.8 1.8 0 006.2 21h11.6a1.8 1.8 0 001.6-2.6L14 9.5V3M7.5 15h9",
   search: "M11 4a7 7 0 100 14 7 7 0 000-14zM20 20l-3.8-3.8", filter: "M4 6h16M7 12h10M10 18h4", sort: "M7 5v14m0 0l-3-3m3 3l3-3M17 19V5m0 0l-3 3m3-3l3 3",
   group: "M4 5h16v5H4zM4 14h16v5H4z", cols: "M4 5h16v14H4zM9.5 5v14M14.5 5v14", cal: "M5 6h14v14H5zM5 10h14M9 3.5v4M15 3.5v4", user: "M12 12a4 4 0 100-8 4 4 0 000 8zM4.5 20c1-3.6 4-5 7.5-5s6.5 1.400 7.500 5",
   flag: "M6 21V4m0 1h11l-2.500 4L17 13H6", more: "M6 12h.01M12 12h.01M18 12h.01", link: "M10 14a4 4 0 005.700 0l3-3a4 4 0 10-5.700-5.700l-1 1M14 10a4 4 0 00-5.700 0l-3 3a4 4 0 105.700 5.700l1-1",

@@ -4,6 +4,8 @@ import CopyInviteButton from "./CopyInviteButton";
 import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
 import { useAuth } from "../lib/auth";
+import { renderMarkdown } from "./plmMarkdown";
+import { askAdvisor } from "../lib/rdAdvisor";
 
 const PLMRFPDetail = lazy(() => import("./PLMRFPDetail"));
 const PortalAdmin  = lazy(() => import("./ThreePLParcelRFP"));
@@ -40,6 +42,10 @@ export default function PLMSourcingTab({ program }) {
   const [aiChat, setAiChat]           = useState([]);
   const [aiInput, setAiInput]         = useState("");
   const [selectedAgent, setSelectedAgent] = useState("sourcing_expert");
+  const [findOpen, setFindOpen] = useState(false);
+  const [findQ, setFindQ] = useState("");
+  const [findMode, setFindMode] = useState("exact");
+  const [added, setAdded] = useState({});
   const [portalMap, setPortalMap] = useState({});
   const [managePortal, setManagePortal] = useState(null);
 
@@ -156,20 +162,46 @@ export default function PLMSourcingTab({ program }) {
   };
   const aiSuggestProviders = async () => {
     if (items.length === 0) { setAiResult({ kind: "error", message: "Add at least one sourcing item first so I know what to find providers for." }); return; }
-    const r = await callAI("suggest_providers", {
+    const r = await callAI("suggest_providers", { program_id: program?.id,
       rfp: { name: program.name, rfp_type: items[0].sourcing_type, currency: "USD" },
       items: items.map(i => ({ item_name: i.name, specification: i.notes, quantity_unit: i.moq_unit })),
       known_providers: items.filter(i => i.supplier_name).map(i => ({ company_name: i.supplier_name })),
     });
     if (r?.providers) setAiResult({ kind: "providers", data: r });
   };
+  // Ingredient supplier finder: web-verified results only (R&D Advisor, Sourcing mode).
+  const findSuppliers = async () => {
+    if (!findQ.trim()) return;
+    setAiBusy(true); setAiResult(null); setAdded({});
+    const q = findQ.trim();
+    const r = await askAdvisor({ action: "find_ingredient_suppliers", program_id: program.id, request: {
+      search_type: findMode, ingredient_name: findMode === "exact" ? q : null, desired_function: findMode === "function" ? q : null, desired_outcome: findMode === "outcome" ? q : null,
+      claims_compatibility: program.desired_claims || [], restrictions: [],
+    } });
+    setAiBusy(false);
+    if (!r.success) { setAiResult({ kind: "error", message: r.error || "The search didn't finish. Try again." }); return; }
+    setAiResult({ kind: "ingredients", data: r, query: q });
+  };
+  const addIngredientSupplier = async (x, i) => {
+    const note = [x.ai_reasoning, x.certifications?.length ? "Certifications (per source): " + x.certifications.join(", ") : null, "Source: " + x.source_url].filter(Boolean).join("\n");
+    const { data, error } = await supabase.from("plm_sourcing").insert({
+      org_id: orgId, program_id: program.id, sourcing_type: "ingredient",
+      name: [x.ingredient_name, x.trade_name && x.trade_name !== x.ingredient_name ? `(${x.trade_name})` : null].filter(Boolean).join(" "),
+      supplier_name: x.supplier_name, supplier_url: x.supplier_website || x.source_url,
+      moq: x.moq_kg ?? null, moq_unit: x.moq_kg != null ? "kg" : null, lead_time_days: x.lead_time_days ?? null,
+      status: "considering", notes: note,
+    }).select().single();
+    if (error) { setAiResult(p => ({ ...p, addError: error.message })); return; }
+    setAdded(p => ({ ...p, [i]: true })); if (data) setItems(p => [...p, data]);
+  };
+
   const aiChatSend = async () => {
     if (!aiInput.trim()) return;
     const msg = aiInput.trim(); setAiInput("");
     const hist = [...aiChat, { role: "user", content: msg }];
     setAiChat(hist);
     const r = await callAI("agent_chat", {
-      agent: selectedAgent,
+      agent: selectedAgent, program_id: program?.id,
       program: { name: program.name, description: program.description, category: program.category, target_markets_v2: program.target_markets_v2, target_gross_margin_pct: program.target_gross_margin_pct, target_unit_price: program.target_unit_price },
       items, history: aiChat, user_message: msg,
     });
@@ -274,20 +306,51 @@ export default function PLMSourcingTab({ program }) {
       {aiOpen ? (
         <div style={{ width: 360, flexShrink: 0, position: "sticky", top: 0, background: T.surface2, border: "1px solid " + T.border, borderRadius: 10, padding: 14, maxHeight: "calc(100vh - 80px)", overflow: "auto" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: "#8b5cf6" }}>✨ AI Sourcing Assistant</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#8b5cf6" }}>AI sourcing assistant</div>
             <button onClick={() => setAiOpen(false)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 16 }}>✕</button>
           </div>
           <div style={{ fontSize: 11, color: T.text3, marginBottom: 12 }}>Get help deciding what to source and which suppliers to consider for <strong>{program.name}</strong>.</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 12 }}>
-            <button onClick={aiSuggestItems} disabled={aiBusy} style={{ background: T.surface, border: "1px solid " + T.border, color: T.text2, borderRadius: 6, padding: "8px 10px", fontSize: 11, fontWeight: 600, cursor: aiBusy ? "default" : "pointer", textAlign: "left", opacity: aiBusy ? 0.5 : 1 }}>🧭 Suggest items to source</button>
-            <button onClick={aiSuggestProviders} disabled={aiBusy} style={{ background: T.surface, border: "1px solid " + T.border, color: T.text2, borderRadius: 6, padding: "8px 10px", fontSize: 11, fontWeight: 600, cursor: aiBusy ? "default" : "pointer", textAlign: "left", opacity: aiBusy ? 0.5 : 1 }}>🔍 Suggest providers</button>
+            <button onClick={aiSuggestItems} disabled={aiBusy} style={{ background: T.surface, border: "1px solid " + T.border, color: T.text2, borderRadius: 6, padding: "8px 10px", fontSize: 11, fontWeight: 600, cursor: aiBusy ? "default" : "pointer", textAlign: "left", opacity: aiBusy ? 0.5 : 1 }}>Suggest items to source</button>
+            <button onClick={aiSuggestProviders} disabled={aiBusy} style={{ background: T.surface, border: "1px solid " + T.border, color: T.text2, borderRadius: 6, padding: "8px 10px", fontSize: 11, fontWeight: 600, cursor: aiBusy ? "default" : "pointer", textAlign: "left", opacity: aiBusy ? 0.5 : 1 }}>Suggest providers (web-verified)</button>
           </div>
-          {aiBusy && <div style={{ padding: 12, textAlign: "center", color: T.text3, fontSize: 12 }}>AI is thinking…</div>}
+          <button onClick={() => setFindOpen(v => !v)} disabled={aiBusy} style={{ width: "100%", background: findOpen ? T.accent + "15" : T.surface, border: "1px solid " + (findOpen ? T.accent : T.border), color: T.text2, borderRadius: 6, padding: "8px 10px", fontSize: 11, fontWeight: 600, cursor: aiBusy ? "default" : "pointer", textAlign: "left", marginTop: -6, marginBottom: 12 }}>Find ingredient suppliers (web-verified)</button>
+          {findOpen && <div style={{ background: T.surface, border: "1px solid " + T.border, borderRadius: 8, padding: 10, marginBottom: 12 }}>
+            <div style={{ display: "flex", gap: 4, marginBottom: 8 }}>{[["exact", "Ingredient"], ["function", "Function"], ["outcome", "Outcome"]].map(([k, l]) => <button key={k} onClick={() => setFindMode(k)} style={{ flex: 1, padding: "5px 6px", fontSize: 10.5, fontWeight: 600, borderRadius: 5, border: "1px solid " + (findMode === k ? T.accent : T.border), background: findMode === k ? T.accent + "15" : "transparent", color: findMode === k ? T.accent : T.text3, cursor: "pointer" }}>{l}</button>)}</div>
+            <input value={findQ} onChange={e => setFindQ(e.target.value)} onKeyDown={e => e.key === "Enter" && findSuppliers()} placeholder={findMode === "exact" ? "e.g. MGDA, sodium coco sulfate, protease granulate" : findMode === "function" ? "e.g. low-foam nonionic for dish tablets" : "e.g. faster cold-water sheet dissolution"} style={{ width: "100%", boxSizing: "border-box", padding: "7px 9px", fontSize: 12, borderRadius: 6, border: "1px solid " + T.border, background: T.surface2, color: T.text, outline: "none", marginBottom: 6 }} />
+            <div style={{ fontSize: 10.5, color: T.text3, marginBottom: 8 }}>Checked against this program's claims{(program.desired_claims || []).length ? ": " + program.desired_claims.join(", ") : ""}. Only suppliers backed by a page found in the search are shown.</div>
+            <button onClick={findSuppliers} disabled={aiBusy || !findQ.trim()} style={{ background: T.accent, color: "#fff", border: "none", borderRadius: 6, padding: "6px 12px", fontSize: 11.5, fontWeight: 700, cursor: "pointer", opacity: aiBusy || !findQ.trim() ? 0.5 : 1 }}>Search</button>
+          </div>}
+          {aiBusy && <div style={{ padding: 12, textAlign: "center", color: T.text3, fontSize: 12 }}>Researching on the web. This can take a minute or two…</div>}
           {aiResult?.kind === "error" && <div style={{ padding: 10, background: "#ef444415", color: "#ef4444", borderRadius: 6, fontSize: 11, marginBottom: 10 }}>{aiResult.message}</div>}
           {aiResult?.kind === "items_suggestion" && (
             <div style={{ marginBottom: 12 }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.text, marginBottom: 6 }}>Suggested items</div>
               <div style={{ fontSize: 11, color: T.text2, lineHeight: 1.6, padding: 10, background: T.surface, borderRadius: 6, whiteSpace: "pre-wrap" }}>{aiResult.text}</div>
+            </div>
+          )}
+          {aiResult?.kind === "ingredients" && (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.text, marginBottom: 6 }}>Suppliers for “{aiResult.query}”</div>
+              {aiResult.data.notes && <div style={{ fontSize: 11, color: T.text3, marginBottom: 8, lineHeight: 1.5 }}>{aiResult.data.notes}</div>}
+              {(aiResult.data.results || []).length === 0 && <div style={{ fontSize: 11, color: T.text3 }}>Nothing could be verified on the web. Try a broader search.</div>}
+              {(aiResult.data.results || []).map((x, i) => (
+                <div key={i} style={{ padding: 10, background: T.surface, borderRadius: 6, marginBottom: 6 }}>
+                  <div style={{ display: "flex", gap: 6, alignItems: "baseline" }}><div style={{ fontSize: 12, fontWeight: 700, color: T.text, flex: 1 }}>{x.supplier_name}</div><span style={{ fontSize: 10, fontWeight: 700, color: x.ai_fit_score >= 80 ? "#16a34a" : x.ai_fit_score >= 60 ? "#ca8a04" : T.text3 }}>{x.ai_fit_score}% fit</span></div>
+                  <div style={{ fontSize: 11, color: T.text2 }}>{[x.ingredient_name, x.trade_name, x.grade].filter(Boolean).join(" · ")}</div>
+                  <div style={{ fontSize: 10, color: T.text3 }}>{[x.origin_country, x.cas_number && "CAS " + x.cas_number, x.price_per_kg != null && `${x.currency || "$"} ${x.price_per_kg}/kg (published)`, x.moq_kg != null && `MOQ ${x.moq_kg} kg`].filter(Boolean).join(" · ")}</div>
+                  {(x.certifications || []).length > 0 && <div style={{ fontSize: 10, color: "#16a34a", marginTop: 2 }}>{x.certifications.join(" · ")}</div>}
+                  <div style={{ fontSize: 11, color: T.text2, marginTop: 4, lineHeight: 1.45 }}>{x.ai_reasoning}</div>
+                  <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 6, fontSize: 10.5 }}>
+                    {x.supplier_website && <a href={x.supplier_website} target="_blank" rel="noreferrer" style={{ color: T.accent }}>Website</a>}
+                    <a href={x.source_url} target="_blank" rel="noreferrer" style={{ color: T.accent }}>Source</a>
+                    <span style={{ flex: 1 }} />
+                    <button onClick={() => addIngredientSupplier(x, i)} disabled={added[i]} style={{ background: added[i] ? "transparent" : T.surface2, border: "1px solid " + T.border, borderRadius: 5, padding: "3px 8px", fontSize: 10.5, fontWeight: 600, color: added[i] ? "#16a34a" : T.text2, cursor: added[i] ? "default" : "pointer" }}>{added[i] ? "Added" : "Add to sourcing"}</button>
+                  </div>
+                </div>
+              ))}
+              {aiResult.addError && <div style={{ fontSize: 11, color: "#ef4444" }}>{aiResult.addError}</div>}
+              {aiResult.data.dropped_unverified > 0 && <div style={{ fontSize: 10, color: T.text3, fontStyle: "italic" }}>{aiResult.data.dropped_unverified} more were left out because no source backed them up.</div>}
             </div>
           )}
           {aiResult?.kind === "providers" && (
@@ -299,6 +362,7 @@ export default function PLMSourcingTab({ program }) {
                   <div style={{ fontSize: 12, fontWeight: 700, color: T.text }}>{p.company_name}</div>
                   <div style={{ fontSize: 10, color: T.text3 }}>{p.country}{p.website && <> · <a href={p.website} target="_blank" rel="noreferrer" style={{ color: T.text3 }}>{p.website.replace("https://","").replace("http://","")}</a></>} · {p.confidence}% match</div>
                   <div style={{ fontSize: 11, color: T.text2, marginTop: 4 }}>{p.why_suggested}</div>
+                  {p.source_url && p.source_url !== p.website && <a href={p.source_url} target="_blank" rel="noreferrer" style={{ fontSize: 10, color: T.accent }}>Source</a>}
                 </div>
               ))}
               <div style={{ fontSize: 10, color: T.text3, marginTop: 6, fontStyle: "italic" }}>Tip: Create an RFP below to invite these providers and collect bids.</div>
@@ -319,12 +383,12 @@ export default function PLMSourcingTab({ program }) {
                 </div>
               )}
               {aiChat.map((m, i) => (
-                <div key={i} style={{ marginBottom: 6, padding: 8, background: m.role === "user" ? T.accent + "15" : T.surface, borderRadius: 6, fontSize: 11, color: T.text2, lineHeight: 1.4, whiteSpace: "pre-wrap" }}>
+                <div key={i} style={{ marginBottom: 6, padding: 8, background: m.role === "user" ? T.accent + "15" : T.surface, borderRadius: 6, fontSize: 11, color: T.text2, lineHeight: 1.4, whiteSpace: m.role === "user" ? "pre-wrap" : "normal" }}>
                   {m.role === "assistant" && m.agent_emoji && <div style={{ fontSize: 9, fontWeight: 700, color: "#8b5cf6", marginBottom: 4, letterSpacing: 0.3 }}>{m.agent_emoji} {m.agent_name?.toUpperCase()}</div>}
-                  {m.content}
+                  {m.role === "assistant" ? <div className="plm-md-sm">{renderMarkdown(m.content)}</div> : m.content}
                 </div>
               ))}
-              {aiBusy && <div style={{ padding: 8, fontSize: 11, color: T.text3, fontStyle: "italic" }}>{selectedAgent === "sourcing_expert" ? "🧭 Sourcing Expert is thinking…" : "📝 RFP Writer is thinking…"}</div>}
+              {aiBusy && <div style={{ padding: 8, fontSize: 11, color: T.text3, fontStyle: "italic" }}>{selectedAgent === "sourcing_expert" ? "Sourcing Expert is researching on the web (can take a minute or two)…" : "RFP Writer is working…"}</div>}
             </div>
             <div style={{ display: "flex", gap: 4 }}>
               <input value={aiInput} onChange={e => setAiInput(e.target.value)} onKeyDown={e => e.key === "Enter" && aiChatSend()} placeholder={selectedAgent === "sourcing_expert" ? "e.g. Find me liquid-fill CMs in the US Midwest" : "e.g. Draft the pricing-tier table for this RFP"} style={{ flex: 1, background: T.surface, border: "1px solid " + T.border, color: T.text, fontSize: 12, padding: "7px 10px", borderRadius: 5, outline: "none" }} />

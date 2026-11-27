@@ -3,7 +3,17 @@
 // 2 actions: discover (AI + web_search finds real CMs), draft_outreach (AI drafts outbound email).
 const Anthropic = require('@anthropic-ai/sdk');
 const crypto = require('crypto');
-const MODEL = 'claude-sonnet-4-20250514';
+const MODELS = (process.env.SOURCING_AGENT_MODELS || 'claude-sonnet-5-5,claude-sonnet-4-6,claude-sonnet-4-20250514').split(',').map((x) => x.trim()).filter(Boolean);
+// Try the newest model first; fall back if it isn't available to this API key.
+async function createWithFallback(client, params) {
+  for (let i = 0; i < MODELS.length; i++) {
+    try { return await client.messages.create({ ...params, model: MODELS[i] }); }
+    catch (e) {
+      const notFound = e?.status === 404 || (/model/i.test(e?.message || '') && /not.?found|invalid|does not exist/i.test(e?.message || ''));
+      if (!notFound || i === MODELS.length - 1) throw e;
+    }
+  }
+}
 const DEFAULT_ORG_ID = 'a0000000-0000-0000-0000-000000000001';
 
 module.exports = function(app, { pool }) {
@@ -74,8 +84,8 @@ After searching, respond with ONLY a JSON array:
 [{"company_name":"string","website":"string","description":"verified capabilities from their site","headquarters_city":"string or null","headquarters_state":"string or null","headquarters_country":"string","certifications":["string"],"estimated_capacity":"string or null","product_types":["string"],"general_email":"string or null","specialties":"string","contacts":[{"name":"string","title":"string","department":"string"}],"ai_fit_score":0,"ai_fit_reasoning":"what you verified on their site","source_url":"page URL where you confirmed this"}]`;
 
   const client = new Anthropic({ apiKey });
-  const result = await client.messages.create({
-    model: MODEL, max_tokens: 16384,
+  const result = await createWithFallback(client, {
+    max_tokens: 16384,
     tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 20 }],
     messages: [{ role: 'user', content: prompt }],
   });
@@ -166,7 +176,7 @@ After searching, respond with ONLY a JSON array:
      `Web search found ${cmsCreated} verified CMs, linked ${cmsLinked} to project`,
      JSON.stringify({ requirements: project }),
      JSON.stringify({ cms_found: cms.length, cms_created: cmsCreated, cms_linked: cmsLinked }),
-     MODEL,
+     result.model || MODELS[0],
      (result.usage?.input_tokens || 0) + (result.usage?.output_tokens || 0),
      durationMs]);
 
@@ -200,8 +210,8 @@ async function handleDraftOutreach(req, res, pool, apiKey, body, orgId) {
   const prompt = `Write a professional outreach email from Earth Breeze to ${cm?.company_name}. Earth Breeze makes eco-friendly laundry detergent sheets (DTC). We're looking for: ${(project?.sourcing_type || []).map(t => t.replace(/_/g, ' ')).join(', ')}. Their capabilities: ${cm?.description || 'contract manufacturing'}. Contact: ${toName}. Write 150-250 words. JSON only: {"subject":"string","body":"string with \\n","to_name":"${toName}","to_email":${toEmail ? '"' + toEmail + '"' : 'null'}}`;
 
   const client = new Anthropic({ apiKey });
-  const result = await client.messages.create({
-    model: MODEL, max_tokens: 2048,
+  const result = await createWithFallback(client, {
+    max_tokens: 2048,
     messages: [{ role: 'user', content: prompt }],
   });
 

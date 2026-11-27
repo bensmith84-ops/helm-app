@@ -1,22 +1,31 @@
 // POST /plm-rfp-assist - port of supabase/functions/plm-rfp-assist
 // PLM RFP AI Assistant. Stateless (no DB access): all context comes in the body.
+// Mostly stateless (context comes in the body). agent_chat and suggest_providers run on
+// the shared R&D Advisor engine, which reads Helm data as the user and researches the web.
 // Actions:
 //   draft_brief, parse_brief, generate_structured_brief, suggest_providers,
 //   analyze_responses, analyze_submissions, chat, agent_chat, list_agents
 const Anthropic = require('@anthropic-ai/sdk');
+const { runAdvisor, resolveUserDb, makeClient, verifiedLink } = require('../lib/advisor/engine');
 
-const MODEL = 'claude-sonnet-4-20250514';
+// Newest first; falls back if a model id isn't available to this API key.
+const MODELS = (process.env.RFP_ASSIST_MODELS || 'claude-sonnet-5-5,claude-sonnet-4-6,claude-sonnet-4-20250514').split(',').map((x) => x.trim()).filter(Boolean);
 
 async function callClaude(system, messages, maxTokens = 2000) {
   const apiKey = (process.env.ANTHROPIC_API_KEY || '').trim();
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY not configured');
   const client = new Anthropic({ apiKey });
   let j;
-  try {
-    j = await client.messages.create({ model: MODEL, max_tokens: maxTokens, system, messages });
-  } catch (e) {
-    if (e && e.status) throw new Error(`Claude API ${e.status}: ${e.error ? JSON.stringify(e.error) : e.message}`);
-    throw e;
+  for (let i = 0; i < MODELS.length; i++) {
+    try {
+      j = await client.messages.create({ model: MODELS[i], max_tokens: maxTokens, system, messages });
+      break;
+    } catch (e) {
+      const notFound = e?.status === 404 || (/model/i.test(e?.message || '') && /not.?found|invalid|does not exist/i.test(e?.message || ''));
+      if (notFound && i < MODELS.length - 1) continue;
+      if (e && e.status) throw new Error(`Claude API ${e.status}: ${e.error ? JSON.stringify(e.error) : e.message}`);
+      throw e;
+    }
   }
   return (j.content || []).map(b => b.text || '').join('') || '';
 }
@@ -59,71 +68,41 @@ const BRIEF_SCHEMA = `{
   "fragrance_requirements":["IFRA Conformity","CA SB 258 Disclosure"]
 }`;
 
+// The two chat agents now run on the shared R&D Advisor engine (web-verified
+// research, Earth Breeze data, the chemist knowledge base). Kept here so the
+// screens' agent keys keep working.
 const AGENT_PROMPTS = {
-  sourcing_expert: {
-    name: 'Sourcing Expert',
-    emoji: '\u{1F9ED}',
-    system: `You are a senior sourcing consultant with 20+ years experience finding contract manufacturers and specialty suppliers for consumer-goods brands. Your specialty is identifying SMALL-TO-MID-SIZE SPECIALIZED CMs that the big brands overlook.
-
-## CRITICAL CONSTRAINT — DO NOT suggest large multi-brand CPG conglomerates as contract manufacturers.
-
-Explicitly avoid recommending the following as CMs (these are the brand owners, not contract manufacturers for emerging brands):
-- Church & Dwight, Procter & Gamble, Unilever, Henkel, Reckitt Benckiser, Colgate-Palmolive, S.C. Johnson, The Clorox Company, Kimberly-Clark, L'Oréal, Coty, Energizer Holdings, Edgewell, Spectrum Brands
-- Their owned facilities or operating subsidiaries
-- Any “household name” CPG company that primarily makes its own brands
-
-## INSTEAD, focus on specialized boutique and mid-market CMs that openly serve emerging and challenger brands. Examples of the TYPE you should recommend:
-- For personal care / cosmetics: **LAW Chemical**, Maesa, Voyant Beauty, KDC/One, Cosmetic Solutions, RCP, Tropical Products of America, Pratter, Tiber Beauty
-- For laundry / cleaning / household chemicals: **HNW Manufacturing**, KIK Custom Products, US Nonwovens, Berman Industries, Aerofil Technology, Trade Source / TSI, Manco, Pacific Custom Manufacturing
-- For food/beverage: Trinity Frozen Foods, Nutralliance, Nutrabolt, Power Brands, SK Food Group, Hearthside Food Solutions
-- For supplements: Vit-Best, Nutralliance, Bactolac Pharmaceutical, Nutraceutical Manufacturing
-- For EU specialists: Maesa (FR/IT), Lavera, Sebapharma, Lornamead
-- For Australia/NZ: Mawsons, Hyfresh, AusCare, Ferndale Pharmaceuticals
-- For Asia: Cosmax (KR), Cosmecca (KR), Kolmar (KR), Intercos Asia
-
-## YOUR CONVERSATIONAL STYLE
-
-1. **Discover first**. If the user hasn't told you the region, product attributes, scale band, regulatory scope, and IP sensitivity, ASK 1–3 sharp clarifying questions before recommending.
-2. **Recommend in specifics**: For each CM, give Name · Region/HQ · What they specialize in · Why they fit · Realistic scale band · Watchouts.
-3. **Call out the big-brand exclusion** briefly when relevant.
-4. **Be honest about region knowledge gaps**. Suggest ICMAD, CHPA, ACG, HBA, CHEMARK directories.
-5. **Do not fabricate contact details**. Names, regions, capabilities = fair game; emails, phone numbers, named contacts = NOT.
-6. **Scale-fit honesty**: explicitly say what unit-volume band each CM is good at.
-7. **Format**: Short paragraphs OR tight bullets. Bold the company names so they're scannable.`,
-  },
-
-  rfp_writer: {
-    name: 'RFP Writer',
-    emoji: '\u{1F4DD}',
-    system: `You are a senior strategic procurement specialist who specializes in writing RFPs that elicit the best possible commercial terms EVEN WHEN THE BUYER DOESN'T YET KNOW THEIR EXACT VOLUME.
-
-## THE PROBLEM YOU SOLVE
-
-Most procurement teams freeze on RFPs because “we don't know volume yet.” That's wrong. You design RFPs that turn volume uncertainty into a NEGOTIATING ADVANTAGE.
-
-## YOUR CORE TECHNIQUES
-
-1. **Tiered pricing matrix** — always request pricing at 4–6 annual volume tiers (5k / 25k / 100k / 250k / 500k / 1M units). Mandatory.
-2. **Ramp pricing.** Ask: "What unit pricing would you offer for a 12-month ramp from X to 10X?"
-3. **True MOQ disclosure.** Stated MOQ vs first-PO MOQ vs 90-day MOQ vs 12-month MOQ.
-4. **Performance-first specs.** Measurable performance (e.g. "700+ SRI"), not procurement minutiae.
-5. **Supplier-proposed variants.** Ask for three versions: best performance, best cost, best balanced.
-6. **Raw-material pass-through.** For volatile inputs, ask for index-based pricing.
-7. **Short-list incentives.** Top 2–3 bidders get focused follow-up (sample order, lab visit, NDA).
-8. **Walk-away transparency.** Be transparent about what you DO know (target margin, performance bar, timeline). Hiding info reduces bid quality.
-9. **Exclusivity & exit clauses.** Make exclusivity costly to the supplier (better pricing required).
-
-## YOUR CONVERSATIONAL STYLE
-
-1. **Discover first.** Before drafting, ask 2–4 sharp questions if you don't have answers.
-2. **Offer to draft specific sections** rather than the entire RFP at once.
-3. **Always insist on the tier table.** "Without the tier table, you're trading negotiating power for the comfort of not having to forecast. Don't."
-4. **Output**: Sharp, quote-able language. Tight bullets. Ready-to-paste sections.
-5. **End with options.** Suggest 2–3 specific next steps after each response.`,
-  },
+  sourcing_expert: { name: 'Sourcing Expert', emoji: '\u{1F9ED}', mode: 'sourcing' },
+  rfp_writer: { name: 'RFP Writer', emoji: '\u{1F4DD}', mode: 'rfp' },
 };
 
-module.exports = function(app, { requireAuth }) {
+const PROVIDER_SCHEMA = { type: 'object', properties: {
+  providers: { type: 'array', items: { type: 'object', properties: { company_name: { type: 'string' }, country: { type: 'string' }, website: { type: 'string' }, source_url: { type: 'string', description: 'Page from this conversation that verifies the company and what it makes' }, why_suggested: { type: 'string' }, strengths: { type: 'array', items: { type: 'string' } }, risks: { type: 'array', items: { type: 'string' } }, confidence: { type: 'number', description: '0-100 fit' } }, required: ['company_name', 'source_url', 'why_suggested', 'confidence'] } },
+  search_terms: { type: 'array', items: { type: 'string' } },
+  market_notes: { type: 'string' },
+}, required: ['providers'] };
+
+function screenContext({ program = {}, rfp = {}, brief = null, items = [], providers = [], responses = [], submissions = [] }) {
+  return [
+    program?.name ? `Program: "${program.name}"` : null,
+    program?.description ? `Description: ${program.description}` : null,
+    program?.category ? `Category: ${program.category}` : null,
+    program?.target_markets_v2?.length ? `Target markets: ${program.target_markets_v2.join(', ')}` : null,
+    program?.target_gross_margin_pct ? `Target GM%: ${program.target_gross_margin_pct}%` : null,
+    program?.target_unit_price ? `Target unit price: $${program.target_unit_price}` : null,
+    rfp?.name ? `Current RFP: "${rfp.name}" (type: ${rfp.rfp_type}, status: ${rfp.status}, currency: ${rfp.currency || 'USD'})` : null,
+    rfp?.target_volume ? `Target volume: ${rfp.target_volume} ${rfp.target_volume_unit || ''}` : null,
+    brief ? `Brief: ${JSON.stringify(brief).slice(0, 2000)}` : null,
+    items?.length ? `Sourcing items (${items.length}): ${items.map((i) => `${i.sourcing_type || ''}: ${i.name || i.item_name}${i.supplier_name ? ` (supplier: ${i.supplier_name})` : ''}${i.specification ? ` [spec: ${String(i.specification).slice(0, 200)}]` : ''}`).join('; ')}` : null,
+    providers?.length ? `Providers (${providers.length}): ${providers.map((p) => p.company_name).join(', ')}` : null,
+    responses?.length ? `Line-item responses received: ${responses.length}` : null,
+    submissions?.length ? `Submissions: ${submissions.length}` : null,
+  ].filter(Boolean).join('\n');
+}
+
+module.exports = function(app, { requireAuth, pool, verifyFirebase, anthropicFactory, fetchImpl = fetch } = {}) {
+  const verifyFb = verifyFirebase || ((t) => require('firebase-admin').auth().verifyIdToken(t));
+  const engine = async (req) => { const who = await resolveUserDb(req, { pool, verifyFirebase: verifyFb, fetchImpl }); if (who.error) { const e = new Error(who.error[1]); e.http = who.error[0]; throw e; } return { client: makeClient(anthropicFactory), db: who.db, userId: who.userId, orgId: who.orgId }; };
   app.post('/plm-rfp-assist', requireAuth, async (req, res) => {
     try {
       const body = req.body || {};
@@ -216,30 +195,12 @@ When scoring:
 
       // ── AGENT CHAT ──
       if (action === 'agent_chat') {
-        const { agent, program = {}, rfp = {}, brief = null, items = [], providers = [], responses = [], submissions = [], history = [], user_message = '' } = body;
+        const { agent, program = {}, rfp = {}, history = [], user_message = '' } = body;
         const persona = AGENT_PROMPTS[agent];
-        if (!persona) {
-          return res.status(400).json({ error: `Unknown agent: ${agent}`, available: Object.keys(AGENT_PROMPTS) });
-        }
-        const ctx = [
-          program?.name ? `Program: "${program.name}"` : null,
-          program?.description ? `Description: ${program.description}` : null,
-          program?.category ? `Category: ${program.category}` : null,
-          program?.target_markets_v2?.length ? `Target markets: ${program.target_markets_v2.join(', ')}` : null,
-          program?.target_gross_margin_pct ? `Target GM%: ${program.target_gross_margin_pct}%` : null,
-          program?.target_unit_price ? `Target unit price: $${program.target_unit_price}` : null,
-          rfp?.name ? `Current RFP: "${rfp.name}" (type: ${rfp.rfp_type}, status: ${rfp.status}, currency: ${rfp.currency || 'USD'})` : null,
-          rfp?.target_volume ? `Target volume: ${rfp.target_volume} ${rfp.target_volume_unit || ''}` : null,
-          brief ? `Brief: ${JSON.stringify(brief).slice(0, 2000)}` : null,
-          items?.length ? `Sourcing items (${items.length}): ${items.map(i => `${i.sourcing_type || ''}: ${i.name || i.item_name}${i.supplier_name ? ` (supplier: ${i.supplier_name})` : ''}`).join('; ')}` : null,
-          providers?.length ? `Providers (${providers.length}): ${providers.map(p => p.company_name).join(', ')}` : null,
-          responses?.length ? `Responses received: ${responses.length}` : null,
-          submissions?.length ? `Submissions: ${submissions.length}` : null,
-        ].filter(Boolean).join('\n');
-        const systemPrompt = persona.system + (ctx ? `\n\n## CURRENT CONTEXT\n${ctx}` : '\n\n## CURRENT CONTEXT\n(No program or RFP context provided yet — ask the user to describe what they want to source.)');
-        const msgs = [...history, { role: 'user', content: user_message }];
-        const text = await callClaude(systemPrompt, msgs, 2500);
-        return res.json({ ok: true, reply: text, agent, agent_name: persona.name, agent_emoji: persona.emoji });
+        if (!persona) return res.status(400).json({ error: `Unknown agent: ${agent}`, available: Object.keys(AGENT_PROMPTS) });
+        const base = await engine(req);
+        const run = await runAdvisor({ ...base, mode: persona.mode, question: user_message, history, program_id: body.program_id || program?.id || null, rfp_id: body.rfp_id || rfp?.id || null, extraContext: screenContext(body) });
+        return res.json({ ok: true, reply: run.text, agent, agent_name: persona.name, agent_emoji: persona.emoji, sources: run.sources, created_items: run.created, model: run.model });
       }
 
       // ── DRAFT BRIEF (legacy short-form) ──
@@ -266,17 +227,16 @@ When scoring:
       // ── SUGGEST PROVIDERS ──
       if (action === 'suggest_providers') {
         const { rfp = {}, items = [], known_providers = [] } = body;
-        const system = `You are an expert sourcing specialist specializing in SMALL-TO-MID-SIZE specialized CMs. Do NOT suggest large CPG conglomerates (Church & Dwight, P&G, Unilever, Henkel, Reckitt, Colgate, S.C. Johnson, Clorox, Kimberly-Clark, L'Oréal, Coty). Suggest specialized boutique players (LAW Chemical, HNW Manufacturing, Aerofil, KIK, Maesa tier). Output ONLY valid JSON:
-{
-  "providers":[{"company_name":"<name>","country":"<country>","website":"<https://...>","why_suggested":"<rationale>","strengths":["<s>"],"risks":["<r>"],"confidence":<0-100>}],
-  "search_terms":["<term>"],
-  "market_notes":"<2-3 sentences>"
-}`;
-        const userMsg = `RFP: ${JSON.stringify(rfp)}\n\nLine items:\n${JSON.stringify(items, null, 2)}\n\nAlready known providers:\n${known_providers.map(p => p.company_name).join(', ') || '(none)'}\n\nSuggest 5–8 specialized CMs (not conglomerates). Do NOT invent contact details.`;
-        const text = await callClaude(system, [{ role: 'user', content: userMsg }], 3000);
-        const json = extractJSON(text);
-        if (!json) return res.status(502).json({ error: 'AI returned invalid JSON', raw: text });
-        return res.json({ ok: true, ...json });
+        const base = await engine(req);
+        const q = `Suggest 4-8 specialist contract manufacturers or suppliers for this RFP.\nRFP: ${JSON.stringify(rfp)}\nLine items: ${JSON.stringify(items).slice(0, 4000)}\nAlready known (don't repeat): ${known_providers.map((p) => p.company_name).join(', ') || '(none)'}`;
+        const run = await runAdvisor({ ...base, mode: 'sourcing', task: 'suggest_providers', question: q, program_id: body.program_id || null, rfp_id: body.rfp_id || rfp?.id || null, resultSchema: PROVIDER_SCHEMA, allowWrites: false });
+        const providers = []; let dropped = 0;
+        for (const p of run.result?.providers || []) {
+          const src = verifiedLink(p.source_url, run) || verifiedLink(p.website, run);
+          if (!src) { dropped++; continue; }
+          providers.push({ ...p, website: verifiedLink(p.website, run) || src, source_url: src, confidence: Math.round(Number(p.confidence) || 0) });
+        }
+        return res.json({ ok: true, providers, search_terms: run.result?.search_terms || [], market_notes: run.result?.market_notes || '', dropped_unverified: dropped, sources: run.sources });
       }
 
       // ── ANALYZE RESPONSES (line-item matrix) ──
@@ -316,7 +276,7 @@ When scoring:
       return res.status(400).json({ error: 'unknown action' });
     } catch (e) {
       console.error('plm-rfp-assist error', e);
-      return res.status(500).json({ error: e?.message || String(e) });
+      return res.status(e?.http || 500).json({ error: e?.message || String(e) });
     }
   });
 

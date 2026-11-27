@@ -4,6 +4,7 @@ import CopyInviteButton from "./CopyInviteButton";
 import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
 import { useAuth } from "../lib/auth";
+import { renderMarkdown } from "./plmMarkdown";
 
 const PLMRFPBrief       = lazy(() => import("./PLMRFPBrief"));
 const PLMRFPSubmissions = lazy(() => import("./PLMRFPSubmissions"));
@@ -252,7 +253,7 @@ export default function PLMRFPDetail({ rfp: rfpInitial, program, onBack }) {
   };
 
   const aiSuggestProviders = async () => {
-    const r = await callAI("suggest_providers", {
+    const r = await callAI("suggest_providers", { program_id: program?.id, rfp_id: rfp?.id,
       rfp: { name: rfp.name, rfp_type: rfp.rfp_type, description: rfp.description, target_volume: rfp.target_volume, target_volume_unit: rfp.target_volume_unit, currency: rfp.currency },
       items: items.map(i => ({ item_name: i.item_name, specification: i.specification, quantity: i.quantity, quantity_unit: i.quantity_unit })),
       known_providers: providers.map(p => ({ company_name: p.company_name })),
@@ -287,7 +288,7 @@ export default function PLMRFPDetail({ rfp: rfpInitial, program, onBack }) {
     const newHist = [...aiChat, { role: "user", content: msg }];
     setAiChat(newHist);
     const r = await callAI("agent_chat", {
-      agent: selectedAgent,
+      agent: selectedAgent, program_id: program?.id, rfp_id: rfp?.id,
       program: { name: program?.name, description: program?.description, category: program?.category, target_markets_v2: program?.target_markets_v2, target_gross_margin_pct: program?.target_gross_margin_pct, target_unit_price: program?.target_unit_price },
       rfp, items, providers, responses,
       history: aiChat, user_message: msg,
@@ -505,7 +506,7 @@ export default function PLMRFPDetail({ rfp: rfpInitial, program, onBack }) {
             <button onClick={() => setAiResult(null)} style={aiActionBtn}>🔄 Clear</button>
           </div>
 
-          {aiBusy && <div style={{ padding: 16, textAlign: "center", color: T.text3, fontSize: 12 }}>AI is thinking…</div>}
+          {aiBusy && <div style={{ padding: 16, textAlign: "center", color: T.text3, fontSize: 12 }}>Working. Supplier research on the web can take a minute or two…</div>}
 
           {/* AI Results */}
           {aiResult?.kind === "brief" && (
@@ -536,6 +537,7 @@ export default function PLMRFPDetail({ rfp: rfpInitial, program, onBack }) {
                     <button onClick={() => addSuggestedProvider(p)} style={{ ...ghostBtn, padding: "3px 8px", fontSize: 10 }}>+ Add</button>
                   </div>
                   <div style={{ fontSize: 11, color: T.text2, marginTop: 4 }}>{p.why_suggested}</div>
+                  {p.source_url && p.source_url !== p.website && <a href={p.source_url} target="_blank" rel="noreferrer" style={{ fontSize: 10, color: T.accent }}>Source</a>}
                 </div>
               ))}
             </div>
@@ -581,12 +583,12 @@ export default function PLMRFPDetail({ rfp: rfpInitial, program, onBack }) {
                 </div>
               )}
               {aiChat.map((m, i) => (
-                <div key={i} style={{ marginBottom: 6, padding: 8, background: m.role === "user" ? T.accent + "15" : T.surface, borderRadius: 6, fontSize: 11, color: T.text2, lineHeight: 1.4, whiteSpace: "pre-wrap" }}>
+                <div key={i} style={{ marginBottom: 6, padding: 8, background: m.role === "user" ? T.accent + "15" : T.surface, borderRadius: 6, fontSize: 11, color: T.text2, lineHeight: 1.4, whiteSpace: m.role === "user" ? "pre-wrap" : "normal" }}>
                   {m.role === "assistant" && m.agent_emoji && <div style={{ fontSize: 9, fontWeight: 700, color: "#8b5cf6", marginBottom: 4, letterSpacing: 0.3 }}>{m.agent_emoji} {m.agent_name?.toUpperCase()}</div>}
-                  {m.content}
+                  {m.role === "assistant" ? <div className="plm-md-sm">{renderMarkdown(m.content)}</div> : m.content}
                 </div>
               ))}
-              {aiBusy && <div style={{ padding: 8, fontSize: 11, color: T.text3, fontStyle: "italic" }}>{selectedAgent === "sourcing_expert" ? "🧭 Sourcing Expert is thinking…" : "📝 RFP Writer is thinking…"}</div>}
+              {aiBusy && <div style={{ padding: 8, fontSize: 11, color: T.text3, fontStyle: "italic" }}>{selectedAgent === "sourcing_expert" ? "Sourcing Expert is researching on the web (can take a minute or two)…" : "RFP Writer is working…"}</div>}
             </div>
             <div style={{ display: "flex", gap: 4 }}>
               <input value={aiInput} onChange={e => setAiInput(e.target.value)} onKeyDown={e => e.key === "Enter" && aiChatSend()} placeholder={selectedAgent === "sourcing_expert" ? "e.g. Find me CMs for citrus surfactants in the EU" : "e.g. Draft the pricing-tier table"} style={{ flex: 1, background: T.surface, border: "1px solid " + T.border, color: T.text, fontSize: 12, padding: "7px 10px", borderRadius: 5, outline: "none" }} />
