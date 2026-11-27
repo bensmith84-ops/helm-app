@@ -1,10 +1,11 @@
 "use client";
 // Shell of the new Projects suite: navigation, project header and tabs, saved
 // views, the task pane, and the modals. Data comes from useWorkStore.
-import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback, lazy, Suspense } from "react";
 import { BASE_CSS, SWATCHES, tone, themeVars } from "./theme";
 import { ModeProvider, Icon, Popover, usePop, MenuItem, MenuSep, MenuLabel, Avatar, AvatarStack, Chip, Modal, Field, Toasts, useToasts, PersonPicker, ColorPicker, DatePicker, OptionList, Empty, Seg } from "./ui";
 import { useWorkStore } from "./store";
+import { useWorkExtras } from "./extrasStore";
 import { HEALTH, VIEW_TYPES, newView, same, isDone, personName, today, fmtDate, plural, emptyFilters, DEFAULT_COLS } from "./model";
 import { useViewCtx, useGroups } from "./ops";
 import { CELL_CSS } from "./cells";
@@ -15,6 +16,9 @@ import CalendarView, { CALENDAR_CSS } from "./CalendarView";
 import TaskPane, { PANE_CSS } from "./TaskPane";
 import ViewBar, { BAR_CSS } from "./ViewBar";
 import { Overview, Dashboard, Portfolios, Workload, PAGES_CSS } from "./pages";
+import { RulesTab, DocsTab, FormsTab, EXTRAS_CSS } from "./extras";
+import { ProjectModal, TemplateManager, TemplateEditor, SaveTemplateModal, DuplicateModal, MembersModal, DIALOG_CSS } from "./projectDialogs";
+const AsanaImportModal = lazy(() => import("../AsanaImport"));
 
 const SHELL_CSS = `
 .hw-app{display:flex;flex:1;min-width:0;min-height:0;height:100%;background:var(--paper);position:relative;overflow:hidden}
@@ -44,16 +48,18 @@ const SHELL_CSS = `
 @keyframes hw-sh{to{background-position:-200% 0}}
 @media (max-width:900px){.hw-nav{position:absolute;z-index:40;left:0;top:0;bottom:0;box-shadow:var(--sh3);width:min(300px,86vw)}.hw-pane{position:absolute;inset:0;width:auto;z-index:30}.hw-pane-rz{display:none}.hw-top{padding:10px 12px 0}.hw-top h1{font-size:17px}.hw-bar{padding:8px 12px}.hw-page-in{padding:14px 12px 40px;grid-template-columns:1fr !important}.hw-board{padding:10px 12px}}
 `;
-const CSS = [BASE_CSS, SHELL_CSS, CELL_CSS, BAR_CSS, LIST_CSS, BOARD_CSS, TIMELINE_CSS, CALENDAR_CSS, PANE_CSS, PAGES_CSS].join("\n");
+const CSS = [BASE_CSS, SHELL_CSS, CELL_CSS, BAR_CSS, LIST_CSS, BOARD_CSS, TIMELINE_CSS, CALENDAR_CSS, PANE_CSS, PAGES_CSS, EXTRAS_CSS, DIALOG_CSS].join("\n");
+const EXTRA_TABS = ["overview", "dashboard", "docs", "forms", "rules"];
 const VIEW_ICON = { list: "list", board: "board", timeline: "timeline", calendar: "cal" };
 const ls = { get: (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } }, set: (k, v) => { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, JSON.stringify(v)); } catch {} } };
 const isNarrow = () => typeof window !== "undefined" && window.innerWidth < 900;
 const MY_VIEW = { id: "my", name: "My tasks", type: "list", group: "due", sort: [{ key: "due", dir: "asc" }], filters: emptyFilters(), cols: [{ key: "project", w: 190 }, { key: "due", w: 130 }, { key: "priority", w: 110 }] };
 
-export default function WorkApp({ db, user, profile, mode = "light", tokens, onClassic, onCelebrate, pendingTaskId, clearPendingTask, pendingProjectId, clearPendingProject }) {
+export default function WorkApp({ db, user, profile, mode = "light", tokens, onClassic, onCelebrate, onOpenDoc, pendingTaskId, clearPendingTask, pendingProjectId, clearPendingProject }) {
   const { toasts, toast, dismiss } = useToasts();
   const theme = useMemo(() => ({ mode, vars: themeVars(tokens, mode === "dark") }), [mode, tokens]);
-  const store = useWorkStore({ db, user, profile, toast, onCelebrate });
+  const core = useWorkStore({ db, user, profile, toast, onCelebrate });
+  const store = useWorkExtras(core);
   const [page, setPage] = useState(() => ls.get("hw.page", { kind: "my" })); // { kind: 'my' | 'project' | 'portfolios' | 'workload', id? }
   const [openId, setOpenId] = useState(null); const [sel, setSel] = useState(() => new Set());
   const [navOpen, setNavOpen] = useState(() => (isNarrow() ? false : ls.get("hw.nav", true))); const [paneW, setPaneW] = useState(() => ls.get("hw.paneW", 540));
@@ -75,6 +81,10 @@ export default function WorkApp({ db, user, profile, mode = "light", tokens, onC
     if (window.location.pathname !== want) window.history.replaceState(null, "", want + window.location.search);
   }, [openId, page, pendingProjectId, pendingTaskId, store.loading]);
   useEffect(() => { if (!store.loading && page.kind === "project" && !store.projectsById[page.id]) setPage({ kind: "my" }); }, [store.loading, page, store.projectsById]);
+
+  // after an import the project list reloads; open the new project once it shows up
+  const [wantPid, setWantPid] = useState(null);
+  useEffect(() => { if (wantPid && !store.loading && store.projectsById[wantPid]) { go({ kind: "project", id: wantPid }); setWantPid(null); } }, [wantPid, store.loading, store.projectsById]);
 
   // global keys
   useEffect(() => {
@@ -135,7 +145,7 @@ export default function WorkApp({ db, user, profile, mode = "light", tokens, onC
         </aside>}
         <main className="hw-main">
           {store.error ? <Empty title="Couldn't load projects" icon="alert">{store.error}</Empty>
-            : page.kind === "project" && project ? <ProjectPage key={project.id} store={store} project={project} openId={openId} onOpen={openTask} sel={sel} setSel={setSel} navOpen={navOpen} setNavOpen={setNavOpen} setModal={setModal} onClassic={onClassic} toast={toast} go={go} />
+            : page.kind === "project" && project ? <ProjectPage key={project.id} store={store} project={project} openId={openId} onOpen={openTask} sel={sel} setSel={setSel} navOpen={navOpen} setNavOpen={setNavOpen} setModal={setModal} onOpenDoc={onOpenDoc} toast={toast} go={go} />
             : page.kind === "portfolios" ? <Portfolios store={store} go={go} navBtn={!navOpen && <NavBtn onClick={() => setNavOpen(true)} />} />
             : page.kind === "workload" ? <Workload store={store} onOpen={openTask} navBtn={!navOpen && <NavBtn onClick={() => setNavOpen(true)} />} />
             : <MyTasks store={store} openId={openId} onOpen={openTask} sel={sel} setSel={setSel} navBtn={!navOpen && <NavBtn onClick={() => setNavOpen(true)} />} setModal={setModal} />}
@@ -144,8 +154,14 @@ export default function WorkApp({ db, user, profile, mode = "light", tokens, onC
         {openTaskObj && (page.kind === "project" || page.kind === "my") && <TaskPane store={store} task={openTaskObj} onClose={() => setOpenId(null)} onOpen={openTask} width={paneW} setWidth={setPaneW} />}
       </div>
       {modal?.kind === "quick" && <QuickAdd store={store} defaults={{ project_id: project?.id || null, ...(modal.defaults || {}) }} onClose={() => setModal(null)} onCreated={(t) => { toast("Task added", { label: "Open", run: () => setOpenId(t.id) }); }} />}
-      {modal?.kind === "project" && <ProjectModal store={store} onClose={() => setModal(null)} onDone={(p) => { setModal(null); go({ kind: "project", id: p.id }); }} />}
+      {modal?.kind === "project" && <ProjectModal store={store} onClose={() => setModal(null)} onDone={(p) => { setModal(null); go({ kind: "project", id: p.id }); }} onManageTemplates={() => setModal({ kind: "templates" })} onImport={() => setModal({ kind: "asana" })} />}
       {modal?.kind === "edit" && <ProjectModal store={store} project={modal.project} onClose={() => setModal(null)} onDone={() => setModal(null)} />}
+      {modal?.kind === "templates" && <TemplateManager store={store} onClose={() => setModal(null)} onEdit={(t) => setModal({ kind: "template", tmpl: t })} />}
+      {modal?.kind === "template" && <TemplateEditor store={store} tmpl={modal.tmpl} onClose={() => setModal({ kind: "templates" })} />}
+      {modal?.kind === "saveTemplate" && <SaveTemplateModal store={store} project={modal.project} onClose={() => setModal(null)} />}
+      {modal?.kind === "duplicate" && <DuplicateModal store={store} project={modal.project} onClose={() => setModal(null)} onDone={(p) => { setModal(null); go({ kind: "project", id: p.id }); }} />}
+      {modal?.kind === "members" && store.projectsById[modal.pid] && <MembersModal store={store} project={store.projectsById[modal.pid]} onClose={() => setModal(null)} />}
+      {modal?.kind === "asana" && <Suspense fallback={null}><AsanaImportModal onClose={() => setModal(null)} onImported={(id) => { setModal(null); if (id) setWantPid(id); store.reload(); }} /></Suspense>}
       {modal?.kind === "keys" && <KeysModal onClose={() => setModal(null)} />}
       <Toasts toasts={toasts} dismiss={dismiss} />
     </ModeProvider>
@@ -154,11 +170,11 @@ export default function WorkApp({ db, user, profile, mode = "light", tokens, onC
 const NavBtn = ({ onClick }) => <button className="hw-icb" title="Show sidebar" onClick={onClick}><Icon name="side" /></button>;
 
 // ── one project: header, tabs (saved views), toolbar, the view itself ──
-function ProjectPage({ store, project, openId, onOpen, sel, setSel, navOpen, setNavOpen, setModal, onClassic, toast, go }) {
+function ProjectPage({ store, project, openId, onOpen, sel, setSel, navOpen, setNavOpen, setModal, onOpenDoc, toast, go }) {
   const pid = project.id; const saved = store.viewsOf(project);
-  const [tab, setTab] = useState(() => { const t = ls.get("hw.tab." + pid, null); return t && (t === "overview" || t === "dashboard" || saved.some((v) => v.id === t)) ? t : saved[0].id; });
+  const [tab, setTab] = useState(() => { const t = ls.get("hw.tab." + pid, null); return t && (EXTRA_TABS.includes(t) || saved.some((v) => v.id === t)) ? t : saved[0].id; });
   const [local, setLocal] = useState(() => ls.get("hw.views." + pid, {})); const [q, setQ] = useState("");
-  const menu = usePop(), share = usePop(), health = usePop(), addView = usePop(); const [tabMenu, setTabMenu] = useState(null); const [renaming, setRenaming] = useState(null);
+  const menu = usePop(), health = usePop(), addView = usePop(); const share = { toggle: () => setModal({ kind: "members", pid }) }; const nRules = store.rules.filter((r) => r.project_id === pid && r.is_active).length; const nDocs = store.docs.filter((d) => d.project_id === pid || d.id === project.linked_doc_id).length; const [tabMenu, setTabMenu] = useState(null); const [renaming, setRenaming] = useState(null);
   useEffect(() => { ls.set("hw.tab." + pid, tab); setSel(new Set()); }, [tab, pid]); useEffect(() => { ls.set("hw.views." + pid, Object.keys(local).length ? local : null); }, [local, pid]);
   const savedView = saved.find((v) => v.id === tab) || null;
   const view = useMemo(() => (savedView ? { ...savedView, ...(local[savedView.id] || {}) } : null), [savedView, local]);
@@ -192,7 +208,11 @@ function ProjectPage({ store, project, openId, onOpen, sel, setSel, navOpen, set
           ? <input key={v.id} className="hw-input" style={{ width: 130, height: 26 }} autoFocus defaultValue={v.name} onBlur={(e) => { const name = e.target.value.trim(); if (name && name !== v.name) store.saveViews(pid, saved.map((x) => (x.id === v.id ? { ...x, name } : x))); setRenaming(null); }} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") setRenaming(null); }} />
           : <button key={v.id} className={"hw-tab" + (tab === v.id ? " on" : "")} onClick={() => setTab(v.id)} onDoubleClick={() => setRenaming(v.id)} onContextMenu={(e) => { e.preventDefault(); setTabMenu({ v, x: e.clientX, y: e.clientY }); }}><Icon name={VIEW_ICON[v.type]} size={15} />{v.name}{local[v.id] && !same({ ...v, ...local[v.id] }, v) && <span className="hw-dot" style={{ width: 5, height: 5, background: "var(--accent)" }} />}</button>)}
         <button className={"hw-tab" + (tab === "dashboard" ? " on" : "")} onClick={() => setTab("dashboard")}><Icon name="chart" size={15} />Dashboard</button>
-        <button className="hw-icb sm" style={{ marginLeft: 4 }} title="Add a view" onClick={addView.toggle}><Icon name="plus" size={15} /></button>
+        <button className="hw-icb sm" style={{ margin: "0 4px" }} title="Add a view" onClick={addView.toggle}><Icon name="plus" size={15} /></button>
+        <span style={{ width: 1, height: 18, background: "var(--line2)", margin: "0 6px", flex: "none" }} />
+        <button className={"hw-tab" + (tab === "docs" ? " on" : "")} onClick={() => setTab("docs")}><Icon name="note" size={15} />Docs{nDocs > 0 && <span className="hw-num" style={{ fontSize: 11, color: "var(--ink3)" }}>{nDocs}</span>}</button>
+        <button className={"hw-tab" + (tab === "forms" ? " on" : "")} onClick={() => setTab("forms")}><Icon name="inbox" size={15} />Forms</button>
+        <button className={"hw-tab" + (tab === "rules" ? " on" : "")} onClick={() => setTab("rules")}><Icon name="zap" size={15} />Rules{nRules > 0 && <span className="hw-num" style={{ fontSize: 11, color: "var(--ink3)" }}>{nRules}</span>}</button>
       </div>
     </div>
     {isView && <ViewBar store={store} view={view} onView={onView} ctx={ctx} projectId={pid} q={q} setQ={setQ} dirty={dirty} onSave={saveView} onReset={() => setLocal((p) => { const n = { ...p }; delete n[tab]; return n; })} onAdd={() => setModal({ kind: "quick", defaults: { project_id: pid } })} count={openId || dirty ? null : count} canEdit={canEdit}
@@ -201,6 +221,9 @@ function ProjectPage({ store, project, openId, onOpen, sel, setSel, navOpen, set
       <div className="hw-view">
         {tab === "overview" ? <Overview store={store} project={project} onOpen={onOpen} onEdit={() => setModal({ kind: "edit", project })} />
           : tab === "dashboard" ? <Dashboard store={store} project={project} tasks={tasks} />
+          : tab === "docs" ? <DocsTab store={store} project={project} onOpenDoc={onOpenDoc} />
+          : tab === "forms" ? <FormsTab store={store} project={project} onOpen={onOpen} />
+          : tab === "rules" ? <RulesTab store={store} project={project} />
           : view.type === "list" ? <ListView key={view.id} store={store} groups={groups} view={view} onView={onView} ctx={ctx} projectId={pid} onOpen={onOpen} openId={openId} sel={sel} setSel={setSel} canEdit={canEdit} />
           : view.type === "board" ? <BoardView key={view.id} store={store} groups={groups} view={view} ctx={ctx} projectId={pid} onOpen={onOpen} openId={openId} sel={sel} setSel={setSel} canEdit={canEdit} />
           : view.type === "timeline" ? <TimelineView key={view.id} store={store} groups={groups} view={view} onView={onView} ctx={ctx} projectId={pid} onOpen={onOpen} openId={openId} />
@@ -212,18 +235,15 @@ function ProjectPage({ store, project, openId, onOpen, sel, setSel, navOpen, set
       <MenuItem icon="note" onClick={() => { menu.close(); setModal({ kind: "edit", project }); }}>Edit project details</MenuItem>
       <MenuItem icon="link" onClick={() => { navigator.clipboard?.writeText(window.location.origin + "/projects/p/" + pid); toast("Project link copied"); menu.close(); }}>Copy project link</MenuItem>
       <MenuItem icon="star" onClick={() => { store.toggleFavorite(pid); menu.close(); }}>{store.favorites.has(pid) ? "Remove star" : "Star"}</MenuItem>
-      {onClassic && <><MenuSep /><MenuLabel>Still in classic</MenuLabel><MenuItem icon="zap" onClick={() => { menu.close(); onClassic(pid); }}>Rules, forms and templates</MenuItem><MenuItem icon="users" onClick={() => { menu.close(); onClassic(pid); }}>Invite an outside guest</MenuItem></>}
+      <MenuItem icon="users" onClick={() => { menu.close(); setModal({ kind: "members", pid }); }}>Members and guests</MenuItem>
+      <MenuSep />
+      <MenuItem icon="copy" onClick={() => { menu.close(); setModal({ kind: "duplicate", project }); }}>Duplicate project</MenuItem>
+      <MenuItem icon="case" onClick={() => { menu.close(); setModal({ kind: "saveTemplate", project }); }}>Save as a template</MenuItem>
       <MenuSep />
       <MenuItem icon="archive" onClick={() => { store.updateProject(pid, { status: project.status === "archived" ? "active" : "archived" }); menu.close(); }}>{project.status === "archived" ? "Restore from archive" : "Archive project"}</MenuItem>
       <MenuItem icon="trash" danger onClick={() => { menu.close(); if (window.confirm(`Delete "${project.name}" and its tasks? This can't be undone from here.`)) { store.updateProject(pid, { deleted_at: new Date().toISOString() }); go({ kind: "my" }); } }}>Delete project</MenuItem>
     </Popover>}
     {health.open && <Popover anchor={health.anchor} onClose={health.close} width={190}>{["on_track", "at_risk", "off_track"].map((k) => <MenuItem key={k} sel={project.health === k} icon={<span className="hw-dot" style={{ background: tone(HEALTH[k].tone)["--c"] }} />} onClick={() => { store.updateProject(pid, { health: k }); health.close(); }}>{HEALTH[k].label}</MenuItem>)}</Popover>}
-    {share.open && <Popover anchor={share.anchor} onClose={share.close} align="end" width={320}>
-      <MenuLabel>{plural(members.length, "member")} · {project.visibility === "private" ? "Private to members" : "Visible to everyone at Earth Breeze"}</MenuLabel>
-      <div style={{ maxHeight: 220, overflowY: "auto" }} className="hw-scroll">{members.map((m) => <div key={m.id} className="hw-mi" style={{ cursor: "default" }}><Avatar person={m} size={22} /><span className="hw-trunc" style={{ flex: 1 }}>{personName(m)}</span>{m.id === project.owner_id ? <span className="k">Owner</span> : m.is_external ? <span className="k">Guest</span> : null}{m.id !== project.owner_id && <button className="hw-icb sm" title="Remove" onClick={() => store.removeMember(pid, m.id)}><Icon name="x" size={13} /></button>}</div>)}</div>
-      <MenuSep /><MenuLabel>Add people</MenuLabel>
-      <PersonPicker people={store.peopleList.filter((p) => !p.is_external && !members.some((m) => m.id === p.id))} allowNone={false} onPick={(id) => store.addMember(pid, id)} />
-    </Popover>}
     {addView.open && <Popover anchor={addView.anchor} onClose={addView.close} width={200}><MenuLabel>Add a view</MenuLabel>{Object.entries(VIEW_TYPES).map(([k, l]) => <MenuItem key={k} icon={VIEW_ICON[k]} onClick={() => addNew(k)}>{l}</MenuItem>)}</Popover>}
     {tabMenu && <Popover anchor={tabMenu} onClose={() => setTabMenu(null)} width={200}>
       <MenuItem icon="note" onClick={() => { setRenaming(tabMenu.v.id); setTabMenu(null); }}>Rename</MenuItem>
@@ -280,34 +300,6 @@ function QuickAdd({ store, defaults, onClose, onCreated }) {
     {who.open && <Popover anchor={who.anchor} onClose={who.close} width={260}><PersonPicker people={store.assignable(pid)} value={assignee} onPick={(v) => { setAssignee(v); who.close(); }} /></Popover>}
     {when.open && <Popover anchor={when.anchor} onClose={when.close}><DatePicker range={false} due={due} onChange={(d) => setDue(d.due_date)} onClose={when.close} /></Popover>}
     {proj.open && <Popover anchor={proj.anchor} onClose={proj.close} width={280}><OptionList searchable placeholder="Search projects…" options={[{ value: null, label: "No project (just for me)" }, ...store.projects.filter((x) => x.status !== "archived").map((x) => ({ value: x.id, label: x.name, dot: x.color }))]} value={pid} onPick={(v) => { setPid(v); proj.close(); }} /></Popover>}
-  </Modal>;
-}
-
-const PRESETS = [["Simple", ["To do", "In progress", "Done"]], ["Launch", ["Planning", "Build", "Review", "Launch", "Done"]], ["Requests", ["New requests", "In progress", "Waiting on someone", "Done"]], ["Blank", []]];
-function ProjectModal({ store, project, onClose, onDone }) {
-  const edit = !!project;
-  const [f, setF] = useState(() => edit ? { name: project.name, description: project.description || "", color: project.color || SWATCHES[0], visibility: project.visibility || "public", owner_id: project.owner_id, start_date: project.start_date, target_end_date: project.target_end_date } : { name: "", description: "", color: SWATCHES[Math.floor(Math.random() * 6)], visibility: "public", preset: 0, members: [] });
-  const [busy, setBusy] = useState(false); const set = (p) => setF((x) => ({ ...x, ...p })); const dates = usePop(), owner = usePop(), mem = usePop();
-  const save = async () => {
-    if (!f.name.trim() || busy) return; setBusy(true);
-    if (edit) { await store.updateProject(project.id, { name: f.name.trim(), description: f.description, color: f.color, visibility: f.visibility, owner_id: f.owner_id || null, start_date: f.start_date || null, target_end_date: f.target_end_date || null }); onDone(project); }
-    else { const p = await store.createProject({ ...f, sections: PRESETS[f.preset][1] }); setBusy(false); if (p) onDone(p); }
-  };
-  return <Modal title={edit ? "Project details" : "New project"} onClose={onClose} width={540} footer={<><button className="hw-btn ghost" onClick={onClose}>Cancel</button><button className="hw-btn primary" disabled={!f.name.trim() || busy} onClick={save}>{edit ? "Save" : "Create project"}</button></>}>
-    <Field label="Name"><input className="hw-input" autoFocus value={f.name} placeholder="e.g. Dish Tabs launch" onChange={(e) => set({ name: e.target.value })} onKeyDown={(e) => { if (e.key === "Enter") save(); }} /></Field>
-    <Field label="What is it for?"><textarea className="hw-input" rows={2} value={f.description} onChange={(e) => set({ description: e.target.value })} /></Field>
-    <Field label="Colour"><ColorPicker value={f.color} onPick={(c) => set({ color: c })} /></Field>
-    <Field label="Who can see it"><Seg value={f.visibility === "private" ? "private" : "public"} options={[["public", "Everyone at Earth Breeze"], ["private", "Members only"]]} onChange={(v) => set({ visibility: v })} /></Field>
-    {edit ? <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-      <button className="hw-btn" onClick={owner.toggle}><Avatar person={store.people[f.owner_id]} id={f.owner_id} size={18} />{f.owner_id ? "Owner: " + personName(store.people[f.owner_id]) : "Set owner"}</button>
-      <button className="hw-btn" onClick={dates.toggle}><Icon name="cal" size={15} />{f.target_end_date ? (f.start_date ? fmtDate(String(f.start_date).slice(0, 10), { relative: false }) + " – " : "Due ") + fmtDate(String(f.target_end_date).slice(0, 10), { relative: false }) : "Project dates"}</button>
-    </div> : <>
-      <Field label="Start with sections"><div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{PRESETS.map(([name, secs], i) => <button key={name} className={"hw-btn" + (f.preset === i ? " on" : "")} onClick={() => set({ preset: i })} title={secs.join(" → ") || "No sections"}>{name}</button>)}</div><span style={{ fontSize: 12, color: "var(--ink3)" }}>{PRESETS[f.preset][1].join("  →  ") || "Start empty and add your own."}</span></Field>
-      <Field label="Members"><div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}><AvatarStack people={f.members.map((id) => store.people[id]).filter(Boolean)} max={8} size={26} /><button className="hw-btn sm" onClick={mem.toggle}><Icon name="plus" size={13} />Add people</button></div></Field>
-    </>}
-    {owner.open && <Popover anchor={owner.anchor} onClose={owner.close} width={260}><PersonPicker people={store.peopleList.filter((p) => !p.is_external)} value={f.owner_id} allowNone={false} onPick={(v) => { set({ owner_id: v }); owner.close(); }} /></Popover>}
-    {dates.open && <Popover anchor={dates.anchor} onClose={dates.close}><DatePicker start={f.start_date ? String(f.start_date).slice(0, 10) : null} due={f.target_end_date ? String(f.target_end_date).slice(0, 10) : null} onChange={(d) => set({ start_date: d.start_date, target_end_date: d.due_date })} onClose={dates.close} /></Popover>}
-    {mem.open && <Popover anchor={mem.anchor} onClose={mem.close} width={260}><PersonPicker people={store.peopleList.filter((p) => !p.is_external && p.id !== store.uid)} multi allowNone={false} value={f.members} onPick={(v) => set({ members: f.members.includes(v) ? f.members.filter((x) => x !== v) : [...f.members, v] })} /></Popover>}
   </Modal>;
 }
 

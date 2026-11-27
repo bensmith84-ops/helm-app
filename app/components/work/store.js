@@ -33,6 +33,7 @@ export function useWorkStore({ db, user, profile, toast, onCelebrate }) {
   const [portfoliosReady, setPortfoliosReady] = useState(true);
   const [teams, setTeams] = useState([]);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
   const [undoStack, setUndoStack] = useState([]);
   const subLoaded = useRef(new Set());
   const dirty = useRef(new Map()); // task id -> time of last local write, so polling doesn't clobber it
@@ -90,7 +91,7 @@ export function useWorkStore({ db, user, profile, toast, onCelebrate }) {
           external ? [] : soft(db.from("task_projects").select("id,task_id,project_id,section_id").eq("org_id", orgId)),
           soft(db.from("custom_fields").select("*").order("sort_order")),
           soft(db.from("custom_field_values").select("*")),
-          external ? [] : soft(db.from("project_rules").select("*").eq("is_active", true)),
+          external ? [] : soft(db.from("project_rules").select("*")),
           external ? [] : db.from("portfolios").select("*").is("deleted_at", null).order("name").then((r) => { if (r.error) { setPortfoliosReady(false); return []; } return r.data || []; }, () => { setPortfoliosReady(false); return []; }),
           external ? [] : soft(db.from("teams").select("id,name").eq("org_id", orgId).is("deleted_at", null).order("name")),
           external ? [] : soft(db.from("tasks").select("*").eq("org_id", orgId).eq("assignee_id", uid).not("parent_task_id", "is", null).is("deleted_at", null)),
@@ -102,7 +103,8 @@ export function useWorkStore({ db, user, profile, toast, onCelebrate }) {
       } catch (e) { console.error("[work] load", e); if (alive) { setError(e.message || "Couldn't load projects"); setLoading(false); } }
     })();
     return () => { alive = false; };
-  }, [db, uid, orgId, external]);
+  }, [db, uid, orgId, external, reloadKey]);
+  const reload = useCallback(() => setReloadKey((k) => k + 1), []);
 
   // ── live sync: pick up other people's changes every 20s while the tab is visible ──
   useEffect(() => {
@@ -292,6 +294,7 @@ export function useWorkStore({ db, user, profile, toast, onCelebrate }) {
       else if (rule.trigger_type === "priority_changed") fire = field === "priority" && hit(tc.priority, tc.priorities);
       else if (rule.trigger_type === "task_created") fire = field === "__created";
       else if (rule.trigger_type === "custom_field_changed") fire = field === "custom_field" && (!tc.field_id || tc.field_id === oldValue);
+      else if (rule.trigger_type === "due_date_approaching") fire = field === "__due" && oldValue === rule.id; // raised by the due-date sweep, one rule at a time
       if (!fire) continue;
       const ran = []; const set = (patch) => updateTask(task.id, patch, { undo: false, rules: false, celebrate: false });
       for (const a of rule.actions || []) {
@@ -337,14 +340,16 @@ export function useWorkStore({ db, user, profile, toast, onCelebrate }) {
   const viewsOf = useCallback((p) => (Array.isArray(p?.settings?.views) && p.settings.views.length ? p.settings.views : defaultViews()), []);
   const saveViews = useCallback((pid, views) => { const p = R.current.projects.find((x) => x.id === pid); return updateProject(pid, { settings: { ...(p?.settings || {}), views } }); }, [updateProject]);
   const createProject = useCallback(async (f) => {
-    const { data, error: e } = await db.from("projects").insert({ org_id: orgId, name: f.name.trim(), description: f.description || "", color: f.color, status: "active", visibility: f.visibility || "public", join_policy: "invite_only", owner_id: uid, created_by: uid, default_view: "List", team_id: f.team_id || null, start_date: f.start_date || null, target_end_date: f.target_end_date || null, health: "on_track" }).select().single();
+    const owner = f.owner_id || uid;
+    const { data, error: e } = await db.from("projects").insert({ org_id: orgId, name: f.name.trim(), description: f.description || "", color: f.color, status: "active", visibility: f.visibility || "public", join_policy: f.join_policy || "invite_only", owner_id: owner, created_by: uid, default_view: f.default_view || "List", team_id: f.team_id || null, objective_id: f.objective_id || null, key_result_id: f.key_result_id || null, plm_program_id: f.plm_program_id || null, start_date: f.start_date || null, target_end_date: f.target_end_date || null, health: "on_track" }).select().single();
     if (e || !data) { toast?.("Couldn't create the project" + (e?.message ? ": " + e.message : "")); return null; }
-    const secs = []; const names = f.sections?.length ? f.sections : ["To do", "In progress", "Done"];
-    for (let i = 0; i < names.length; i++) { const { data: s } = await db.from("sections").insert({ project_id: data.id, org_id: orgId, name: names[i], sort_order: i + 1, is_complete_column: /^(done|complete|completed)$/i.test(names[i]) }).select().single(); if (s) secs.push(s); }
-    const mem = [...new Set([uid, ...(f.members || [])])];
-    for (const m of mem) { await db.from("project_members").insert({ project_id: data.id, user_id: m, role: m === uid ? "owner" : "member", org_id: orgId }); if (m !== uid) db.from("notifications").insert({ org_id: orgId, user_id: m, type: "project_added", title: `${myName()} added you to ${data.name}`, body: data.description || "You've been added to a project", entity_type: "project", entity_id: data.id, actor_id: uid, is_read: false, category: "assignment", metadata: { project_name: data.name } }).then(() => {}, () => {}); }
-    setProjects((p) => p.concat(data).sort((a, b) => a.name.localeCompare(b.name))); setSections((p) => p.concat(secs)); setMembers((p) => p.concat(mem.map((m) => ({ project_id: data.id, user_id: m, role: m === uid ? "owner" : "member" }))));
-    return data;
+    const secs = []; const defs = (f.sections ?? ["To do", "In progress", "Done"]).map((x) => (typeof x === "string" ? { name: x, is_complete_column: /^(done|complete|completed)$/i.test(x) } : x));
+    for (let i = 0; i < defs.length; i++) { const { data: s } = await db.from("sections").insert({ project_id: data.id, org_id: orgId, name: defs[i].name, sort_order: i + 1, is_complete_column: !!defs[i].is_complete_column, wip_limit: defs[i].wip_limit || null }).select().single(); if (s) secs.push({ ...s, _src: defs[i] }); }
+    let mem = [...new Set([uid, owner, ...(f.members || [])])];
+    if (f.team_id) { const { data: tm } = await db.from("team_members").select("user_id").eq("team_id", f.team_id); mem = [...new Set([...mem, ...(tm || []).map((r) => r.user_id).filter(Boolean)])]; }
+    for (const m of mem) { await db.from("project_members").insert({ project_id: data.id, user_id: m, role: m === owner ? "owner" : "member", org_id: orgId }); if (m !== uid) db.from("notifications").insert({ org_id: orgId, user_id: m, type: "project_added", title: `${myName()} added you to ${data.name}`, body: data.description || "You've been added to a project", entity_type: "project", entity_id: data.id, actor_id: uid, is_read: false, category: "assignment", metadata: { project_name: data.name } }).then(() => {}, () => {}); }
+    setProjects((p) => p.concat(data).sort((a, b) => a.name.localeCompare(b.name))); setSections((p) => p.concat(secs.map(({ _src, ...s }) => s))); setMembers((p) => p.concat(mem.map((m) => ({ project_id: data.id, user_id: m, role: m === owner ? "owner" : "member" }))));
+    return { ...data, _sections: secs };
   }, [db, orgId, uid, toast, people]);
   const toggleFavorite = useCallback(async (pid) => {
     const on = favorites.has(pid); setFavorites((s) => { const n = new Set(s); if (on) n.delete(pid); else n.add(pid); return n; });
@@ -386,6 +391,8 @@ export function useWorkStore({ db, user, profile, toast, onCelebrate }) {
     favorites, labels, labelsOfMap, deps, blockedByMap, links, fields, fieldValues, rules, portfolios, portfoliosReady, projectStats, undoStack,
     loadSubtasks, fetchTask, updateTask, updateTasks, createTask, deleteTasks, duplicateTask, completeTask, placeTasks, moveLink,
     createSection, updateSection, reorderSections, deleteSection, updateProject, createProject, viewsOf, saveViews, toggleFavorite, addMember, removeMember,
-    toggleLabel, createLabel, addDep, removeDep, addLink, removeLink, createField, deleteField, setFieldValue, savePortfolio, deletePortfolio, undo, orgFor, notify,
+    toggleLabel, createLabel, addDep, removeDep, addLink, removeLink, createField, deleteField, setFieldValue, savePortfolio, deletePortfolio, undo, orgFor, notify, reload,
+    // for the extras hook (rules, docs, forms, templates): direct setters and the rules engine
+    toast, _set: { setTasks, setProjects, setSections, setMembers, setRules, setTeams, setLabelLinks, setFields, setFieldValues, setPeopleList }, _subLoaded: subLoaded, runRules: (...a) => runRulesRef.current?.(...a),
   };
 }
