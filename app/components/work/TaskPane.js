@@ -7,6 +7,7 @@ import { Icon, Popover, usePop, MenuItem, MenuSep, MenuLabel, Check, Avatar, Chi
 import { AssigneeCell, DueCell, PriorityCell, StatusCell, LabelsCell, FieldCell, ApprovalChip } from "./cells";
 import { taskKind, isDone, approvalState, APPROVAL, STATUS, PRIORITY, personName, timeAgo, fmtDate, plural } from "./model";
 import { tone } from "./theme";
+import { Pick } from "./extras";
 
 export const PANE_CSS = `
 .hw-pane{width:var(--pane-w,520px);flex:none;display:flex;flex-direction:column;min-height:0;background:var(--surface);border-left:1px solid var(--line);position:relative;animation:hw-slide .18s cubic-bezier(.2,.8,.2,1)}
@@ -205,6 +206,14 @@ export default function TaskPane({ store, task, onClose, onOpen, width, setWidth
           <span className="hw-avs" style={{ paddingLeft: 2 }}>{collabs.map((id) => <Avatar key={id} person={people[id]} id={id} size={24} />)}</span>
           <button className="hw-btn ghost sm" onClick={collabPop.toggle}><Icon name="plus" size={13} />{collabs.length ? "" : "Add"}</button>
         </div></div>
+
+        {!store.external && !task.parent_task_id && store.objectives?.length > 0 && <div className="hw-frow"><label>Goal</label><div>
+          <Pick quiet searchable width={340} value={task.objective_id || null} placeholder="Link a goal" options={[{ value: null, label: "No goal" }, ...store.objectives.map((o) => ({ value: o.id, label: o.title, icon: <Icon name="target" size={15} /> }))]} onPick={(v) => upd({ objective_id: v, key_result_id: null })} />
+          {task.objective_id && store.keyResults.some((k) => k.objective_id === task.objective_id) && <Pick quiet searchable width={340} value={task.key_result_id || null} placeholder="Any key result" options={[{ value: null, label: "Any key result" }, ...store.keyResults.filter((k) => k.objective_id === task.objective_id).map((k) => ({ value: k.id, label: k.title }))]} onPick={(v) => upd({ key_result_id: v })} />}
+        </div></div>}
+        {!store.external && !task.parent_task_id && store.plmPrograms?.length > 0 && <div className="hw-frow"><label>PLM product</label><div>
+          <Pick quiet searchable width={300} value={task.plm_program_id || null} placeholder="Link a product" options={[{ value: null, label: "No product" }, ...store.plmPrograms.map((p) => ({ value: p.id, label: p.name + (p.category ? ` (${p.category})` : ""), icon: <Icon name="diamond" size={14} /> }))]} onPick={(v) => upd({ plm_program_id: v })} />
+        </div></div>}
 
         <div className="hw-sec"><h5>Description</h5><RichTextEditor key={task.id} value={task.description || ""} placeholder="What is this task about?" T={RTE} onChange={(html) => { if (html !== (task.description || "")) upd({ description: html }); }} /></div>
 

@@ -468,7 +468,7 @@ export default function HelmApp() {
     switch (active) {
       case "dashboard": return <DashboardView setActive={navigateTo} showUnits={!isExternal && (!allowedModules || (allowedModules.mode === "allow" ? allowedModules.allowed.includes("erp") : !allowedModules.blocked.includes("erp")))} />;
       case "projects": return projectsBeta && !isExternal
-        ? <WorkView pendingTaskId={pendingTaskId} clearPendingTask={() => setPendingTaskId(null)} pendingProjectId={pendingProjectId} clearPendingProject={() => setPendingProjectId(null)} onClassic={(pid) => { if (typeof pid === "string") setPendingProjectId(pid); setProjectsBeta(false); }} />
+        ? <WorkView pendingTaskId={pendingTaskId} clearPendingTask={() => setPendingTaskId(null)} pendingProjectId={pendingProjectId} clearPendingProject={() => setPendingProjectId(null)} onClassic={(pid) => { if (typeof pid === "string") setPendingProjectId(pid); setProjectsBeta(false); }} onOpenDoc={(id) => { try { sessionStorage.setItem("helm_open_doc", id); } catch {} setActive("docs"); }} />
         : <ProjectsView pendingTaskId={pendingTaskId} clearPendingTask={() => setPendingTaskId(null)} pendingProjectId={pendingProjectId} clearPendingProject={() => setPendingProjectId(null)} onTryNew={isExternal ? undefined : () => { try { const pid = window.localStorage.getItem("helm_active_project"); if (pid) setPendingProjectId(pid); } catch {} setProjectsBeta(true); }} />;
       case "okrs": return <OKRsView />;
       case "scorecard": return <ScorecardView />;

@@ -433,6 +433,17 @@ export default function DocsView({ setActive }) {
     }
   }, [loading, orgId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Arriving from a project's Docs tab: open the doc that was clicked.
+  useEffect(() => {
+    if (loading || !orgId) return;
+    let id = null;
+    try { id = sessionStorage.getItem("helm_open_doc"); } catch (_) {}
+    if (!id) return;
+    try { sessionStorage.removeItem("helm_open_doc"); } catch (_) {}
+    const doc = docs.find(d => d.id === id);
+    if (doc) openDoc(doc);
+  }, [loading, orgId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const deleteDoc = async (id) => {
     await supabase.from("documents").update({ deleted_at: now() }).eq("org_id", orgId).eq("id", id);
     setDocs(p => p.filter(d => d.id !== id));

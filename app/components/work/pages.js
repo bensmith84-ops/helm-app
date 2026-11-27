@@ -87,6 +87,9 @@ export function Overview({ store, project, onOpen, onEdit }) {
           <div className="hw-frow"><label>Owner</label><div>{project.owner_id ? <><Avatar person={store.people[project.owner_id]} id={project.owner_id} size={22} />{personName(store.people[project.owner_id])}</> : <span style={{ color: "var(--ink3)" }}>No owner</span>}</div></div>
           <div className="hw-frow"><label>Dates</label><div className="hw-num">{project.target_end_date ? fmtRange(project.start_date && String(project.start_date).slice(0, 10), String(project.target_end_date).slice(0, 10)) : <span style={{ color: "var(--ink3)" }}>Not set</span>}</div></div>
           <div className="hw-frow"><label>Privacy</label><div>{project.visibility === "private" ? "Members only" : "Everyone"}</div></div>
+          {project.team_id && <div className="hw-frow"><label>Team</label><div>{store.teams.find((t) => t.id === project.team_id)?.name || "–"}</div></div>}
+          {project.objective_id && <div className="hw-frow" style={{ alignItems: "start" }}><label style={{ paddingTop: 7 }}>Goal</label><div style={{ paddingTop: 6, lineHeight: 1.4, display: "block" }}>{store.objectives?.find((o) => o.id === project.objective_id)?.title || "Linked goal"}{project.key_result_id && <div style={{ color: "var(--ink3)", fontSize: 12.5 }}>{store.keyResults?.find((k) => k.id === project.key_result_id)?.title}</div>}</div></div>}
+          {project.plm_program_id && <div className="hw-frow"><label>PLM product</label><div><Icon name="diamond" size={14} style={{ color: "var(--violet)" }} />{store.plmPrograms?.find((p) => p.id === project.plm_program_id)?.name || "Linked product"}</div></div>}
           <div className="hw-frow" style={{ alignItems: "start" }}><label style={{ paddingTop: 6 }}>Members</label><div style={{ paddingTop: 4 }}><AvatarStack people={members} max={9} size={24} /></div></div>
         </div>
         <div className="hw-card2"><h4>Overdue and due this week</h4>
