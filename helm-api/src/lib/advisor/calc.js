@@ -38,9 +38,13 @@ const CLASSES = [
   ['colorant', 'Colourant', /\b(colorant|colourant|dye|pigment|ci \d{5}|blue \d|ultramarine)\b/],
   ['filler', 'Filler / process aid', /\b(sodium sulfate|sodium sulphate|sodium chloride|filler|starch|silica|talc|kaolin|water|aqua)\b/],
 ];
+// The ingredient's own name decides first; the recorded function is only a fallback
+// (e.g. propylene glycol noted as "enzyme stabiliser" is still a solvent).
 function classify(item) {
-  const text = norm([item.ingredient_name, item.inci_name, item.function_in_formula].filter(Boolean).join(' | '));
-  for (const [key, label, re] of CLASSES) if (re.test(text)) return { key, label };
+  for (const text of [norm([item.ingredient_name, item.inci_name].filter(Boolean).join(' | ')), norm(item.function_in_formula)]) {
+    if (!text) continue;
+    for (const [key, label, re] of CLASSES) if (re.test(text)) return { key, label };
+  }
   return { key: 'other', label: 'Other / unclassified' };
 }
 
