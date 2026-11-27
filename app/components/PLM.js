@@ -3,6 +3,11 @@ import { HELM_API_BASE } from "../lib/backend";
 import { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
+import { PLM_CSS, PLM_HOME_CSS } from "./work/plmStyles";
+import { themeVars } from "./work/theme";
+import { useTheme } from "../lib/theme";
+import { ModeProvider, Icon, Chip, Seg, Modal, Progress } from "./work/ui";
+import { ProgramList, Runway, LaunchDashboard, todayStr, fmtDay, dayDiff, isLate } from "./PLMHome";
 import { useResponsive } from "../lib/responsive";
 import { useAuth } from "../lib/auth";
 import PLMLibraryView from "./PLMLibrary";
@@ -28,6 +33,7 @@ const STAGES = [
 const STAGE_MAP = Object.fromEntries(STAGES.map(s => [s.key, s]));
 
 const PRIORITY_COLORS = { critical: "#ef4444", high: "#f97316", medium: "#eab308", low: "#22c55e" };
+const PRIORITY_TONE = { critical: "coral", high: "amber", medium: "blue", low: "slate" };
 const STATUS_COLORS   = { pass: "#22c55e", fail: "#ef4444", pending: "#eab308", in_progress: "#3b82f6", draft: "#8b93a8", open: "#f97316", resolved: "#22c55e" };
 
 const PROGRAM_TYPES = ["new_product","line_extension","reformulation","cost_reduction","packaging_change","claim_addition","market_expansion","renovation","private_label","co_manufacturing"];
@@ -53,11 +59,11 @@ const DOC_ICONS = { document:"📄", link:"🔗", study:"🔬", lab_report:"🧪
 
 function StageBadge({ stage }) {
   const s = STAGE_MAP[stage] || { label: stage, color: "#8b93a8" };
-  return <span style={{ fontSize:10, fontWeight:700, padding:"2px 7px", borderRadius:4, background:s.color+"22", color:s.color, letterSpacing:0.3 }}>{s.label.toUpperCase()}</span>;
+  return <span className="hw-chip" style={{ "--c": s.color, "--c-soft": s.color + "1F" }}><i />{s.label}</span>;
 }
 function PriorityBadge({ priority }) {
-  const color = PRIORITY_COLORS[priority] || "#8b93a8";
-  return <span style={{ fontSize:10, fontWeight:700, padding:"2px 7px", borderRadius:4, background:color+"22", color, letterSpacing:0.3 }}>{(priority||"-").toUpperCase()}</span>;
+  if (!priority) return null;
+  return <Chip t={PRIORITY_TONE[priority] || "slate"}>{priority.charAt(0).toUpperCase() + priority.slice(1)}</Chip>;
 }
 const escHtml = (v) => String(v || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 // Shared: render manufacturing instructions with markdown formatting
@@ -92,7 +98,7 @@ function Section({ title, children, action }) {
   return (
     <div style={{ marginBottom:24 }}>
       <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
-        <div style={{ fontSize:11, fontWeight:700, color:T.text3, letterSpacing:1, textTransform:"uppercase" }}>{title}</div>
+        <div style={{ fontSize:13, fontWeight:650, color:T.text }}>{title}</div>
         {action}
       </div>
       {children}
@@ -100,21 +106,21 @@ function Section({ title, children, action }) {
   );
 }
 function AddBtn({ onClick, label="Add" }) {
-  return <button onClick={onClick} style={{ fontSize:11, fontWeight:600, padding:"3px 10px", borderRadius:5, background:T.accentDim, color:T.accent, border:"1px solid "+T.accent+"40", cursor:"pointer" }}>+ {label}</button>;
+  return <button className="hw-btn sm" onClick={onClick}><Icon name="plus" size={13} />{label}</button>;
 }
 function EmptyState({ icon, text }) {
-  return <div style={{ padding:"32px 0", textAlign:"center", color:T.text3, fontSize:13 }}><div style={{ fontSize:28, marginBottom:8 }}>{icon}</div>{text}</div>;
+  return <div className="hw-empty" style={{ padding:"40px 0" }}><div style={{ fontSize:13 }}>{text}</div></div>;
 }
 function InlineField({ label, value, onChange, onBlur, type="text", placeholder, multiline, options, readOnly }) {
   const [local, setLocal] = useState(value || "");
   const [focused, setFocused] = useState(false);
   // Sync external value when not focused (e.g. parent updates after save)
   useEffect(() => { if (!focused) setLocal(value || ""); }, [value, focused]);
-  const base = { width:"100%", fontSize:13, color:readOnly?T.text2:T.text, background:readOnly?T.surface3:T.surface2, border:"1px solid "+T.border, borderRadius:6, padding:"6px 10px", outline:"none", fontFamily:"inherit", boxSizing:"border-box" };
+  const base = { width:"100%", fontSize:13, color:readOnly?T.text2:T.text, background:readOnly?T.surface3:T.surface, border:"1px solid "+T.border2, borderRadius:8, padding:"7px 10px", outline:"none", fontFamily:"inherit", boxSizing:"border-box" };
   const handleBlur = () => { setFocused(false); if (local !== (value || "")) onChange(local); if (onBlur) onBlur(); };
   return (
     <div style={{ marginBottom:12 }}>
-      {label && <div style={{ fontSize:11, color:T.text3, marginBottom:4, fontWeight:600 }}>{label}</div>}
+      {label && <div style={{ fontSize:12, color:T.text2, marginBottom:5, fontWeight:550 }}>{label}</div>}
       {options ? (
         <select value={value||""} onChange={e=>onChange(e.target.value)} onBlur={onBlur} disabled={readOnly} style={{ ...base, cursor:readOnly?"default":"pointer" }}>
           <option value="">-</option>
@@ -425,64 +431,145 @@ function SourcingItemCard({ item, onUpdate, onDelete }) {
 
 // ─── TAB: OVERVIEW ────────────────────────────────────────────────────────────
 
-function OverviewTab({ program, onUpdate, counts }) {
+function OverviewTab({ program, onUpdate, counts, goto, navigateToProject }) {
   const { orgId } = useAuth();
   const [editing, setEditing] = useState({});
+  const [showEdit, setShowEdit] = useState(false);
+  const [dateEdit, setDateEdit] = useState(false);
+  const [linked, setLinked] = useState(null);
+  const [issues, setIssues] = useState(null);
   const set=(f,v)=>setEditing(p=>({...p,[f]:v}));
   const fv=f=>f in editing?editing[f]:program[f];
   const saveAll=async()=>{
-    if(!Object.keys(editing).length)return;
+    if(!Object.keys(editing).length){ setShowEdit(false); return; }
     const NUMERIC_FIELDS=["target_gross_margin_pct","target_unit_price","development_budget"];
     const payload=Object.fromEntries(Object.entries(editing).map(([k,v])=>[k,NUMERIC_FIELDS.includes(k)&&v!==""?parseFloat(v):v===" "?null:v]));
     await supabase.from("plm_programs").update(payload).eq("org_id", orgId).eq("id",program.id);
-    onUpdate({...program,...editing}); setEditing({});
+    onUpdate({...program,...editing}); setEditing({}); setShowEdit(false);
   };
   const advanceStage=async k=>{ await supabase.from("plm_programs").update({current_stage:k}).eq("org_id", orgId).eq("id",program.id); onUpdate({...program,current_stage:k}); };
+  const saveDate=async v=>{ const d=v||null; await supabase.from("plm_programs").update({target_launch_date:d}).eq("org_id", orgId).eq("id",program.id); onUpdate({...program,target_launch_date:d}); setDateEdit(false); };
+
+  useEffect(()=>{
+    let alive=true; setLinked(null); setIssues(null);
+    (async()=>{
+      const [{data:pr},{data:iss}]=await Promise.all([
+        supabase.from("projects").select("id,name,color,status").eq("org_id", orgId).eq("plm_program_id",program.id).is("deleted_at",null).order("name"),
+        supabase.from("plm_issues").select("id,title,severity,status,identified_date,created_at").eq("org_id", orgId).eq("program_id",program.id).order("created_at",{ascending:false}),
+      ]);
+      if(!alive)return;
+      setIssues((iss||[]).filter(i=>i.status!=="resolved"&&i.status!=="closed"));
+      const ids=(pr||[]).map(p=>p.id); let tk=[];
+      if(ids.length){ const r=await supabase.from("tasks").select("id,status,due_date,project_id").in("project_id",ids).is("parent_task_id",null).is("deleted_at",null); tk=r.data||[]; }
+      if(!alive)return;
+      const t0=todayStr();
+      setLinked((pr||[]).map(p=>{ const mine=tk.filter(t=>t.project_id===p.id); const done=mine.filter(t=>t.status==="done"||t.status==="cancelled").length; return {...p,total:mine.length,done,late:mine.filter(t=>t.status!=="done"&&t.status!=="cancelled"&&t.due_date&&String(t.due_date).slice(0,10)<t0).length}; }));
+    })();
+    return ()=>{alive=false;};
+  },[program.id, orgId]);
+
+  const cur=STAGES.findIndex(x=>x.key===program.current_stage);
+  const late=isLate(program); const hasDate=!!program.target_launch_date; const n=hasDate?dayDiff(todayStr(),program.target_launch_date):0;
+  const money=v=>v===null||v===undefined||v===""?null:"$"+Number(v).toLocaleString("en-US",{maximumFractionDigits:2});
+  const dirty=Object.keys(editing).length>0;
   return (
-    <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:24 }}>
-      <div>
-        <Section title="Stage Gate">
-          <div style={{ display:"flex",gap:4,flexWrap:"wrap" }}>
-            {STAGES.map((s,i)=>{
-              const cur=STAGES.findIndex(x=>x.key===program.current_stage),done=i<cur,active=i===cur;
-              return <div key={s.key} onClick={()=>advanceStage(s.key)} title={s.desc} style={{ flex:1,minWidth:58,textAlign:"center",padding:"8px 4px",borderRadius:6,fontSize:10,fontWeight:700,cursor:"pointer",background:active?s.color+"30":done?s.color+"15":T.surface2,border:"1px solid "+(active?s.color:done?s.color+"60":T.border),color:active?s.color:done?s.color+"99":T.text3,transition:"all 0.15s" }}>{s.label}</div>;
-            })}
-          </div>
-        </Section>
-        <Section title="KPIs">
-          <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8 }}>
-            {[{label:"Formulas",val:counts.formulations,icon:"⚗️"},{label:"Experiments",val:counts.experiments,icon:"🔬"},{label:"Trials",val:counts.trials,icon:"🏭"},{label:"SKUs",val:counts.skus,icon:"📦"},{label:"Claims",val:counts.claims,icon:"✅"},{label:"Issues",val:counts.issues,icon:"⚠️"}].map(k=>(
-              <div key={k.label} style={{ background:T.surface2,border:"1px solid "+T.border,borderRadius:8,padding:"10px 12px" }}>
-                <div style={{ fontSize:18 }}>{k.icon}</div>
-                <div style={{ fontSize:22,fontWeight:700,color:T.text,lineHeight:1.2 }}>{k.val??0}</div>
-                <div style={{ fontSize:11,color:T.text3 }}>{k.label}</div>
-              </div>
-            ))}
-          </div>
-        </Section>
-        <Section title="Financial Targets">
-          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
-            <InlineField label="GM% Target" value={fv("target_gross_margin_pct")} onChange={v=>set("target_gross_margin_pct",v)} type="number" placeholder="e.g. 65" />
-            <InlineField label="Target Unit Price ($)" value={fv("target_unit_price")} onChange={v=>set("target_unit_price",v)} type="number" placeholder="e.g. 29.99" />
-          </div>
-          <InlineField label="Development Budget ($)" value={fv("development_budget")} onChange={v=>set("development_budget",v)} type="number" />
-        </Section>
+    <div style={{ maxWidth:1240,display:"flex",flexDirection:"column",gap:16 }}>
+      <div className="plm-panel" style={{ paddingBottom:14 }}>
+        <div className="plm-gate">
+          {STAGES.map((s,i)=>{
+            const done=i<cur,active=i===cur;
+            return <button key={s.key} className={active?"on":done?"done":""} style={{ "--c":s.color }} onClick={()=>{ if(!active) advanceStage(s.key); }} title={s.label+" — "+s.desc}><span className="bar" /><span className="lb">{s.label}</span></button>;
+          })}
+        </div>
+        {cur>=0&&<div style={{ fontSize:12.5,color:T.text2,marginTop:12,lineHeight:1.5,maxWidth:860 }}><b style={{ color:T.text,fontWeight:600 }}>Stage {cur+1} of {STAGES.length}.</b> {STAGES[cur].desc}</div>}
       </div>
-      <div>
-        <Section title="Program Details">
-          <InlineField label="Program Name" value={fv("name")} onChange={v=>set("name",v)} />
-          <InlineField label="Type" value={fv("program_type")} onChange={v=>set("program_type",v)} options={["new_product","line_extension","reformulation","cost_reduction","packaging_change","claim_addition","market_expansion","renovation","private_label","co_manufacturing"].map(t=>({value:t,label:t.replace(/_/g," ")}))} />
+
+      <div style={{ display:"flex",gap:16,flexWrap:"wrap",alignItems:"flex-start" }}>
+        <div style={{ flex:"999 1 520px",minWidth:0,display:"flex",flexDirection:"column",gap:16 }}>
+          <div className="plm-panel">
+            <div className="plm-h4"><span style={{ flex:1 }}>About</span><button className="hw-btn ghost sm" onClick={()=>setShowEdit(true)}>Edit</button></div>
+            <div style={{ whiteSpace:"pre-wrap",lineHeight:1.55,color:program.description?T.text:T.text3 }}>{program.description||"No description yet. Say what this product is, who it is for and what done looks like."}</div>
+          </div>
+
+          <div className="plm-panel">
+            <div className="plm-h4"><span style={{ flex:1 }}>Linked projects{linked&&linked.length>0&&<span style={{ color:T.text3,fontWeight:500 }}> {linked.length}</span>}</span>{goto&&<button className="hw-btn ghost sm" onClick={()=>goto("linked_work")}>See linked tasks</button>}</div>
+            {linked===null?<div style={{ color:T.text3 }}>Loading…</div>
+            :linked.length===0?<div style={{ color:T.text3 }}>No projects linked yet. In Projects, edit a project and set its PLM product to this program.</div>
+            :linked.map(p=>{ const pct=p.total?Math.round((p.done/p.total)*100):0; return (
+              <div key={p.id} className="plm-li" style={{ minHeight:46 }} onClick={()=>navigateToProject&&navigateToProject(p.id)}>
+                <span style={{ width:10,height:10,borderRadius:3.5,flex:"none",background:p.color||T.accent }} />
+                <span className="t"><b>{p.name}</b></span>
+                <span style={{ width:140,flex:"none" }}><Progress value={pct} color="var(--green)" /></span>
+                <span className="hw-num" style={{ fontSize:12.5,color:T.text2,whiteSpace:"nowrap",width:150,textAlign:"right" }}>{p.done}/{p.total} done{p.late>0&&<span className="plm-late"> · {p.late} late</span>}</span>
+              </div>); })}
+          </div>
+
+          <div className="plm-panel">
+            <div className="plm-h4"><span style={{ flex:1 }}>Open issues{issues&&issues.length>0&&<span style={{ color:T.text3,fontWeight:500 }}> {issues.length}</span>}</span>{goto&&<button className="hw-btn ghost sm" onClick={()=>goto("issues")}>See all</button>}</div>
+            {issues===null?<div style={{ color:T.text3 }}>Loading…</div>
+            :issues.length===0?<div style={{ color:T.text3 }}>No open issues.</div>
+            :issues.slice(0,6).map(i=>(
+              <div key={i.id} className="plm-li" onClick={()=>goto&&goto("issues")}>
+                <Chip t={i.severity==="critical"||i.severity==="high"?"coral":"amber"}>{i.severity?i.severity.charAt(0).toUpperCase()+i.severity.slice(1):"Open"}</Chip>
+                <span className="t"><b style={{ fontWeight:500 }}>{i.title||"Untitled issue"}</b></span>
+                <span className="hw-num" style={{ fontSize:12.5,color:T.text3,whiteSpace:"nowrap" }}>{fmtDay(i.identified_date||i.created_at)}</span>
+              </div>))}
+          </div>
+        </div>
+
+        <div style={{ flex:"1 1 320px",maxWidth:"100%",display:"flex",flexDirection:"column",gap:16 }}>
+          <div className="plm-panel">
+            <div style={{ fontSize:12.5,fontWeight:550,color:T.text3 }}>Target launch</div>
+            <div className="plm-big" style={{ marginTop:4,color:hasDate?T.text:T.text3 }}>{hasDate?fmtDay(program.target_launch_date):"Not set"}</div>
+            {hasDate&&program.current_stage!=="launched"&&<div style={{ marginTop:4,fontWeight:650,color:late?T.red:T.text2 }}>{late?`${n} days past target`:n===0?"Today":`${-n} days to go`}</div>}
+            {dateEdit
+              ?<input type="date" autoFocus className="hw-input" style={{ marginTop:12 }} defaultValue={program.target_launch_date?String(program.target_launch_date).slice(0,10):""} onBlur={e=>{ const v=e.target.value; if(v!==(program.target_launch_date?String(program.target_launch_date).slice(0,10):"")) saveDate(v); else setDateEdit(false); }} onKeyDown={e=>{ if(e.key==="Enter") e.currentTarget.blur(); if(e.key==="Escape") setDateEdit(false); }} />
+              :<button className="hw-btn" style={{ marginTop:12,width:"100%",justifyContent:"center" }} onClick={()=>setDateEdit(true)}>{hasDate?"Set a new date":"Set a target date"}</button>}
+          </div>
+
+          <div className="plm-panel">
+            <div className="plm-h4">Targets</div>
+            <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
+              <div><div className="plm-big" style={{ fontSize:24,color:program.target_gross_margin_pct?T.green:T.text3 }}>{program.target_gross_margin_pct?program.target_gross_margin_pct+"%":"—"}</div><div style={{ fontSize:12.5,color:T.text3 }}>Gross margin</div></div>
+              <div><div className="plm-big" style={{ fontSize:24,color:money(program.target_unit_price)?T.text:T.text3 }}>{money(program.target_unit_price)||"—"}</div><div style={{ fontSize:12.5,color:T.text3 }}>Unit price</div></div>
+            </div>
+            <div style={{ marginTop:12,paddingTop:10,borderTop:"1px solid var(--line)",fontSize:13,color:T.text2,display:"flex",justifyContent:"space-between" }}><span>Development budget</span><span style={{ color:money(program.development_budget)?T.text:T.text3 }}>{money(program.development_budget)||"Not set"}</span></div>
+          </div>
+
+          <div className="plm-panel">
+            <div className="plm-h4"><span style={{ flex:1 }}>Details</span><button className="hw-btn ghost sm" onClick={()=>setShowEdit(true)}>Edit</button></div>
+            <div className="plm-drow"><span>Type</span><span style={{ textTransform:"capitalize" }}>{program.program_type?program.program_type.replace(/_/g," "):"—"}</span></div>
+            <div className="plm-drow"><span>Brand</span><span>{program.brand||"—"}</span></div>
+            <div className="plm-drow"><span>Priority</span><span><PriorityBadge priority={program.priority} /></span></div>
+            <div className="plm-drow"><span>Markets</span><span>{(program.target_markets_v2||[]).join(", ")||"—"}</span></div>
+            <div className="plm-drow"><span>Channels</span><span>{(program.channels_v2||[]).join(", ")||"—"}</span></div>
+          </div>
+
+          <div className="plm-panel" style={{ paddingTop:14,paddingBottom:14 }}>
+            <div style={{ display:"grid",gridTemplateColumns:"repeat(3,minmax(0,1fr))",gap:"12px 10px" }}>
+              {[["Formulas",counts.formulations,"formulations"],["Experiments",counts.experiments,"experiments"],["Trials",counts.trials,"trials"],["SKUs",counts.skus,"skus"],["Claims",counts.claims,"claims_sub"],["Issues",counts.issues,"issues"]].map(([label,val,key])=>(
+                <button key={key} className="plm-cnt" onClick={()=>goto&&goto(key)}><b>{val??0}</b><span>{label}</span></button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {showEdit&&<Modal title="Program details" onClose={()=>{ setShowEdit(false); setEditing({}); }} width={640} footer={<><button className="hw-btn ghost" onClick={()=>{ setShowEdit(false); setEditing({}); }}>Cancel</button><button className="hw-btn primary" onClick={saveAll}>Save changes</button></>}>
+        <InlineField label="Program name" value={fv("name")} onChange={v=>set("name",v)} />
+        <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
+          <InlineField label="Type" value={fv("program_type")} onChange={v=>set("program_type",v)} options={PROGRAM_TYPES.map(t=>({value:t,label:t.replace(/_/g," ")}))} />
           <InlineField label="Priority" value={fv("priority")} onChange={v=>set("priority",v)} options={["critical","high","medium","low"].map(p=>({value:p,label:p}))} />
           <InlineField label="Brand" value={fv("brand")} onChange={v=>set("brand",v)} />
-          <InlineField label="Target Launch Date" value={fv("target_launch_date")} onChange={v=>set("target_launch_date",v)} type="date" />
-          <MultiSelectDropdown label="Target Markets" value={fv("target_markets_v2")||[]} onChange={v=>set("target_markets_v2",v)} options={TARGET_MARKETS} />
-          <MultiSelectDropdown label="Channels" value={fv("channels_v2")||[]} onChange={v=>set("channels_v2",v)} options={CHANNELS_LIST} />
-          <InlineField label="Description" value={fv("description")} onChange={v=>set("description",v)} multiline />
-        </Section>
-        <button onClick={saveAll} style={{ width:"100%",padding:10,fontSize:13,fontWeight:600,borderRadius:6,cursor:"pointer",background:Object.keys(editing).length?T.accent:T.surface2,color:Object.keys(editing).length?"#fff":T.text3,border:"1px solid "+(Object.keys(editing).length?T.accent:T.border),transition:"all 0.15s" }}>
-          {Object.keys(editing).length?"Save Changes":"No Unsaved Changes"}
-        </button>
-      </div>
+          <InlineField label="Target launch date" value={fv("target_launch_date")} onChange={v=>set("target_launch_date",v)} type="date" />
+          <InlineField label="GM% target" value={fv("target_gross_margin_pct")} onChange={v=>set("target_gross_margin_pct",v)} type="number" placeholder="e.g. 65" />
+          <InlineField label="Target unit price ($)" value={fv("target_unit_price")} onChange={v=>set("target_unit_price",v)} type="number" placeholder="e.g. 29.99" />
+        </div>
+        <InlineField label="Development budget ($)" value={fv("development_budget")} onChange={v=>set("development_budget",v)} type="number" />
+        <MultiSelectDropdown label="Target markets" value={fv("target_markets_v2")||[]} onChange={v=>set("target_markets_v2",v)} options={TARGET_MARKETS} />
+        <MultiSelectDropdown label="Channels" value={fv("channels_v2")||[]} onChange={v=>set("channels_v2",v)} options={CHANNELS_LIST} />
+        <InlineField label="Description" value={fv("description")} onChange={v=>set("description",v)} multiline />
+      </Modal>}
     </div>
   );
 }
@@ -841,7 +928,7 @@ Respond ONLY with a JSON array:
 
   const typeIcon = { exact: "🔍", function: "⚙", outcome: "🎯" };
   const typeLabel = { exact: "Exact Ingredient", function: "By Function", outcome: "By Outcome" };
-  const statusColor = { draft: T.text3, searching: "#f59e0b", results_ready: "#22c55e", sourcing: T.accent, ordered: "#8b5cf6" };
+  const statusColor = { draft: T.text3, searching: "#eab308", results_ready: "#22c55e", sourcing: T.accent, ordered: "#8b5cf6" };
 
   if (loading) return <div style={{ color: T.text3, fontSize: 13 }}>Loading…</div>;
 
@@ -1023,7 +1110,7 @@ Respond ONLY with a JSON array:
                           {s.price_per_kg ? "$" + Number(s.price_per_kg).toFixed(2) : "-"}
                         </td>
                         <td style={{ padding: "8px 10px", textAlign: "center" }}>
-                          <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 36, height: 20, borderRadius: 10, fontSize: 11, fontWeight: 700, background: (s.ai_fit_score >= 80 ? "#22c55e" : s.ai_fit_score >= 60 ? "#f59e0b" : "#ef4444") + "20", color: s.ai_fit_score >= 80 ? "#22c55e" : s.ai_fit_score >= 60 ? "#f59e0b" : "#ef4444" }}>
+                          <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 36, height: 20, borderRadius: 10, fontSize: 11, fontWeight: 700, background: (s.ai_fit_score >= 80 ? "#22c55e" : s.ai_fit_score >= 60 ? "#eab308" : "#ef4444") + "20", color: s.ai_fit_score >= 80 ? "#22c55e" : s.ai_fit_score >= 60 ? "#eab308" : "#ef4444" }}>
                             {s.ai_fit_score || "-"}
                           </span>
                         </td>
@@ -1173,7 +1260,7 @@ JSON array only:
   };
 
   const typeIcon = { exact: "🔍", function: "⚙", outcome: "🎯" };
-  const statusColor = { draft: T.text3, searching: "#f59e0b", results_ready: "#22c55e", sourcing: T.accent };
+  const statusColor = { draft: T.text3, searching: "#eab308", results_ready: "#22c55e", sourcing: T.accent };
 
   return (
     <div>
@@ -1337,7 +1424,7 @@ JSON array only:
                         </td>
                         <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: 700, color: T.text }}>{s.price_per_kg ? "$" + Number(s.price_per_kg).toFixed(2) : "-"}</td>
                         <td style={{ padding: "8px 10px", textAlign: "center" }}>
-                          <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 36, height: 20, borderRadius: 10, fontSize: 11, fontWeight: 700, background: (s.ai_fit_score >= 80 ? "#22c55e" : s.ai_fit_score >= 60 ? "#f59e0b" : "#ef4444") + "20", color: s.ai_fit_score >= 80 ? "#22c55e" : s.ai_fit_score >= 60 ? "#f59e0b" : "#ef4444" }}>{s.ai_fit_score || "-"}</span>
+                          <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 36, height: 20, borderRadius: 10, fontSize: 11, fontWeight: 700, background: (s.ai_fit_score >= 80 ? "#22c55e" : s.ai_fit_score >= 60 ? "#eab308" : "#ef4444") + "20", color: s.ai_fit_score >= 80 ? "#22c55e" : s.ai_fit_score >= 60 ? "#eab308" : "#ef4444" }}>{s.ai_fit_score || "-"}</span>
                         </td>
                         <td style={{ padding: "8px 10px", fontSize: 11, color: T.text2, maxWidth: 240, lineHeight: 1.5 }}>{s.ai_reasoning}</td>
                       </tr>
@@ -2773,7 +2860,7 @@ function AIAgentTab({ program }) {
     if (activeConvId === id) startNew();
   };
 
-  const activeMode = { key: "advisor", icon: "🧪", label: "R&D Advisor", desc: "Formulation, sourcing, manufacturing, troubleshooting, DOE, regulatory - all in one place", color: "#a855f7" };
+  const activeMode = { key: "advisor", icon: "🧪", label: "R&D Advisor", desc: "Formulation, sourcing, manufacturing, troubleshooting, DOE, regulatory - all in one place", color: "#8b5cf6" };
 
   if (printingChat) return (
     <Suspense fallback={<div style={{ padding: 40, color: T.text3 }}>Loading print view...</div>}>
@@ -2860,9 +2947,9 @@ function AIAgentTab({ program }) {
 
           {messages.map((msg, i) => (
             <div key={i} style={{ display: "flex", gap: 10, flexDirection: msg.role === "user" ? "row-reverse" : "row" }}>
-              <div style={{ width: 28, height: 28, borderRadius: 14, background: msg.role === "user" ? T.accent + "30" : "#a855f720",
+              <div style={{ width: 28, height: 28, borderRadius: 14, background: msg.role === "user" ? T.accent + "30" : "#8b5cf620",
                 display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, flexShrink: 0,
-                color: msg.role === "user" ? T.accent : "#a855f7" }}>
+                color: msg.role === "user" ? T.accent : "#8b5cf6" }}>
                 {msg.role === "user" ? "You" : "\uD83E\uDDEA"}
               </div>
               <div style={{ maxWidth: "85%", padding: "10px 14px", borderRadius: 12,
@@ -2892,7 +2979,7 @@ function AIAgentTab({ program }) {
 
           {loading && (
             <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-              <div style={{ width: 28, height: 28, borderRadius: 14, background: "#a855f720", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12 }}>{"\uD83E\uDDEA"}</div>
+              <div style={{ width: 28, height: 28, borderRadius: 14, background: "#8b5cf620", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12 }}>{"\uD83E\uDDEA"}</div>
               <div style={{ padding: "10px 14px", borderRadius: 12, background: T.surface2, border: `1px solid ${T.border}` }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <span style={{ fontSize: 13, color: T.text3 }}>Researching and checking your formulas (web research can take a minute)</span>
@@ -2974,7 +3061,7 @@ function LinkedWorkTab({ programId, navigateTo, navigateToProject }) {
   }, [programId, orgId]);
 
   const PSTATUS = { active:["#22c55e","Active"], on_hold:["#eab308","On Hold"], completed:["#3b82f6","Completed"], archived:["#6b7280","Archived"] };
-  const TSTATUS = { todo:["#6b7280","To Do"], in_progress:["#3b82f6","In Progress"], in_review:["#a855f7","In Review"], blocked:["#ef4444","Blocked"], done:["#22c55e","Done"], cancelled:["#6b7280","Cancelled"] };
+  const TSTATUS = { todo:["#6b7280","To Do"], in_progress:["#3b82f6","In Progress"], in_review:["#8b5cf6","In Review"], blocked:["#ef4444","Blocked"], done:["#22c55e","Done"], cancelled:["#6b7280","Cancelled"] };
   const pill = (def) => { const [c,l] = def; return <span style={{ fontSize:10,fontWeight:700,background:c+"18",color:c,padding:"2px 8px",borderRadius:4,whiteSpace:"nowrap" }}>{l}</span>; };
 
   if (projects === null) return <div style={{ color:T.text3,fontSize:13 }}>Loading linked work…</div>;
@@ -3020,9 +3107,33 @@ function LinkedWorkTab({ programId, navigateTo, navigateToProject }) {
   );
 }
 
+// Wraps PLM in the shared component styles (same primitives as the new Projects), coloured from the Helm theme.
+function PlmShell({ children }) {
+  const { mode, tokens } = useTheme();
+  const m = mode === "dark" ? "dark" : "light";
+  const theme = { mode: m, vars: themeVars(tokens, m === "dark") };
+  return <ModeProvider value={theme}><style dangerouslySetInnerHTML={{ __html: PLM_CSS + PLM_HOME_CSS }} /><div className="hw plm" data-mode={m} style={theme.vars}>{children}</div></ModeProvider>;
+}
+// Tab labels used to carry emoji; the new look is text only.
+const plainLabel = (l) => String(l).replace(/^[^A-Za-z0-9]+/, "");
+
+// The 14 program sections, grouped into seven tabs.
+const PROGRAM_GROUPS = [
+  { key:"overview",  label:"Overview",  sections:["overview"] },
+  { key:"projects",  label:"Projects",  sections:["linked_work"] },
+  { key:"formulate", label:"Formulate", sections:["formulations","experiments","trials"] },
+  { key:"source",    label:"Source",    sections:["sourcing","gm_scenarios"] },
+  { key:"prove",     label:"Prove",     sections:["claims_sub","reg_claims","test_results"] },
+  { key:"launch",    label:"Launch",    sections:["skus","issues","gate_reviews"] },
+  { key:"ai",        label:"AI agent",  sections:["ai_agent"] },
+];
+const SECTION_LABEL = Object.fromEntries(DETAIL_TABS.map(t=>[t.key, plainLabel(t.label)]));
+const SECTION_COUNT = { formulations:"formulations", experiments:"experiments", trials:"trials", skus:"skus", issues:"issues", claims_sub:"claims" };
+
 function ProgramDetail({ program, onBack, onUpdate, onDelete, navigateTo, navigateToProject, linkCount }) {
   const { orgId } = useAuth();
   const [tab, setTab] = useState("overview");
+  const [lastIn, setLastIn] = useState({});
   const [counts, setCounts] = useState({});
 
   useEffect(()=>{
@@ -3040,11 +3151,16 @@ function ProgramDetail({ program, onBack, onUpdate, onDelete, navigateTo, naviga
     load();
   },[program.id]);
 
+  const group = PROGRAM_GROUPS.find(g=>g.sections.includes(tab)) || PROGRAM_GROUPS[0];
+  const goto = (section) => { const g = PROGRAM_GROUPS.find(x=>x.sections.includes(section)); if (g) setLastIn(p=>({ ...p, [g.key]: section })); setTab(section); };
+  const openGroup = (g) => setTab(lastIn[g.key] || g.sections[0]);
+
   const renderTab=()=>{
     switch(tab){
-      case "overview":     return <OverviewTab program={program} onUpdate={onUpdate} counts={counts} />;
+      case "overview":     return <OverviewTab program={program} onUpdate={onUpdate} counts={counts} goto={goto} navigateToProject={navigateToProject} />;
       case "linked_work":  return <LinkedWorkTab programId={program.id} navigateTo={navigateTo} navigateToProject={navigateToProject} />;
-      case "ai_agent":     return <AIAgentTab program={program} />;      case "claims_sub":   return <ClaimsSubstantiationTab program={program} onUpdate={onUpdate} />;
+      case "ai_agent":     return <AIAgentTab program={program} />;
+      case "claims_sub":   return <ClaimsSubstantiationTab program={program} onUpdate={onUpdate} />;
       case "gm_scenarios": return <GMScenarioTab program={program} />;
       case "formulations": return <FormulationsTab programId={program.id} />;
       case "sourcing":     return <Suspense fallback={<div style={{padding:30,color:T.text3}}>Loading sourcing…</div>}><PLMSourcingTab program={program} /></Suspense>;
@@ -3059,32 +3175,34 @@ function ProgramDetail({ program, onBack, onUpdate, onDelete, navigateTo, naviga
     }
   };
 
+  const stage = STAGE_MAP[program.current_stage];
+  const next = STAGES[STAGES.findIndex(s=>s.key===program.current_stage)+1];
+  const moveNext = async () => { if(!next||!confirm(`Move "${program.name}" to ${next.label}?`))return; await supabase.from("plm_programs").update({current_stage:next.key}).eq("org_id", orgId).eq("id",program.id); onUpdate({...program,current_stage:next.key}); };
   return (
-    <div style={{ display:"flex",flexDirection:"column",height:"100%" }}>
-      <div style={{ padding:"14px 24px",borderBottom:"1px solid "+T.border,display:"flex",alignItems:"center",gap:12,flexShrink:0 }}>
-        <button onClick={onBack} style={{ background:"none",border:"1px solid "+T.border,color:T.text2,cursor:"pointer",borderRadius:6,padding:"4px 10px",fontSize:12 }}>← Back</button>
-        <div style={{ flex:1 }}>
-          <div style={{ display:"flex",alignItems:"center",gap:10,flexWrap:"wrap" }}>
-            <div style={{ fontSize:18,fontWeight:700,color:T.text }}>{program.name}</div>
-            <StageBadge stage={program.current_stage} />
-            <PriorityBadge priority={program.priority} />
-            {program.target_gross_margin_pct&&<span style={{ fontSize:11,fontWeight:700,background:"#22c55e15",color:"#22c55e",padding:"2px 8px",borderRadius:4 }}>GM% Target: {program.target_gross_margin_pct}%</span>}
-            {(program.target_markets_v2||[]).map(m=><span key={m} style={{ fontSize:10,fontWeight:700,background:T.surface3,color:T.text3,padding:"2px 7px",borderRadius:4 }}>{m}</span>)}
-          </div>
-          {program.code&&<div style={{ fontSize:11,color:T.text3,marginTop:2 }}>{program.code}</div>}
+    <PlmShell>
+      <div className="plm-top">
+        <button className="hw-btn ghost sm" style={{ marginLeft:-8 }} onClick={onBack}><Icon name="chevL" size={14} />All programs</button>
+        <div style={{ display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",minHeight:36,marginTop:2 }}>
+          <span style={{ width:28,height:28,borderRadius:8,background:stage?.color||T.accent,flex:"none" }} />
+          <h1 className="hw-trunc">{program.name}</h1>
+          <StageBadge stage={program.current_stage} />
+          <PriorityBadge priority={program.priority} />
+          {program.code&&<span style={{ fontSize:12,color:T.text3 }}>{program.code}</span>}
+          <span style={{ flex:1 }} />
+          {onDelete && <button className="hw-btn ghost sm danger" onClick={()=>{if(confirm(`Delete "${program.name}"? This will soft-delete the program and all its data. This cannot be undone from the UI.`))onDelete();}}><Icon name="trash" size={14} />Delete</button>}
+          {next && <button className="hw-btn primary" onClick={moveNext}>Move to {next.label}<Icon name="arrowR" size={14} /></button>}
         </div>
-        {onDelete && <button onClick={()=>{if(confirm(`Delete "${program.name}"? This will soft-delete the program and all its data. This cannot be undone from the UI.`))onDelete();}} style={{ background:"none",border:"1px solid #ef444440",color:"#ef4444",cursor:"pointer",borderRadius:6,padding:"4px 12px",fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:4 }} onMouseEnter={e=>{e.currentTarget.style.background="#ef444415";}} onMouseLeave={e=>{e.currentTarget.style.background="none";}}>
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>
-          Delete
-        </button>}
+        <div className="hw-tabs hw-scroll" style={{ marginTop:8,overflowX:"auto" }}>
+          {PROGRAM_GROUPS.map(g=>(
+            <button key={g.key} className={"hw-tab"+(group.key===g.key?" on":"")} onClick={()=>openGroup(g)}>{g.label}{g.key==="projects"&&linkCount?<span className="hw-num" style={{ fontSize:11,color:T.text3 }}>{linkCount}</span>:null}</button>
+          ))}
+        </div>
       </div>
-      <div style={{ display:"flex",gap:0,borderBottom:"1px solid "+T.border,paddingLeft:24,flexShrink:0,overflowX:"auto" }}>
-        {DETAIL_TABS.map(t=>(
-          <button key={t.key} onClick={()=>setTab(t.key)} style={{ background:"none",border:"none",cursor:"pointer",padding:"10px 12px",fontSize:11,fontWeight:600,whiteSpace:"nowrap",color:tab===t.key?T.accent:T.text3,borderBottom:"2px solid "+(tab===t.key?T.accent:"transparent"),transition:"color 0.15s" }}>{t.key==="linked_work"&&linkCount?`${t.label} (${linkCount})`:t.label}</button>
-        ))}
-      </div>
-      <div style={{ flex:1,overflow:"auto",padding:"20px 24px" }} className="content-area">{renderTab()}</div>
-    </div>
+      {group.sections.length>1 && <div className="plm-bar">
+        <div className="hw-seg">{group.sections.map(s=>{ const c=SECTION_COUNT[s]?counts[SECTION_COUNT[s]]:null; return <button key={s} className={tab===s?"on":""} onClick={()=>goto(s)}>{SECTION_LABEL[s]}{c>0?<span className="hw-num" style={{ marginLeft:6,color:T.text3 }}>{c}</span>:null}</button>; })}</div>
+      </div>}
+      <div className="plm-body content-area" style={tab==="overview"?undefined:{ background:T.surface }}>{renderTab()}</div>
+    </PlmShell>
   );
 }
 
@@ -3332,7 +3450,11 @@ export default function PLMView({ navigateTo, navigateToProject } = {}) {
   const [programs, setPrograms] = useState([]);
   const [selected, setSelected] = useState(null);
   const [loading, setLoading]   = useState(true);
-  const [view, setView]         = useState("pipeline");
+  const [view, setView]         = useState("programs");
+  const [scope, setScope]       = useState("flight");
+  const [layout, _setLayout]    = useState(() => { try { return localStorage.getItem("helm_plm_layout") === "board" ? "board" : "list"; } catch { return "list"; } });
+  const setLayout = (v) => { _setLayout(v); try { localStorage.setItem("helm_plm_layout", v); } catch {} };
+  const [runwayMode, setRunwayMode] = useState("programs");
   const [showNew, setShowNew]   = useState(false);
   const [search, setSearch]     = useState("");
   const [allSkus, setAllSkus]   = useState([]);
@@ -3369,99 +3491,88 @@ export default function PLMView({ navigateTo, navigateToProject } = {}) {
 
   if(selected)return <ProgramDetail program={selected} onBack={()=>setSelected(null)} onUpdate={handleUpdate} onDelete={()=>deleteProgram(selected.id)} navigateTo={navigateTo} navigateToProject={navigateToProject} linkCount={linkCounts[selected.id]||0} />;
 
+  const inFlight=programs.filter(p=>p.current_stage!=="launched");
+  const stats=[{label:"programs",val:programs.length},{label:"in flight",val:inFlight.length},{label:"past target launch",val:inFlight.filter(isLate).length,warn:true},{label:"launched",val:programs.length-inFlight.length}];
+  const shown=filtered.filter(p=>scope==="all"||(scope==="launched"?p.current_stage==="launched":p.current_stage!=="launched"));
+  const fmtLaunch=fmtDay;
   return (
-    <div style={{ display:"flex",flexDirection:"column",height:"100%" }}>
-      <div style={{ padding:"14px 24px",borderBottom:"1px solid "+T.border,display:"flex",alignItems:"center",gap:12,flexShrink:0 }}>
-        <div style={{ fontSize:18,fontWeight:700,color:T.text,flex:1 }}>Product Lifecycle</div>
-        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search programs…" style={{ fontSize:12,padding:"6px 12px",background:T.surface2,border:"1px solid "+T.border,borderRadius:7,color:T.text,width:200,outline:"none" }} />
-        <div style={{ display:"flex",background:T.surface2,border:"1px solid "+T.border,borderRadius:6,overflow:"hidden" }}>
-          {[["pipeline","⬢ Pipeline"],["roadmap","📅 Roadmap"],["list","☰ List"],["library","🧪 Library"],["ai","🤖 AI Agent"]].map(([k,label])=>(
-            <button key={k} onClick={()=>setView(k)} style={{ padding:"5px 12px",fontSize:12,fontWeight:600,background:view===k?T.accent:"transparent",color:view===k?"#fff":T.text3,border:"none",cursor:"pointer" }}>{label}</button>
+    <PlmShell>
+      <div className="plm-top">
+        <div style={{ display:"flex",alignItems:"center",gap:18,flexWrap:"wrap",minHeight:36 }}>
+          <h1>Product lifecycle</h1>
+          <div style={{ display:"flex",gap:18,flexWrap:"wrap",flex:1 }}>{stats.map(k=><span key={k.label} className="plm-stat"><b style={k.warn&&k.val?{ color:T.red }:undefined}>{k.val}</b>{k.label}</span>)}</div>
+          <button className="hw-btn primary" onClick={()=>setShowNew(true)}><Icon name="plus" size={15} sw={2.2} />New program</button>
+        </div>
+        <div className="hw-tabs" style={{ marginTop:8 }}>
+          {[["programs","Programs","list"],["runway","Runway","timeline"],["dashboard","Dashboard","chart"],["library","Library","folder"],["ai","AI agent","zap"]].map(([k,label,icon])=>(
+            <button key={k} className={"hw-tab"+(view===k?" on":"")} onClick={()=>setView(k)}><Icon name={icon} size={15} />{label}</button>
           ))}
         </div>
-        <button onClick={()=>setShowNew(true)} style={{ padding:"6px 14px",fontSize:12,fontWeight:600,background:T.accent,color:"#fff",border:"none",borderRadius:6,cursor:"pointer" }}>+ New Program</button>
-      </div>
-
-      <div style={{ display:"flex",gap:0,borderBottom:"1px solid "+T.border,padding:"0 24px",flexShrink:0 }}>
-        {[{label:"Total Programs",val:programs.length},{label:"In Development",val:programs.filter(p=>["development","optimization","validation"].includes(p.current_stage)).length},{label:"Launch Ready",val:programs.filter(p=>p.current_stage==="launch_ready").length},{label:"Launched",val:programs.filter(p=>p.current_stage==="launched").length}].map(k=>(
-          <div key={k.label} style={{ padding:"12px 20px",borderRight:"1px solid "+T.border }}>
-            <div style={{ fontSize:18,fontWeight:700,color:T.text }}>{k.val}</div>
-            <div style={{ fontSize:11,color:T.text3 }}>{k.label}</div>
-          </div>
-        ))}
       </div>
 
       {view==="ai" ? (
-        <div style={{ flex:1,overflow:"hidden",display:"flex",flexDirection:"column",padding:"0 24px 0 24px" }}>
+        <div style={{ flex:1,overflow:"hidden",display:"flex",flexDirection:"column",padding:"0 24px 0 24px",background:T.surface }}>
           <AIAgentTab program={null} />
         </div>
       ) : view==="library" ? (
-        <div style={{ flex:1,overflow:"hidden",display:"flex",flexDirection:"column" }}>
+        <div style={{ flex:1,overflow:"hidden",display:"flex",flexDirection:"column",background:T.surface }}>
           <PLMLibraryView />
         </div>
-      ) : view==="roadmap" ? (
-        <div style={{ flex:1,overflow:"auto",padding:"20px 24px" }}>
-          <ProductRoadmap programs={programs} allSkus={allSkus} onSelectProgram={setSelected} isMobile={isMobile} />
+      ) : view==="dashboard" ? (
+        <div className="plm-body">
+          {loading?<div style={{ color:T.text3,fontSize:13 }}>Loading programs…</div>:<LaunchDashboard programs={programs} stages={STAGES} linkCounts={linkCounts} onOpen={setSelected} onRunway={()=>setView("runway")} />}
         </div>
-      ) : (
-        <div style={{ flex:1,overflow:"auto",padding:"20px 24px" }}>
-        {loading?<div style={{ color:T.text3,fontSize:13 }}>Loading programs…</div>
-        :filtered.length===0?<EmptyState icon="⬡" text={search?"No programs match your search":"No programs yet - create your first one"} />
-        :view==="pipeline"?(
-          <div style={{ display:"flex",gap:12,overflowX:"auto",paddingBottom:16 }}>
+      ) : view==="runway" ? (<>
+        <div className="plm-bar">
+          <Seg value={runwayMode} options={[["programs","Program targets"],["skus","SKU roadmap"]]} onChange={setRunwayMode} />
+        </div>
+        <div className="plm-body">
+          {runwayMode==="skus"?<ProductRoadmap programs={programs} allSkus={allSkus} onSelectProgram={setSelected} isMobile={isMobile} />
+          :loading?<div style={{ color:T.text3,fontSize:13 }}>Loading programs…</div>:<Runway programs={programs} stages={STAGES} onOpen={setSelected} />}
+        </div>
+      </>) : (<>
+        <div className="plm-bar">
+          <Seg value={scope} options={[["flight","In flight"],["launched","Launched"],["all","All"]]} onChange={setScope} />
+          <Seg value={layout} options={[["list","List"],["board","Board"]]} onChange={setLayout} />
+          <span style={{ flex:1 }} />
+          <span className="hw-num" style={{ fontSize:12,color:T.text3 }}>{shown.length} {shown.length===1?"program":"programs"}</span>
+          <label style={{ display:"flex",alignItems:"center",gap:7,height:30,padding:"0 10px",borderRadius:7,border:"1px solid var(--line2)",color:"var(--ink3)",width:220,background:"var(--surface)" }}><Icon name="search" size={15} /><input className="hw-bare" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search programs" /></label>
+        </div>
+        {loading?<div className="plm-body" style={{ color:T.text3,fontSize:13 }}>Loading programs…</div>
+        :shown.length===0?<div className="plm-body"><EmptyState text={search?"No programs match your search":scope==="launched"?"Nothing has launched yet.":"No programs yet. Create your first one."} /></div>
+        :layout==="list"?<ProgramList programs={shown} stages={STAGES} linkCounts={linkCounts} onOpen={setSelected} onDelete={deleteProgram} />
+        :(
+        <div className="plm-body">
+          <div className="plm-pipe">
             {STAGES.map(stage=>{
-              const sp=filtered.filter(p=>p.current_stage===stage.key);
+              const sp=shown.filter(p=>p.current_stage===stage.key);
+              if(!sp.length)return <div key={stage.key} className="plm-col slim" title={stage.label+" — "+stage.desc}><span className="hw-dot" style={{ background:stage.color }} /><span className="vt">{stage.label}</span></div>;
               return (
-                <div key={stage.key} style={{ minWidth:200,flexShrink:0 }}>
-                  <div style={{ display:"flex",alignItems:"center",gap:6,marginBottom:10 }} title={stage.desc}>
-                    <div style={{ width:8,height:8,borderRadius:"50%",background:stage.color }} />
-                    <div style={{ fontSize:11,fontWeight:700,color:T.text2,textTransform:"uppercase",letterSpacing:0.5 }}>{stage.label}</div>
-                    <div style={{ marginLeft:"auto",fontSize:11,color:T.text3,background:T.surface2,borderRadius:4,padding:"1px 6px" }}>{sp.length}</div>
-                  </div>
+                <div key={stage.key} className="plm-col">
+                  <div className="plm-col-h" title={stage.desc}><span className="hw-dot" style={{ background:stage.color }} /><b>{stage.label}</b><span>{sp.length}</span></div>
                   {sp.map(p=>(
-                    <div key={p.id} onClick={()=>setSelected(p)} style={{ padding:"10px 12px",background:T.surface2,border:"1px solid "+T.border,borderRadius:8,cursor:"pointer",marginBottom:8 }}
-                      onMouseEnter={e=>{e.currentTarget.style.borderColor=stage.color+"80";e.currentTarget.style.background=T.surface3;}}
-                      onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.background=T.surface2;}}>
-                      {p.brand&&<div style={{ fontSize:10,color:T.text3,marginBottom:2,fontWeight:600,textTransform:"uppercase" }}>{p.brand}</div>}
-                      <div style={{ fontSize:13,fontWeight:600,color:T.text,marginBottom:4 }}>{p.name}</div>
-                      <div style={{ display:"flex",gap:4,flexWrap:"wrap" }}>
+                    <div key={p.id} className="plm-card" style={{ "--c":stage.color }} onClick={()=>setSelected(p)}>
+                      {p.brand&&<div className="hw-eyebrow" style={{ fontSize:10 }}>{p.brand}</div>}
+                      <div className="nm">{p.name}</div>
+                      <div style={{ display:"flex",gap:5,flexWrap:"wrap" }}>
                         <PriorityBadge priority={p.priority} />
-                        {linkCounts[p.id]>0&&<span style={{ fontSize:10,fontWeight:700,background:T.accent+"18",color:T.accent,padding:"2px 7px",borderRadius:4 }}>🔗 {linkCounts[p.id]}</span>}
-                        {p.target_gross_margin_pct&&<span style={{ fontSize:10,fontWeight:700,background:"#22c55e15",color:"#22c55e",padding:"2px 7px",borderRadius:4 }}>GM {p.target_gross_margin_pct}%</span>}
+                        {p.target_gross_margin_pct&&<Chip t="green">GM {p.target_gross_margin_pct}%</Chip>}
+                        {linkCounts[p.id]>0&&<Chip t="teal" title="Linked projects and tasks"><Icon name="link" size={11} />{linkCounts[p.id]}</Chip>}
                       </div>
-                      {(p.target_markets_v2||[]).length>0&&<div style={{ marginTop:4,fontSize:10,color:T.text3 }}>📍 {p.target_markets_v2.join(" · ")}</div>}
-                      {p.target_launch_date&&<div style={{ fontSize:10,color:T.text3,marginTop:3 }}>🎯 {p.target_launch_date}</div>}
+                      {((p.target_markets_v2||[]).length>0||p.target_launch_date)&&<div className="ft">
+                        {(p.target_markets_v2||[]).length>0&&<span><Icon name="pin" size={12} />{p.target_markets_v2.join(" · ")}</span>}
+                        {p.target_launch_date&&<span className={isLate(p)?"plm-late":""} style={{ marginLeft:"auto" }}><Icon name="cal" size={12} />{fmtLaunch(p.target_launch_date)}</span>}
+                      </div>}
                     </div>
                   ))}
                 </div>
               );
             })}
           </div>
-        ):(
-          <table style={{ width:"100%",borderCollapse:"collapse" }}>
-            <thead><tr style={{ borderBottom:"1px solid "+T.border }}>{["Program","Type","Stage","Priority","Markets","Channels","GM% Target","Launch",""].map(h=><th key={h} style={{ padding:"7px 12px",textAlign:"left",fontSize:10,fontWeight:700,color:T.text3,textTransform:"uppercase",letterSpacing:0.5 }}>{h}</th>)}</tr></thead>
-            <tbody>
-              {filtered.map(p=>(
-                <tr key={p.id} onClick={()=>setSelected(p)} style={{ borderBottom:"1px solid "+T.border,cursor:"pointer" }}
-                  onMouseEnter={e=>e.currentTarget.style.background=T.surface2}
-                  onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-                  <td style={{ padding:"10px 12px",fontSize:13,fontWeight:500,color:T.text }}>{p.name}{linkCounts[p.id]>0&&<span style={{ marginLeft:8,fontSize:10,fontWeight:700,background:T.accent+"18",color:T.accent,padding:"2px 7px",borderRadius:4,whiteSpace:"nowrap" }}>🔗 {linkCounts[p.id]}</span>}</td>
-                  <td style={{ padding:"10px 12px",fontSize:12,color:T.text2 }}>{p.program_type?.replace(/_/g," ")}</td>
-                  <td style={{ padding:"10px 12px" }}><StageBadge stage={p.current_stage} /></td>
-                  <td style={{ padding:"10px 12px" }}><PriorityBadge priority={p.priority} /></td>
-                  <td style={{ padding:"10px 12px",fontSize:11,color:T.text3 }}>{(p.target_markets_v2||[]).join(", ")||"-"}</td>
-                  <td style={{ padding:"10px 12px",fontSize:11,color:T.text3,maxWidth:160,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{(p.channels_v2||[]).join(", ")||"-"}</td>
-                  <td style={{ padding:"10px 12px",fontSize:12,fontWeight:600,color:p.target_gross_margin_pct?"#22c55e":T.text3 }}>{p.target_gross_margin_pct?p.target_gross_margin_pct+"%":"-"}</td>
-                  <td style={{ padding:"10px 12px",fontSize:12,color:T.text3 }}>{p.target_launch_date||"-"}</td>
-                  <td style={{ padding:"10px 12px" }}><button onClick={e=>{e.stopPropagation();if(confirm("Delete this program?"))deleteProgram(p.id);}} style={{ background:"none",border:"none",color:T.text3,cursor:"pointer",fontSize:11,opacity:0.6 }}>✕</button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        </div>
         )}
-      </div>
-      )}
+      </>)}
       {showNew&&<NewProgramModal onClose={()=>setShowNew(false)} onCreated={handleCreated} orgId={orgId} />}
-    </div>
+    </PlmShell>
   );
 }
