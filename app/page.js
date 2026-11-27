@@ -14,6 +14,7 @@ import NotificationBell from "./components/NotificationBell";
 
 // Lazy load all non-dashboard views
 const ProjectsView = lazy(() => import("./components/Projects"));
+const WorkView = lazy(() => import("./components/work/Work"));
 const OKRsView = lazy(() => import("./components/OKRs"));
 const ScorecardView = lazy(() => import("./components/Scorecard"));
 const MessagesView = lazy(() => import("./components/Messages"));
@@ -153,6 +154,10 @@ export default function HelmApp() {
   const [cmdOpen, setCmdOpen] = useState(false);
   const [pendingTaskId, setPendingTaskId] = useState(null);
   const [pendingProjectId, setPendingProjectId] = useState(null);
+  // New Projects suite (beta): each person opts in from the classic module and can switch back.
+  const [projectsBeta, _setProjectsBeta] = useState(false);
+  useEffect(() => { try { if (window.localStorage.getItem("helm_projects_beta") === "1") _setProjectsBeta(true); } catch {} }, []);
+  const setProjectsBeta = useCallback((on) => { _setProjectsBeta(on); try { window.localStorage.setItem("helm_projects_beta", on ? "1" : "0"); } catch {} }, []);
 
   // Deep links: #projects/t/<taskId> or #projects/p/<projectId>
   // Captured on first paint - even before sign-in - and stashed, because the auth redirect
@@ -462,7 +467,9 @@ export default function HelmApp() {
     }
     switch (active) {
       case "dashboard": return <DashboardView setActive={navigateTo} showUnits={!isExternal && (!allowedModules || (allowedModules.mode === "allow" ? allowedModules.allowed.includes("erp") : !allowedModules.blocked.includes("erp")))} />;
-      case "projects": return <ProjectsView pendingTaskId={pendingTaskId} clearPendingTask={() => setPendingTaskId(null)} pendingProjectId={pendingProjectId} clearPendingProject={() => setPendingProjectId(null)} />;
+      case "projects": return projectsBeta && !isExternal
+        ? <WorkView pendingTaskId={pendingTaskId} clearPendingTask={() => setPendingTaskId(null)} pendingProjectId={pendingProjectId} clearPendingProject={() => setPendingProjectId(null)} onClassic={(pid) => { if (typeof pid === "string") setPendingProjectId(pid); setProjectsBeta(false); }} />
+        : <ProjectsView pendingTaskId={pendingTaskId} clearPendingTask={() => setPendingTaskId(null)} pendingProjectId={pendingProjectId} clearPendingProject={() => setPendingProjectId(null)} onTryNew={isExternal ? undefined : () => { try { const pid = window.localStorage.getItem("helm_active_project"); if (pid) setPendingProjectId(pid); } catch {} setProjectsBeta(true); }} />;
       case "okrs": return <OKRsView />;
       case "scorecard": return <ScorecardView />;
       case "learning": return <LearningView modulePerms={allowedModules?.perms || {}} />;
