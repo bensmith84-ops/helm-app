@@ -2758,8 +2758,11 @@ function AIAgentTab({ program }) {
   }, [program?.id]);
 
   // Load messages when conversation selected
+  const justCreated = useRef(null);
   useEffect(() => {
     if (!activeConvId) { setMessages([]); return; }
+    // A conversation that was just created from this screen already shows its messages.
+    if (justCreated.current === activeConvId) { justCreated.current = null; return; }
     supabase.from("plm_ai_messages").select("*").eq("conversation_id", activeConvId)
       .order("created_at").then(({ data }) => {
         setMessages((data || []).map(m => ({ role: m.role, text: m.content, tokens: m.tokens_in ? { input_tokens: m.tokens_in, output_tokens: m.tokens_out } : null, duration: m.duration_ms })));
@@ -2785,6 +2788,7 @@ function AIAgentTab({ program }) {
       if (data.success) {
         setMessages(p => [...p, { role: "assistant", text: data.response, tokens: data.usage, duration: data.duration_ms, createdItems: data.created_items, mode: data.mode || mode }]);
         if (!activeConvId && data.conversation_id) {
+          justCreated.current = data.conversation_id;
           setActiveConvId(data.conversation_id);
           setConversations(p => [{ id: data.conversation_id, title: userMsg.slice(0, 80), updated_at: new Date().toISOString() }, ...p]);
         }
